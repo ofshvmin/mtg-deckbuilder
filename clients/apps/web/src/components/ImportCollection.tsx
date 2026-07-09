@@ -30,8 +30,8 @@ export default function ImportCollection({ onImported }: { onImported: () => voi
     <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-8 text-center">
       <h2 className="text-xl font-semibold">Import your collection</h2>
       <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">
-        Upload a collection CSV from Moxfield, Archidekt, Dragon Shield, Deckbox, or ManaBox.
-        Format is auto-detected.
+        Upload a collection CSV or Excel file from Moxfield, Archidekt, Dragon Shield, Deckbox, or
+        ManaBox. Format is auto-detected.
       </p>
 
       <div className="mx-auto mt-4 flex items-center justify-center gap-3">
@@ -51,7 +51,7 @@ export default function ImportCollection({ onImported }: { onImported: () => voi
       <input
         ref={inputRef}
         type="file"
-        accept=".csv,text/csv"
+        accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -63,7 +63,7 @@ export default function ImportCollection({ onImported }: { onImported: () => voi
         disabled={busy}
         className="mt-4 rounded-lg bg-emerald-600 px-5 py-2.5 font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
       >
-        {busy ? "Importing…" : "Choose CSV file"}
+        {busy ? "Importing…" : "Choose file"}
       </button>
 
       {error && <p className="mt-4 text-sm text-rose-400">{error}</p>}

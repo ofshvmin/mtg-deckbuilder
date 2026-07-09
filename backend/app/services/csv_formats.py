@@ -1,10 +1,14 @@
-"""Auto-detection and normalization for multiple collection CSV formats.
+"""Auto-detection and normalization for multiple collection CSV/Excel formats.
 
 Supports: Moxfield, Archidekt, Dragon Shield, Deckbox, ManaBox.
 """
 from __future__ import annotations
 
+import csv
+import io
 from dataclasses import dataclass
+
+import openpyxl
 
 
 @dataclass(frozen=True)
@@ -97,6 +101,24 @@ _FORMAT_BY_NAME: dict[str, CsvFormat] = {fmt.name: fmt for fmt in FORMATS}
 
 # Values that mean "foil" across formats (case-insensitive).
 _FOIL_VALUES = {"foil", "etched"}
+
+
+def parse_csv(text: str) -> tuple[list[str], list[dict[str, str]]]:
+    """Parse CSV text into (headers, rows-as-dicts)."""
+    text = preprocess_csv(text)
+    reader = csv.DictReader(io.StringIO(text))
+    return list(reader.fieldnames or []), list(reader)
+
+
+def parse_excel(raw: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """Parse an XLSX file into (headers, rows-as-dicts)."""
+    wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    ws = wb.active
+    row_iter = ws.iter_rows(values_only=True)
+    headers = [str(c or "").strip() for c in next(row_iter)]
+    rows = [{h: str(v or "") for h, v in zip(headers, row)} for row in row_iter]
+    wb.close()
+    return headers, rows
 
 
 def preprocess_csv(text: str) -> str:
