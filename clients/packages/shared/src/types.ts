@@ -40,6 +40,22 @@ export interface ImportResult {
   detected_format?: string;
 }
 
+export interface CollectionItem {
+  oracle_id: string | null;
+  name: string;
+  count: number;
+  edition?: string | null;
+  condition?: string | null;
+  foil?: string | null;
+}
+
+export interface CardSearchResult {
+  oracle_id: string;
+  name: string;
+  type_line: string;
+  mana_cost: string;
+}
+
 export interface CommanderOption {
   oracle_id: string;
   name: string;

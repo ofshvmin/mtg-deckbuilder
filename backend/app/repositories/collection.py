@@ -50,5 +50,19 @@ async def total_copies(db: AsyncDatabase, user_id: str) -> int:
 
 
 async def list_items(db: AsyncDatabase, user_id: str) -> list[dict]:
-    cursor = db.collection_items.find({"user_id": user_id})
+    cursor = db.collection_items.find({"user_id": user_id}).sort("name", 1)
     return [doc async for doc in cursor]
+
+
+async def add_item(db: AsyncDatabase, user_id: str, item: dict) -> None:
+    """Add a single card to the user's collection."""
+    item["user_id"] = user_id
+    await db.collection_items.insert_one(item)
+
+
+async def remove_item(db: AsyncDatabase, user_id: str, oracle_id: str) -> bool:
+    """Remove all copies of a card (by oracle_id) from the user's collection."""
+    result = await db.collection_items.delete_many(
+        {"user_id": user_id, "oracle_id": oracle_id}
+    )
+    return result.deleted_count > 0

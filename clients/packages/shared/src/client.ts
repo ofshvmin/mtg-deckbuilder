@@ -8,6 +8,8 @@
 
 import type {
   AuthTokens,
+  CardSearchResult,
+  CollectionItem,
   CollectionSummary,
   CommanderOption,
   GeneratedDeck,
@@ -88,6 +90,23 @@ export class ApiClient {
 
   collectionSummary(): Promise<CollectionSummary> {
     return this.request<CollectionSummary>("GET", "/collection/summary");
+  }
+
+  listCollection(): Promise<CollectionItem[]> {
+    return this.request<CollectionItem[]>("GET", "/collection/items");
+  }
+
+  addCard(name: string, count = 1): Promise<CollectionItem> {
+    return this.request<CollectionItem>("POST", "/collection/items", { body: { name, count } });
+  }
+
+  removeCard(oracleId: string): Promise<void> {
+    return this.request("DELETE", `/collection/items/${encodeURIComponent(oracleId)}`);
+  }
+
+  searchCards(query: string, limit = 20): Promise<CardSearchResult[]> {
+    const qs = `?q=${encodeURIComponent(query)}&limit=${limit}`;
+    return this.request<CardSearchResult[]>("GET", `/collection/search-cards${qs}`);
   }
 
   importCollection(file: Blob, filename = "collection.csv", format?: string): Promise<ImportResult> {

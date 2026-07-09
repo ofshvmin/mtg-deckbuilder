@@ -84,6 +84,22 @@ class GeneratedDeckResponse(BaseModel):
     cards: list[DeckCardOut]
 
 
+class CollectionItemOut(BaseModel):
+    oracle_id: str | None
+    name: str
+    count: int
+    edition: str | None = None
+    condition: str | None = None
+    foil: str | None = None
+
+
+class CardSearchResult(BaseModel):
+    oracle_id: str
+    name: str
+    type_line: str
+    mana_cost: str
+
+
 class CollectionSummary(BaseModel):
     has_collection: bool
     total_cards: int          # sum of copies across all rows
