@@ -21,29 +21,62 @@ export interface User {
   created_at: string;
 }
 
-// --- Card / deck domain (expanded in later phases) ---
+// --- Card / deck domain ---
 
 export type Color = "W" | "U" | "B" | "R" | "G";
 
-export interface Card {
+export interface CollectionSummary {
+  has_collection: boolean;
+  total_cards: number;
+  unique_cards: number;
+}
+
+export interface ImportResult {
+  total: number;
+  matched: number;
+  unmatched: number;
+  unique_owned: number;
+  unmatched_names: string[];
+}
+
+export interface CommanderOption {
+  oracle_id: string;
+  name: string;
+  type_line: string;
+  color_identity: Color[];
+}
+
+export interface CardSummary {
   oracle_id: string;
   name: string;
   mana_cost: string;
   cmc: number;
   type_line: string;
+  color_identity: Color[];
   oracle_text: string;
-  color_identity: Color[];
-  produced_mana: Color[] | null;
-  legal_commander: string;
-  is_basic_land: boolean;
 }
 
-export interface OwnedCard extends Card {
+export interface PoolCard {
+  oracle_id: string;
+  name: string;
+  mana_cost: string;
+  cmc: number;
+  type_line: string;
+  color_identity: Color[];
   copies_owned: number;
+  is_land: boolean;
 }
 
-export interface PoolResult {
-  commander: Card;
+export interface CurveBucket {
+  cmc: number; // 0..7 (7 = "7+")
+  count: number;
+}
+
+export interface PoolResponse {
+  commander: CardSummary;
   color_identity: Color[];
-  pool: OwnedCard[];
+  pool_size: number;
+  land_count: number;
+  curve: CurveBucket[];
+  pool: PoolCard[];
 }

@@ -1,25 +1,53 @@
-import { useEffect, useState } from "react";
-import type { HealthStatus } from "@mtg/shared";
+import { useCallback, useEffect, useState } from "react";
+import type { CollectionSummary, CommanderOption, PoolResponse } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { formatColorIdentity } from "../lib/format";
+import CommanderPicker from "../components/CommanderPicker";
+import ImportCollection from "../components/ImportCollection";
+import ManaCurve from "../components/ManaCurve";
+import PoolTable from "../components/PoolTable";
+import StatTile from "../components/StatTile";
 
-// Phase C placeholder for the authenticated area. Phase D replaces this with the
-// real dashboard (commander picker, mana curve, pool table) on live collection data.
 export default function Dashboard() {
   const { user, logout } = useAuth();
-  const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [summary, setSummary] = useState<CollectionSummary | null>(null);
+  const [pool, setPool] = useState<PoolResponse | null>(null);
+  const [poolError, setPoolError] = useState<string | null>(null);
+  const [loadingPool, setLoadingPool] = useState(false);
 
-  useEffect(() => {
-    api.health().then(setHealth).catch(() => setHealth(null));
+  const loadSummary = useCallback(() => {
+    api.collectionSummary().then(setSummary).catch(() => setSummary(null));
   }, []);
+
+  useEffect(loadSummary, [loadSummary]);
+
+  async function selectCommander(c: CommanderOption) {
+    setLoadingPool(true);
+    setPoolError(null);
+    setPool(null);
+    try {
+      setPool(await api.getPool(c.name));
+    } catch (e) {
+      setPoolError(e instanceof Error ? e.message : "Could not load pool");
+    } finally {
+      setLoadingPool(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-slate-800">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <h1 className="text-lg font-semibold tracking-tight">MTG Deck Builder</h1>
           <div className="flex items-center gap-4 text-sm">
-            <span className="text-slate-400">{user?.email}</span>
+            {summary?.has_collection && (
+              <span className="text-slate-400">
+                {summary.unique_cards.toLocaleString()} unique ·{" "}
+                {summary.total_cards.toLocaleString()} cards
+              </span>
+            )}
+            <span className="text-slate-500">{user?.email}</span>
             <button
               onClick={() => logout()}
               className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-200 transition hover:bg-slate-800"
@@ -30,24 +58,53 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-6 py-10">
-        <h2 className="text-2xl font-semibold">You're signed in ✓</h2>
-        <p className="mt-2 text-slate-400">
-          Authentication is wired up end-to-end. The deck-building dashboard lands in Phase D.
-        </p>
+      <main className="mx-auto max-w-6xl px-6 py-10">
+        {summary === null && <p className="text-slate-400">Loading…</p>}
 
-        <div className="mt-8 inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-2 text-sm">
-          <span
-            className={
-              "inline-block h-2 w-2 rounded-full " +
-              (health?.db_connected ? "bg-emerald-400" : "bg-amber-400")
-            }
-          />
-          <span className="text-slate-300">
-            Backend {health?.status ?? "…"} · DB{" "}
-            {health?.db_connected ? "connected" : "not connected"}
-          </span>
-        </div>
+        {summary && !summary.has_collection && (
+          <div className="mx-auto max-w-xl">
+            <ImportCollection onImported={loadSummary} />
+          </div>
+        )}
+
+        {summary?.has_collection && (
+          <div className="space-y-8">
+            <div>
+              <label className="text-sm font-medium text-slate-300">Commander</label>
+              <div className="mt-2 max-w-lg">
+                <CommanderPicker onSelect={selectCommander} />
+              </div>
+            </div>
+
+            {loadingPool && <p className="text-slate-400">Building your legal pool…</p>}
+            {poolError && <p className="text-rose-400">{poolError}</p>}
+
+            {pool && (
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-2xl font-semibold">{pool.commander.name}</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Color identity {formatColorIdentity(pool.color_identity)} ·{" "}
+                    {pool.commander.type_line}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  <StatTile label="Legal pool" value={pool.pool_size.toLocaleString()} />
+                  <StatTile label="Lands" value={pool.land_count} />
+                  <StatTile label="Nonlands" value={pool.pool_size - pool.land_count} />
+                  <StatTile
+                    label="Colors"
+                    value={formatColorIdentity(pool.color_identity)}
+                  />
+                </div>
+
+                <ManaCurve curve={pool.curve} />
+                <PoolTable pool={pool.pool} />
+              </div>
+            )}
+          </div>
+        )}
       </main>
     </div>
   );

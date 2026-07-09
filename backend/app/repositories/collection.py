@@ -37,6 +37,18 @@ async def unique_owned_count(db: AsyncDatabase, user_id: str) -> int:
     return len(ids)
 
 
+async def total_copies(db: AsyncDatabase, user_id: str) -> int:
+    """Sum of `count` across all of a user's matched collection rows."""
+    pipeline = [
+        {"$match": {"user_id": user_id, "oracle_id": {"$ne": None}}},
+        {"$group": {"_id": None, "total": {"$sum": "$count"}}},
+    ]
+    cursor = await db.collection_items.aggregate(pipeline)
+    async for row in cursor:
+        return row["total"]
+    return 0
+
+
 async def list_items(db: AsyncDatabase, user_id: str) -> list[dict]:
     cursor = db.collection_items.find({"user_id": user_id})
     return [doc async for doc in cursor]

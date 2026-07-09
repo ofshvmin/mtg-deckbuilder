@@ -36,6 +36,24 @@ def format_color_identity(colors: list[str]) -> str:
     return "".join(ordered) if ordered else "C"
 
 
+def is_land(card: dict) -> bool:
+    return "land" in (card.get("type_line") or "").lower()
+
+
+def land_count(pool: list[dict]) -> int:
+    return sum(1 for c in pool if is_land(c))
+
+
+def nonland_curve(pool: list[dict]) -> list[dict]:
+    """Histogram of nonland cards by mana value, bucketed 0..7 (7 = 7+)."""
+    buckets = {i: 0 for i in range(8)}
+    for c in pool:
+        if is_land(c):
+            continue
+        buckets[min(int(c.get("cmc") or 0), 7)] += 1
+    return [{"cmc": cmc, "count": buckets[cmc]} for cmc in range(8)]
+
+
 async def get_pool(db: AsyncDatabase, user_id: str, commander_name: str) -> Pool:
     commander = await cards_repo.find_commander(db, commander_name)
     if commander is None:

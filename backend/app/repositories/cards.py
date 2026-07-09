@@ -40,6 +40,27 @@ async def search(db: AsyncDatabase, query: str, limit: int = 20) -> list[dict]:
     return [doc async for doc in cursor]
 
 
+async def search_owned_commanders(
+    db: AsyncDatabase, owned_ids: list[str], query: str = "", limit: int = 20
+) -> list[dict]:
+    """Owned cards that can be a commander (legendary creatures, or anything whose
+    text says 'can be your commander'), optionally filtered by a name substring."""
+    if not owned_ids:
+        return []
+    mongo_query: dict = {
+        "_id": {"$in": owned_ids},
+        "legal_commander": "legal",
+        "$or": [
+            {"type_line": {"$regex": "Legendary Creature"}},
+            {"oracle_text": {"$regex": "[Cc]an be your commander"}},
+        ],
+    }
+    if query.strip():
+        mongo_query["name_normalized"] = {"$regex": _escape_regex(normalize_name(query))}
+    cursor = db.cards.find(mongo_query).sort("name", 1).limit(limit)
+    return [doc async for doc in cursor]
+
+
 async def get_legal_pool(
     db: AsyncDatabase,
     allowed_colors: list[str],

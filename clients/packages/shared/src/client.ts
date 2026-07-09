@@ -6,7 +6,15 @@
 // implementation, mobile supplies expo-secure-store. On a 401 the client tries
 // the refresh token once, then gives up and calls `onUnauthorized`.
 
-import type { AuthTokens, HealthStatus, User } from "./types";
+import type {
+  AuthTokens,
+  CollectionSummary,
+  CommanderOption,
+  HealthStatus,
+  ImportResult,
+  PoolResponse,
+  User,
+} from "./types";
 
 /** Pluggable token persistence. Sync or async to fit any platform. */
 export interface TokenStore {
@@ -73,6 +81,32 @@ export class ApiClient {
     await this.tokens.clear();
   }
 
+  // ---- Collection ----
+
+  collectionSummary(): Promise<CollectionSummary> {
+    return this.request<CollectionSummary>("GET", "/collection/summary");
+  }
+
+  importCollection(file: Blob, filename = "collection.csv"): Promise<ImportResult> {
+    const form = new FormData();
+    form.append("file", file, filename);
+    return this.request<ImportResult>("POST", "/collection/import", { body: form });
+  }
+
+  // ---- Commanders & pool ----
+
+  searchCommanders(query: string, limit = 20): Promise<CommanderOption[]> {
+    const qs = `?q=${encodeURIComponent(query)}&limit=${limit}`;
+    return this.request<CommanderOption[]>("GET", `/commanders${qs}`);
+  }
+
+  getPool(commanderName: string): Promise<PoolResponse> {
+    return this.request<PoolResponse>(
+      "GET",
+      `/pool?commander=${encodeURIComponent(commanderName)}`,
+    );
+  }
+
   // ---- Core request machinery ----
 
   private async request<T>(
@@ -81,8 +115,10 @@ export class ApiClient {
     opts: { auth?: boolean; body?: unknown; _retried?: boolean } = {},
   ): Promise<T> {
     const { auth = true, body, _retried = false } = opts;
+    const isForm = typeof FormData !== "undefined" && body instanceof FormData;
     const headers: Record<string, string> = { Accept: "application/json" };
-    if (body !== undefined) headers["Content-Type"] = "application/json";
+    // For FormData, let fetch set Content-Type (with the multipart boundary).
+    if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
     if (auth) {
       const access = await this.tokens.getAccess();
       if (access) headers["Authorization"] = `Bearer ${access}`;
@@ -91,7 +127,7 @@ export class ApiClient {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
     });
 
     if (res.status === 401 && auth && !_retried) {
