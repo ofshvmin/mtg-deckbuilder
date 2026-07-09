@@ -19,8 +19,9 @@ class Settings(BaseSettings):
     access_token_minutes: int = 15
     refresh_token_days: int = 14
 
-    # CORS (comma-separated origins)
+    # CORS (comma-separated exact origins, plus an optional regex for e.g. Vercel previews)
     cors_origins: str = "http://localhost:5173"
+    cors_origin_regex: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:

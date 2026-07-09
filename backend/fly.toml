@@ -1,0 +1,28 @@
+# Fly.io config for the MTG Deck Builder backend (FastAPI).
+# Deploy from backend/:  fly deploy
+# App name must be globally unique — change it if "fly launch" says it's taken.
+app = "mtg-deckbuilder-api"
+primary_region = "iad"   # US East; ideally match your Atlas cluster's region for low latency
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Cost-saving: stop the machine when idle, cold-start on request. Set
+  # min_machines_running = 1 to keep it always warm (no cold-start latency).
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"   # bump to 1gb if you see OOMs during CSV import / generation
