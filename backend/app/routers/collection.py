@@ -6,12 +6,15 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
+from pydantic import BaseModel
 
 from .. import db
 from ..auth.deps import get_current_user
-from ..models.responses import CollectionSummary, ImportResultResponse
+from ..models.responses import CardSearchResult, CollectionItemOut, CollectionSummary, ImportResultResponse
+from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
 from ..services import csv_formats, importer
+from ..util import normalize_name
 
 router = APIRouter(prefix="/collection", tags=["collection"])
 
@@ -98,3 +101,70 @@ async def export_collection(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/items", response_model=list[CollectionItemOut])
+async def list_collection(current_user: dict = Depends(get_current_user)):
+    database = db.get_db()
+    items = await collection_repo.list_items(database, current_user["_id"])
+    return [
+        CollectionItemOut(
+            oracle_id=item.get("oracle_id"),
+            name=item.get("name", ""),
+            count=item.get("count", 1),
+            edition=item.get("edition"),
+            condition=item.get("condition"),
+            foil=item.get("foil"),
+        )
+        for item in items
+    ]
+
+
+class AddCardRequest(BaseModel):
+    name: str
+    count: int = 1
+
+
+@router.post("/items", response_model=CollectionItemOut, status_code=status.HTTP_201_CREATED)
+async def add_card(body: AddCardRequest, current_user: dict = Depends(get_current_user)):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Card name is required.")
+    database = db.get_db()
+    card = await cards_repo.find_by_normalized_name(database, name)
+    oracle_id = card["_id"] if card else None
+    item = {
+        "oracle_id": oracle_id,
+        "name": card["name"] if card else name,
+        "name_normalized": normalize_name(name),
+        "count": body.count,
+    }
+    await collection_repo.add_item(database, current_user["_id"], item)
+    return CollectionItemOut(
+        oracle_id=oracle_id,
+        name=item["name"],
+        count=item["count"],
+    )
+
+
+@router.delete("/items/{oracle_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_card(oracle_id: str, current_user: dict = Depends(get_current_user)):
+    database = db.get_db()
+    removed = await collection_repo.remove_item(database, current_user["_id"], oracle_id)
+    if not removed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Card not found in collection.")
+
+
+@router.get("/search-cards", response_model=list[CardSearchResult])
+async def search_cards(q: str = "", limit: int = 20, current_user: dict = Depends(get_current_user)):
+    database = db.get_db()
+    docs = await cards_repo.search(database, q, limit=limit)
+    return [
+        CardSearchResult(
+            oracle_id=d["_id"],
+            name=d["name"],
+            type_line=d.get("type_line", ""),
+            mana_cost=d.get("mana_cost", ""),
+        )
+        for d in docs
+    ]

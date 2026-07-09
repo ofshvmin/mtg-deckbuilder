@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
+  CollectionItem,
   CollectionSummary,
   CommanderOption,
   GeneratedDeck,
@@ -9,16 +10,22 @@ import type {
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { formatColorIdentity } from "../lib/format";
+import AddCardSearch from "../components/AddCardSearch";
+import CollectionList from "../components/CollectionList";
 import CommanderPicker from "../components/CommanderPicker";
 import DeckView from "../components/DeckView";
+import ExportCollection from "../components/ExportCollection";
 import ImportCollection from "../components/ImportCollection";
 import ManaCurve from "../components/ManaCurve";
 import PoolTable from "../components/PoolTable";
 import StatTile from "../components/StatTile";
 
+type Panel = "import" | "export" | "add" | null;
+
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const [summary, setSummary] = useState<CollectionSummary | null>(null);
+  const [collection, setCollection] = useState<CollectionItem[]>([]);
   const [pool, setPool] = useState<PoolResponse | null>(null);
   const [poolError, setPoolError] = useState<string | null>(null);
   const [loadingPool, setLoadingPool] = useState(false);
@@ -26,20 +33,30 @@ export default function Dashboard() {
   const [deckName, setDeckName] = useState<string | undefined>(undefined);
   const [deckId, setDeckId] = useState<string | undefined>(undefined);
   const [buildingDeck, setBuildingDeck] = useState(false);
-  const [showImport, setShowImport] = useState(false);
   const [deckError, setDeckError] = useState<string | null>(null);
   const [savedDecks, setSavedDecks] = useState<SavedDeckSummary[]>([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
+  const [activePanel, setActivePanel] = useState<Panel>(null);
 
   const loadSummary = useCallback(() => {
     api.collectionSummary().then(setSummary).catch(() => setSummary(null));
   }, []);
   useEffect(loadSummary, [loadSummary]);
 
+  const loadCollection = useCallback(() => {
+    api.listCollection().then(setCollection).catch(() => setCollection([]));
+  }, []);
+  useEffect(loadCollection, [loadCollection]);
+
   const loadSavedDecks = useCallback(() => {
     api.listSavedDecks().then(setSavedDecks).catch(() => setSavedDecks([]));
   }, []);
   useEffect(loadSavedDecks, [loadSavedDecks]);
+
+  function refreshAll() {
+    loadSummary();
+    loadCollection();
+  }
 
   async function selectCommander(c: CommanderOption) {
     setLoadingPool(true);
@@ -93,8 +110,14 @@ export default function Dashboard() {
       await api.deleteSavedDeck(id);
       setSavedDecks((prev) => prev.filter((d) => d.id !== id));
     } catch {
-      // silent — list will refresh on next load
+      // silent
     }
+  }
+
+  function clearDeck() {
+    setDeck(null);
+    setDeckName(undefined);
+    setDeckId(undefined);
   }
 
   return (
@@ -123,9 +146,10 @@ export default function Dashboard() {
       <main className="mx-auto max-w-6xl px-6 py-10">
         {summary === null && <p className="text-slate-400">Loading…</p>}
 
+        {/* First-time import (no collection yet) */}
         {summary && !summary.has_collection && (
           <div className="mx-auto max-w-xl">
-            <ImportCollection onImported={loadSummary} />
+            <ImportCollection onImported={refreshAll} />
           </div>
         )}
 
@@ -145,7 +169,7 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <button
-                    onClick={() => { setDeck(null); setDeckName(undefined); setDeckId(undefined); }}
+                    onClick={clearDeck}
                     className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
                   >
                     ← Back
@@ -155,9 +179,10 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Normal flow: commander picker + pool/deck */}
-            {!deck || pool ? (
+            {/* Normal flow */}
+            {(!deck || pool) && (
               <>
+                {/* Commander search */}
                 <div>
                   <label className="text-sm font-medium text-slate-300">Commander</label>
                   <div className="mt-2 max-w-lg">
@@ -165,9 +190,68 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                {/* Action buttons */}
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={() => setActivePanel(activePanel === "import" ? null : "import")}
+                    className={`rounded-lg border px-4 py-2 text-sm transition ${
+                      activePanel === "import"
+                        ? "border-emerald-600 bg-emerald-600/10 text-emerald-400"
+                        : "border-slate-700 text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    Import
+                  </button>
+                  <button
+                    onClick={() => setActivePanel(activePanel === "export" ? null : "export")}
+                    className={`rounded-lg border px-4 py-2 text-sm transition ${
+                      activePanel === "export"
+                        ? "border-emerald-600 bg-emerald-600/10 text-emerald-400"
+                        : "border-slate-700 text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    Export
+                  </button>
+                  <button
+                    onClick={() => setActivePanel(activePanel === "add" ? null : "add")}
+                    className={`rounded-lg border px-4 py-2 text-sm transition ${
+                      activePanel === "add"
+                        ? "border-emerald-600 bg-emerald-600/10 text-emerald-400"
+                        : "border-slate-700 text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    Add card
+                  </button>
+                </div>
+
+                {/* Active panel */}
+                {activePanel === "import" && (
+                  <div className="max-w-xl">
+                    <ImportCollection
+                      onImported={refreshAll}
+                      onClose={() => setActivePanel(null)}
+                      hasCollection
+                    />
+                  </div>
+                )}
+                {activePanel === "export" && (
+                  <div className="max-w-xl">
+                    <ExportCollection onClose={() => setActivePanel(null)} />
+                  </div>
+                )}
+                {activePanel === "add" && (
+                  <div className="max-w-xl">
+                    <AddCardSearch
+                      onAdded={refreshAll}
+                      onClose={() => setActivePanel(null)}
+                    />
+                  </div>
+                )}
+
                 {loadingPool && <p className="text-slate-400">Building your legal pool…</p>}
                 {poolError && <p className="text-rose-400">{poolError}</p>}
 
+                {/* Pool / deck view */}
                 {pool && (
                   <div className="space-y-6">
                     <div className="flex items-end justify-between gap-4">
@@ -180,7 +264,7 @@ export default function Dashboard() {
                       </div>
                       {deck ? (
                         <button
-                          onClick={() => { setDeck(null); setDeckName(undefined); setDeckId(undefined); }}
+                          onClick={clearDeck}
                           className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
                         >
                           ← Back to pool
@@ -211,23 +295,6 @@ export default function Dashboard() {
                         <ManaCurve curve={pool.curve} />
                         <PoolTable pool={pool.pool} />
                       </>
-                    )}
-                  </div>
-                )}
-
-                {/* Collection management */}
-                {!pool && (
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => setShowImport((v) => !v)}
-                      className="text-sm text-slate-400 hover:text-slate-200"
-                    >
-                      {showImport ? "▾ Hide collection tools" : "▸ Collection import / export"}
-                    </button>
-                    {showImport && (
-                      <div className="max-w-xl">
-                        <ImportCollection onImported={loadSummary} hasCollection />
-                      </div>
                     )}
                   </div>
                 )}
@@ -269,8 +336,13 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
+
+                {/* Collection list (shown by default when no pool active) */}
+                {!pool && (
+                  <CollectionList items={collection} onRemoved={refreshAll} />
+                )}
               </>
-            ) : null}
+            )}
 
             {loadingSaved && <p className="text-slate-400">Loading deck…</p>}
             {deckError && !pool && <p className="text-rose-400">{deckError}</p>}
