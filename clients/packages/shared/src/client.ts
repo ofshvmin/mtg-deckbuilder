@@ -14,6 +14,8 @@ import type {
   HealthStatus,
   ImportResult,
   PoolResponse,
+  SavedDeck,
+  SavedDeckSummary,
   User,
 } from "./types";
 
@@ -116,6 +118,24 @@ export class ApiClient {
     return this.request<GeneratedDeck>("POST", "/decks/generate", {
       body: { commander: commanderName, ...opts },
     });
+  }
+
+  // ---- Saved decks ----
+
+  saveDeck(name: string, deck: GeneratedDeck): Promise<SavedDeck> {
+    return this.request<SavedDeck>("POST", "/decks/save", { body: { name, deck } });
+  }
+
+  listSavedDecks(): Promise<SavedDeckSummary[]> {
+    return this.request<SavedDeckSummary[]>("GET", "/decks/saved");
+  }
+
+  getSavedDeck(deckId: string): Promise<SavedDeck> {
+    return this.request<SavedDeck>("GET", `/decks/saved/${encodeURIComponent(deckId)}`);
+  }
+
+  deleteSavedDeck(deckId: string): Promise<void> {
+    return this.request("DELETE", `/decks/saved/${encodeURIComponent(deckId)}`);
   }
 
   // ---- Core request machinery ----

@@ -121,3 +121,21 @@ export interface GeneratedDeck {
   near_combos: Combo[];
   cards: DeckCard[];
 }
+
+export interface SavedDeck {
+  id: string;
+  name: string;
+  deck: GeneratedDeck;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedDeckSummary {
+  id: string;
+  name: string;
+  commander_name: string;
+  color_identity: Color[];
+  total: number;
+  created_at: string;
+  updated_at: string;
+}

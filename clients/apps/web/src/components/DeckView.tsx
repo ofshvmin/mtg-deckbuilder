@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { Combo, DeckCard, GeneratedDeck } from "@mtg/shared";
+import { api } from "../lib/api";
 import { formatManaCost } from "../lib/format";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
@@ -13,11 +15,61 @@ const SLOTS: { key: string; label: string }[] = [
   { key: "game_plan", label: "Game Plan" },
 ];
 
-export default function DeckView({ deck }: { deck: GeneratedDeck }) {
+export default function DeckView({
+  deck,
+  deckName,
+  onSaved,
+}: {
+  deck: GeneratedDeck;
+  deckName?: string;
+  onSaved?: () => void;
+}) {
   const bySlot = (slot: string) => deck.cards.filter((c) => c.slot === slot);
+  const [name, setName] = useState(deckName ?? `${deck.commander.name} Deck`);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(!!deckName);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  async function handleSave() {
+    if (!name.trim()) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api.saveDeck(name.trim(), deck);
+      setSaved(true);
+      onSaved?.();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Failed to save deck");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
+      {!saved && (
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Deck name"
+            className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
+          />
+          <button
+            onClick={handleSave}
+            disabled={saving || !name.trim()}
+            className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save deck"}
+          </button>
+        </div>
+      )}
+      {saved && !deckName && (
+        <p className="text-sm text-emerald-400">Deck saved as "{name}"</p>
+      )}
+      {saveError && <p className="text-sm text-rose-400">{saveError}</p>}
+
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatTile label="Deck size" value={`${deck.total} + CMD`} />
         <StatTile label="Lands" value={deck.land_count} />

@@ -97,3 +97,26 @@ class ImportResultResponse(BaseModel):
     unique_owned: int
     unmatched_names: list[str]
     detected_format: str | None = None
+
+
+class SaveDeckRequest(BaseModel):
+    name: str
+    deck: GeneratedDeckResponse
+
+
+class SavedDeckResponse(BaseModel):
+    id: str
+    name: str
+    deck: GeneratedDeckResponse
+    created_at: str
+    updated_at: str
+
+
+class SavedDeckSummary(BaseModel):
+    id: str
+    name: str
+    commander_name: str
+    color_identity: list[str]
+    total: int
+    created_at: str
+    updated_at: str
