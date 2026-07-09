@@ -1,7 +1,9 @@
-"""Collection endpoints: import a Moxfield CSV, and summarize what's owned."""
+"""Collection endpoints: import a collection CSV, and summarize what's owned."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from .. import db
 from ..auth.deps import get_current_user
@@ -23,6 +25,7 @@ async def summary(current_user: dict = Depends(get_current_user)):
 @router.post("/import", response_model=ImportResultResponse)
 async def import_csv(
     file: UploadFile = File(...),
+    format: Optional[str] = Form(None),
     current_user: dict = Depends(get_current_user),
 ):
     raw = await file.read()
@@ -31,11 +34,16 @@ async def import_csv(
     except UnicodeDecodeError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File must be UTF-8 encoded CSV.")
 
-    result = await importer.import_collection(db.get_db(), current_user["_id"], text)
+    try:
+        result = await importer.import_collection(db.get_db(), current_user["_id"], text, format_name=format)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+
     return ImportResultResponse(
         total=result.total,
         matched=result.matched,
         unmatched=result.unmatched,
         unique_owned=result.unique_owned,
         unmatched_names=result.unmatched_names[:50],
+        detected_format=result.detected_format,
     )

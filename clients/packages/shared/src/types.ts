@@ -37,6 +37,7 @@ export interface ImportResult {
   unmatched: number;
   unique_owned: number;
   unmatched_names: string[];
+  detected_format?: string;
 }
 
 export interface CommanderOption {

@@ -88,9 +88,10 @@ export class ApiClient {
     return this.request<CollectionSummary>("GET", "/collection/summary");
   }
 
-  importCollection(file: Blob, filename = "collection.csv"): Promise<ImportResult> {
+  importCollection(file: Blob, filename = "collection.csv", format?: string): Promise<ImportResult> {
     const form = new FormData();
     form.append("file", file, filename);
+    if (format) form.append("format", format);
     return this.request<ImportResult>("POST", "/collection/import", { body: form });
   }
 

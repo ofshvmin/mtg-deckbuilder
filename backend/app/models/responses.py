@@ -96,3 +96,4 @@ class ImportResultResponse(BaseModel):
     unmatched: int
     unique_owned: int
     unmatched_names: list[str]
+    detected_format: str | None = None
