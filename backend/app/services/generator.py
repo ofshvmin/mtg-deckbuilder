@@ -29,6 +29,10 @@ DEFAULT_LAND_COUNT = 37
 DEFAULT_QUOTAS = {roles.RAMP: 10, roles.CARD_DRAW: 10, roles.REMOVAL: 8, roles.BOARD_WIPE: 3}
 # Priority order when a card could fill several still-needed roles.
 ROLE_FILL_ORDER = [roles.BOARD_WIPE, roles.REMOVAL, roles.RAMP, roles.CARD_DRAW]
+# How strongly the EDHREC quality signal influences selection. Kept below the
+# role bonus (3.0) so role quotas still fill, but above the efficiency tiebreak
+# so that among role/curve-equivalent cards, the community-proven one wins.
+QUALITY_WEIGHT = 2.0
 # Target nonland mana-curve shape (fractions by MV bucket 0..7, 7 = 7+).
 CURVE_WEIGHTS = {0: 0.03, 1: 0.12, 2: 0.22, 3: 0.20, 4: 0.15, 5: 0.11, 6: 0.08, 7: 0.09}
 
@@ -47,6 +51,7 @@ class DeckCard:
     slot: str          # land | ramp | card_draw | removal | board_wipe | game_plan
     reason: str
     count: int = 1
+    quality: float = 0.0   # EDHREC quality score (0 if unknown / not on EDHREC)
 
 
 @dataclass
@@ -74,7 +79,9 @@ def _bucket(cmc: float) -> int:
     return min(int(cmc or 0), 7)
 
 
-def _deck_card(doc: dict, role_set: set[str], slot: str, reason: str, count: int = 1) -> DeckCard:
+def _deck_card(
+    doc: dict, role_set: set[str], slot: str, reason: str, count: int = 1, quality: float = 0.0
+) -> DeckCard:
     return DeckCard(
         oracle_id=doc["_id"],
         name=doc["name"],
@@ -86,6 +93,7 @@ def _deck_card(doc: dict, role_set: set[str], slot: str, reason: str, count: int
         slot=slot,
         reason=reason,
         count=count,
+        quality=round(quality, 4),
     )
 
 
@@ -96,9 +104,18 @@ def generate(
     basics_by_color: dict[str, dict],
     land_count: int = DEFAULT_LAND_COUNT,
     quotas: dict | None = None,
+    quality: dict[str, float] | None = None,
 ) -> GeneratedDeck:
     quotas = {**DEFAULT_QUOTAS, **(quotas or {})}
+    quality = quality or {}
+    max_quality = max(quality.values()) if quality else 0.0
     deck = GeneratedDeck(land_count=land_count)
+
+    def q(oid: str) -> float:
+        return quality.get(oid, 0.0)
+
+    def q_norm(oid: str) -> float:
+        return (q(oid) / max_quality) if max_quality > 0 else 0.0
 
     # Tag pool, split lands from nonlands.
     tagged = [(doc, roles.tag_roles(doc)) for doc in pool]
@@ -130,6 +147,7 @@ def generate(
             b = _bucket(doc.get("cmc", 0))
             if curve_remaining.get(b, 0) > 0:
                 score += 1.5
+            score += QUALITY_WEIGHT * q_norm(doc["_id"])  # EDHREC community signal
             score += max(0.0, 8 - (doc.get("cmc") or 0)) * 0.05  # efficiency tiebreak
             if roles.CREATURE in rset:
                 score += 0.15
@@ -144,9 +162,11 @@ def generate(
         if best_role:
             role_remaining[best_role] -= 1
             slot, reason = best_role, f"Fills {roles.ROLE_LABELS[best_role].lower()} slot"
+        elif q_norm(doc["_id"]) >= 0.5:
+            slot, reason = "game_plan", "High-synergy pick (popular with this commander)"
         else:
             slot, reason = "game_plan", f"Game plan / curve filler (MV {b if b < 7 else '7+'})"
-        chosen.append(_deck_card(doc, rset, slot, reason))
+        chosen.append(_deck_card(doc, rset, slot, reason, quality=q(doc["_id"])))
 
     # ---- Mana base: owned nonbasic lands first, then basics by pip demand ----
     nonbasic = [(d, r) for d, r in owned_lands if not d.get("is_basic_land")]

@@ -12,7 +12,7 @@ from ..models.responses import (
     DeckCardOut,
     GeneratedDeckResponse,
 )
-from ..services import generator
+from ..services import edhrec, generator
 from ..services import pool as pool_service
 from ..util import normalize_name
 
@@ -46,6 +46,15 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
 
     basics = await _basics_by_color(database)
+
+    # EDHREC quality signal: name-match the commander's recommended cards to the
+    # user's pool, keyed by oracle_id. Empty if EDHREC is unavailable.
+    score_map = await edhrec.get_score_map(database, result.commander)
+    quality = {
+        card["_id"]: score_map.get(card["name_normalized"], 0.0) for card in result.pool
+    }
+    edhrec_available = any(v > 0 for v in quality.values())
+
     deck = generator.generate(
         result.commander,
         result.pool,
@@ -53,7 +62,12 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         basics,
         land_count=body.land_count or generator.DEFAULT_LAND_COUNT,
         quotas=body.quotas,
+        quality=quality,
     )
+    if not edhrec_available:
+        deck.warnings.append(
+            "EDHREC data unavailable for this commander — ranked by curve and role fit only."
+        )
 
     c = result.commander
     return GeneratedDeckResponse(
@@ -75,6 +89,7 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         color_sources=deck.color_sources,
         stats=deck.stats,
         warnings=deck.warnings,
+        edhrec_available=edhrec_available,
         cards=[
             DeckCardOut(
                 oracle_id=dc.oracle_id,
@@ -87,6 +102,7 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
                 slot=dc.slot,
                 reason=dc.reason,
                 count=dc.count,
+                quality=dc.quality,
             )
             for dc in deck.cards
         ],

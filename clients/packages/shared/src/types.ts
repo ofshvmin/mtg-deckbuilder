@@ -92,6 +92,7 @@ export interface DeckCard {
   slot: string; // land | ramp | card_draw | removal | board_wipe | game_plan
   reason: string;
   count: number;
+  quality: number; // EDHREC quality score (0 if unknown)
 }
 
 export interface GeneratedDeck {
@@ -105,5 +106,6 @@ export interface GeneratedDeck {
   color_sources: Record<string, number>;
   stats: Record<string, number>;
   warnings: string[];
+  edhrec_available: boolean;
   cards: DeckCard[];
 }

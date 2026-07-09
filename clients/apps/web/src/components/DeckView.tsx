@@ -34,9 +34,18 @@ export default function DeckView({ deck }: { deck: GeneratedDeck }) {
       )}
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-400">
-        <span className="font-medium text-slate-300">Note:</span> cards are chosen to fill role
-        quotas and the mana curve. Quality/synergy ranking (which specific cards are best) comes in
-        Phase 4 — for now selection within a role favors curve fit and efficiency.
+        <span className="font-medium text-slate-300">How this was built:</span>{" "}
+        {deck.edhrec_available ? (
+          <>
+            cards fill role quotas and the mana curve, ranked by{" "}
+            <span className="text-emerald-400">EDHREC</span> — how often the playerbase runs each
+            card with this commander. The <span className="text-emerald-400">◆</span> marks
+            high-synergy picks. (Combo detection arrives next.)
+          </>
+        ) : (
+          <>cards fill role quotas and the mana curve, ranked by curve fit and efficiency (no
+            EDHREC data for this commander).</>
+        )}
       </div>
 
       <ManaCurve curve={deck.curve} />
@@ -68,11 +77,20 @@ export default function DeckView({ deck }: { deck: GeneratedDeck }) {
 }
 
 function DeckRow({ card }: { card: DeckCard }) {
+  const highSynergy = card.quality >= 0.3;
   return (
     <li className="flex items-center justify-between gap-3 px-4 py-1.5 text-sm">
       <span className="text-slate-200">
         {card.count > 1 && <span className="mr-1 text-slate-500">{card.count}×</span>}
         {card.name}
+        {highSynergy && (
+          <span
+            className="ml-1.5 text-emerald-400"
+            title={`High synergy with this commander (EDHREC score ${card.quality.toFixed(2)})`}
+          >
+            ◆
+          </span>
+        )}
       </span>
       <span className="shrink-0 font-mono text-xs text-slate-500">
         {formatManaCost(card.mana_cost)}

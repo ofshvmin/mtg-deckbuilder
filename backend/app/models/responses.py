@@ -55,6 +55,7 @@ class DeckCardOut(BaseModel):
     slot: str
     reason: str
     count: int
+    quality: float
 
 
 class GeneratedDeckResponse(BaseModel):
@@ -68,6 +69,7 @@ class GeneratedDeckResponse(BaseModel):
     color_sources: dict[str, int]
     stats: dict[str, float]
     warnings: list[str]
+    edhrec_available: bool
     cards: list[DeckCardOut]
 
 
