@@ -20,11 +20,15 @@ const localTokenStore: TokenStore = {
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
+// The AuthProvider registers a handler here so a failed refresh can clear
+// user state and bounce to /login, without the shared client knowing about React.
+let unauthorizedHandler: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  unauthorizedHandler = fn;
+}
+
 export const api = new ApiClient({
   baseUrl,
   tokenStore: localTokenStore,
-  onUnauthorized: () => {
-    // Phase C wires this to redirect to /login.
-    console.warn("Unauthorized — token cleared.");
-  },
+  onUnauthorized: () => unauthorizedHandler?.(),
 });
