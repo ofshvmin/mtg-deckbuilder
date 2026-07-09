@@ -1,4 +1,4 @@
-"""Unit tests for csv_formats and Excel parsing."""
+"""Unit tests for csv_formats, Excel parsing, and Unicode handling."""
 import pytest
 
 from app.services.csv_formats import (
@@ -8,6 +8,7 @@ from app.services.csv_formats import (
     parse_excel,
     preprocess_csv,
 )
+from app.util import normalize_name, strip_diacritics
 
 
 # ---- Detection ----
@@ -146,3 +147,33 @@ def test_parse_excel_roundtrip():
     fmt = detect_format(headers)
     assert fmt is not None
     assert fmt.name == "Moxfield"
+
+
+# ---- Unicode / diacritics ----
+
+@pytest.mark.parametrize("input_name,expected", [
+    ("Lim-Dûl's Vault", "Lim-Dul's Vault"),
+    ("Séance", "Seance"),
+    ("Jötun Grunt", "Jotun Grunt"),
+    ("Márton Stromgald", "Marton Stromgald"),
+    ("Sol Ring", "Sol Ring"),       # no diacritics — unchanged
+])
+def test_strip_diacritics(input_name, expected):
+    assert strip_diacritics(input_name) == expected
+
+
+def test_normalize_name_nfc():
+    """Composed and decomposed forms of û should produce the same normalized name."""
+    composed = "Lim-D\u00fbl's Vault"       # û as single codepoint
+    decomposed = "Lim-Du\u0302l's Vault"     # u + combining circumflex
+    assert normalize_name(composed) == normalize_name(decomposed)
+
+
+def test_diacritics_fallback_matching():
+    """ASCII-folded names match when diacritics differ between source and DB."""
+    db_name = normalize_name("Lim-Dûl's Vault")   # what Scryfall stores
+    csv_name = "Lim-Dul's Vault"                    # what an export might contain
+    # Exact match fails
+    assert normalize_name(csv_name) != db_name
+    # ASCII-folded match succeeds
+    assert normalize_name(strip_diacritics(csv_name)) == normalize_name(strip_diacritics(db_name))
