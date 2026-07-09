@@ -124,10 +124,33 @@ export default function Dashboard() {
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-slate-800">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <h1 className="text-lg font-semibold tracking-tight">MTG Deck Builder</h1>
+          <div className="flex items-center gap-6">
+            <h1 className="text-lg font-semibold tracking-tight">MTG Deck Builder</h1>
+            {summary?.has_collection && (
+              <nav className="flex items-center gap-1 text-sm">
+                <button
+                  onClick={() => { clearDeck(); setPool(null); }}
+                  className="rounded-md px-3 py-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
+                >
+                  Collection
+                </button>
+                <button
+                  onClick={() => { clearDeck(); setPool(null); loadSavedDecks(); }}
+                  className="rounded-md px-3 py-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
+                >
+                  Saved Decks
+                  {savedDecks.length > 0 && (
+                    <span className="ml-1.5 rounded-full bg-slate-800 px-1.5 py-0.5 text-xs tabular-nums text-slate-400">
+                      {savedDecks.length}
+                    </span>
+                  )}
+                </button>
+              </nav>
+            )}
+          </div>
           <div className="flex items-center gap-4 text-sm">
             {summary?.has_collection && (
-              <span className="text-slate-400">
+              <span className="hidden text-slate-400 sm:inline">
                 {summary.unique_cards.toLocaleString()} unique ·{" "}
                 {summary.total_cards.toLocaleString()} cards
               </span>
