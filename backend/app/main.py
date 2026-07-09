@@ -46,9 +46,16 @@ app.include_router(pool_router)
 app.include_router(decks_router)
 
 
+@app.get("/livez")
+async def livez():
+    """Fast liveness probe with NO dependencies — used by the Fly health check so
+    the machine stays routable even when the database is briefly unreachable."""
+    return {"status": "ok"}
+
+
 @app.get("/health")
 async def health():
-    """Liveness + DB connectivity, for smoke tests and container health checks."""
+    """Readiness: liveness + DB connectivity, for smoke tests and monitoring."""
     return {
         "status": "ok",
         "service": "mtg-deckbuilder-backend",

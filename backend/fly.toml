@@ -18,7 +18,7 @@ primary_region = "iad"   # US East; ideally match your Atlas cluster's region fo
 
   [[http_service.checks]]
     method = "GET"
-    path = "/health"
+    path = "/livez"          # dependency-free liveness — DB status is on /health
     interval = "30s"
     timeout = "5s"
     grace_period = "10s"
