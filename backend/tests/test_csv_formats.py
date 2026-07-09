@@ -1,10 +1,11 @@
-"""Unit tests for csv_formats — detection, preprocessing, and normalization."""
+"""Unit tests for csv_formats and Excel parsing."""
 import pytest
 
 from app.services.csv_formats import (
     detect_format,
     get_format_by_name,
     normalize_row,
+    parse_excel,
     preprocess_csv,
 )
 
@@ -119,3 +120,29 @@ def test_foil_normalization(raw_foil, expected):
     fmt = get_format_by_name("Moxfield")
     row = {"Name": "X", "Count": "1", "Edition": "X", "Foil": raw_foil}
     assert normalize_row(row, fmt)["foil"] == expected
+
+
+# ---- Excel parsing ----
+
+def test_parse_excel_roundtrip():
+    """Build a minimal XLSX in memory, parse it, and verify headers + rows."""
+    import openpyxl, io
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Name", "Count", "Edition", "Tradelist Count"])
+    ws.append(["Sol Ring", 2, "C21", 0])
+    ws.append(["Mana Crypt", 1, "2XM", 1])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    headers, rows = parse_excel(buf.getvalue())
+    assert headers == ["Name", "Count", "Edition", "Tradelist Count"]
+    assert len(rows) == 2
+    assert rows[0]["Name"] == "Sol Ring"
+    assert rows[0]["Count"] == "2"
+    assert rows[1]["Edition"] == "2XM"
+
+    # Format detection should work on the parsed headers
+    fmt = detect_format(headers)
+    assert fmt is not None
+    assert fmt.name == "Moxfield"

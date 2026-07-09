@@ -1,12 +1,11 @@
-"""Import a collection CSV into `collection_items` for a user.
+"""Import a collection CSV/Excel file into `collection_items` for a user.
 
-Supports Moxfield, Archidekt, Dragon Shield, Deckbox, and ManaBox CSV formats.
-The format is auto-detected from headers, or can be specified explicitly.
+Supports Moxfield, Archidekt, Dragon Shield, Deckbox, and ManaBox formats
+in CSV, XLSX, or XLS containers. The format is auto-detected from headers,
+or can be specified explicitly.
 """
 from __future__ import annotations
 
-import csv
-import io
 from dataclasses import dataclass, field
 
 from pymongo.asynchronous.database import AsyncDatabase
@@ -48,28 +47,34 @@ async def _name_to_oracle_id(db: AsyncDatabase) -> dict[str, str]:
 async def import_collection(
     db: AsyncDatabase,
     user_id: str,
-    csv_text: str,
+    csv_text: str | None = None,
     format_name: str | None = None,
+    excel_bytes: bytes | None = None,
 ) -> ImportResult:
     name_map = await _name_to_oracle_id(db)
     if not name_map:
         raise RuntimeError("The cards collection is empty — run the Scryfall sync first.")
 
-    csv_text = csv_formats.preprocess_csv(csv_text)
-    reader = csv.DictReader(io.StringIO(csv_text))
+    if excel_bytes is not None:
+        headers, rows = csv_formats.parse_excel(excel_bytes)
+    elif csv_text is not None:
+        headers, rows = csv_formats.parse_csv(csv_text)
+    else:
+        raise ValueError("Either csv_text or excel_bytes must be provided.")
 
+    supported = ", ".join(f.name for f in csv_formats.FORMATS)
     if format_name:
         fmt = csv_formats.get_format_by_name(format_name)
         if fmt is None:
-            raise ValueError(f"Unknown format '{format_name}'. Supported: {', '.join(f.name for f in csv_formats.FORMATS)}")
+            raise ValueError(f"Unknown format '{format_name}'. Supported: {supported}")
     else:
-        fmt = csv_formats.detect_format(reader.fieldnames or [])
+        fmt = csv_formats.detect_format(headers)
         if fmt is None:
-            raise ValueError(f"Could not detect CSV format. Supported: {', '.join(f.name for f in csv_formats.FORMATS)}")
+            raise ValueError(f"Could not detect format. Supported: {supported}")
 
     items: list[dict] = []
     result = ImportResult(detected_format=fmt.name)
-    for row in reader:
+    for row in rows:
         canonical = csv_formats.normalize_row(row, fmt)
         name = canonical.get("name", "").strip()
         if not name:
