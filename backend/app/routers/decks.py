@@ -1,7 +1,8 @@
 """Deck generation and saved-deck management endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from .. import db
@@ -15,9 +16,10 @@ from ..models.responses import (
     SaveDeckRequest,
     SavedDeckResponse,
     SavedDeckSummary,
+    UpdateDeckRequest,
 )
 from ..repositories import decks as decks_repo
-from ..services import edhrec, generator
+from ..services import csv_formats, edhrec, generator
 from ..services import pool as pool_service
 from ..services import spellbook
 from ..util import normalize_name
@@ -193,9 +195,59 @@ async def get_saved_deck(deck_id: str, current_user: dict = Depends(get_current_
     )
 
 
+@router.put("/saved/{deck_id}", response_model=SavedDeckResponse)
+async def update_saved_deck(
+    deck_id: str, body: UpdateDeckRequest, current_user: dict = Depends(get_current_user),
+):
+    database = db.get_db()
+    deck_data = body.deck.model_dump() if body.deck else None
+    name = body.name.strip() if body.name else None
+    doc = await decks_repo.update_deck(
+        database, current_user["_id"], deck_id, name=name, deck_data=deck_data,
+    )
+    if not doc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found.")
+    return SavedDeckResponse(
+        id=doc["_id"],
+        name=doc["name"],
+        deck=doc["deck"],
+        created_at=doc["created_at"],
+        updated_at=doc["updated_at"],
+    )
+
+
 @router.delete("/saved/{deck_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_saved_deck(deck_id: str, current_user: dict = Depends(get_current_user)):
     database = db.get_db()
     deleted = await decks_repo.delete_deck(database, current_user["_id"], deck_id)
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found.")
+
+
+@router.get("/saved/{deck_id}/export")
+async def export_saved_deck(
+    deck_id: str,
+    format: str = Query("Moxfield"),
+    current_user: dict = Depends(get_current_user),
+):
+    fmt = csv_formats.get_format_by_name(format)
+    if not fmt:
+        supported = ", ".join(f.name for f in csv_formats.FORMATS)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown format '{format}'. Supported: {supported}")
+
+    database = db.get_db()
+    doc = await decks_repo.get_deck(database, current_user["_id"], deck_id)
+    if not doc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found.")
+
+    cards = doc["deck"].get("cards", [])
+    rows = [{"name": c["name"], "count": str(c.get("count", 1))} for c in cards]
+    csv_text = csv_formats.export_rows_csv(rows, fmt)
+
+    safe_name = doc["name"].replace(" ", "-").replace('"', "")
+    filename = f"{safe_name}-{fmt.name.lower().replace(' ', '-')}.csv"
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

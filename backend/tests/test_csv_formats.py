@@ -3,8 +3,10 @@ import pytest
 
 from app.services.csv_formats import (
     detect_format,
+    export_rows_csv,
     get_format_by_name,
     normalize_row,
+    parse_csv,
     parse_excel,
     preprocess_csv,
 )
@@ -177,3 +179,40 @@ def test_diacritics_fallback_matching():
     assert normalize_name(csv_name) != db_name
     # ASCII-folded match succeeds
     assert normalize_name(strip_diacritics(csv_name)) == normalize_name(strip_diacritics(db_name))
+
+
+# ---- Export ----
+
+def test_export_moxfield_roundtrip():
+    fmt = get_format_by_name("Moxfield")
+    rows = [
+        {"name": "Sol Ring", "count": "2", "edition": "C21", "foil": "foil", "condition": "NM"},
+        {"name": "Mana Crypt", "count": "1", "edition": "2XM", "foil": "", "condition": "LP"},
+    ]
+    csv_text = export_rows_csv(rows, fmt)
+    headers, parsed = parse_csv(csv_text)
+    assert "Name" in headers
+    assert "Count" in headers
+    assert len(parsed) == 2
+    assert parsed[0]["Name"] == "Sol Ring"
+    assert parsed[0]["Count"] == "2"
+    assert parsed[0]["Foil"] == "foil"
+    assert parsed[1]["Foil"] == ""
+
+
+def test_export_archidekt():
+    fmt = get_format_by_name("Archidekt")
+    rows = [{"name": "Sol Ring", "count": "1", "edition": "C21", "foil": "foil"}]
+    csv_text = export_rows_csv(rows, fmt)
+    headers, parsed = parse_csv(csv_text)
+    assert "Quantity" in headers
+    assert parsed[0]["Finish"] == "Foil"
+
+
+def test_export_dragon_shield():
+    fmt = get_format_by_name("Dragon Shield")
+    rows = [{"name": "Sol Ring", "count": "1", "edition": "C21", "foil": "foil"}]
+    csv_text = export_rows_csv(rows, fmt)
+    headers, parsed = parse_csv(csv_text)
+    assert "Card Name" in headers
+    assert parsed[0]["Printing"] == "Foil"

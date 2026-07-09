@@ -104,6 +104,11 @@ class SaveDeckRequest(BaseModel):
     deck: GeneratedDeckResponse
 
 
+class UpdateDeckRequest(BaseModel):
+    name: str | None = None
+    deck: GeneratedDeckResponse | None = None
+
+
 class SavedDeckResponse(BaseModel):
     id: str
     name: str

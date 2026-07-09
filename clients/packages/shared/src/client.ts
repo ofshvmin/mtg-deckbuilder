@@ -97,6 +97,22 @@ export class ApiClient {
     return this.request<ImportResult>("POST", "/collection/import", { body: form });
   }
 
+  exportCollectionUrl(format = "Moxfield"): string {
+    return `${this.baseUrl}/collection/export?format=${encodeURIComponent(format)}`;
+  }
+
+  async exportCollectionBlob(format = "Moxfield"): Promise<Blob> {
+    const access = await this.tokens.getAccess();
+    const headers: Record<string, string> = {};
+    if (access) headers["Authorization"] = `Bearer ${access}`;
+    const res = await fetch(
+      `${this.baseUrl}/collection/export?format=${encodeURIComponent(format)}`,
+      { headers },
+    );
+    if (!res.ok) throw new ApiError(res.status, "Export failed");
+    return res.blob();
+  }
+
   // ---- Commanders & pool ----
 
   searchCommanders(query: string, limit = 20): Promise<CommanderOption[]> {
@@ -134,8 +150,24 @@ export class ApiClient {
     return this.request<SavedDeck>("GET", `/decks/saved/${encodeURIComponent(deckId)}`);
   }
 
+  updateSavedDeck(deckId: string, updates: { name?: string; deck?: GeneratedDeck }): Promise<SavedDeck> {
+    return this.request<SavedDeck>("PUT", `/decks/saved/${encodeURIComponent(deckId)}`, { body: updates });
+  }
+
   deleteSavedDeck(deckId: string): Promise<void> {
     return this.request("DELETE", `/decks/saved/${encodeURIComponent(deckId)}`);
+  }
+
+  async exportDeckBlob(deckId: string, format = "Moxfield"): Promise<Blob> {
+    const access = await this.tokens.getAccess();
+    const headers: Record<string, string> = {};
+    if (access) headers["Authorization"] = `Bearer ${access}`;
+    const res = await fetch(
+      `${this.baseUrl}/decks/saved/${encodeURIComponent(deckId)}/export?format=${encodeURIComponent(format)}`,
+      { headers },
+    );
+    if (!res.ok) throw new ApiError(res.status, "Export failed");
+    return res.blob();
   }
 
   // ---- Core request machinery ----

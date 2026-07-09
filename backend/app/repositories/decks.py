@@ -47,6 +47,28 @@ async def get_deck(db: AsyncDatabase, user_id: str, deck_id: str) -> dict | None
     return doc
 
 
+async def update_deck(
+    db: AsyncDatabase, user_id: str, deck_id: str,
+    name: str | None = None, deck_data: dict | None = None,
+) -> dict | None:
+    """Update a saved deck's name and/or data. Returns updated doc or None."""
+    try:
+        oid = ObjectId(deck_id)
+    except Exception:
+        return None
+    updates: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if name is not None:
+        updates["name"] = name
+    if deck_data is not None:
+        updates["deck"] = deck_data
+    result = await db.decks.update_one(
+        {"_id": oid, "user_id": user_id}, {"$set": updates}
+    )
+    if result.matched_count == 0:
+        return None
+    return await get_deck(db, user_id, deck_id)
+
+
 async def delete_deck(db: AsyncDatabase, user_id: str, deck_id: str) -> bool:
     """Delete a saved deck. Returns True if it existed."""
     try:

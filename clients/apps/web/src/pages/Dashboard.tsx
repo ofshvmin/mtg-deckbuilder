@@ -24,7 +24,9 @@ export default function Dashboard() {
   const [loadingPool, setLoadingPool] = useState(false);
   const [deck, setDeck] = useState<GeneratedDeck | null>(null);
   const [deckName, setDeckName] = useState<string | undefined>(undefined);
+  const [deckId, setDeckId] = useState<string | undefined>(undefined);
   const [buildingDeck, setBuildingDeck] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [deckError, setDeckError] = useState<string | null>(null);
   const [savedDecks, setSavedDecks] = useState<SavedDeckSummary[]>([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
@@ -45,6 +47,7 @@ export default function Dashboard() {
     setPool(null);
     setDeck(null);
     setDeckName(undefined);
+    setDeckId(undefined);
     try {
       setPool(await api.getPool(c.name));
     } catch (e) {
@@ -59,6 +62,7 @@ export default function Dashboard() {
     setBuildingDeck(true);
     setDeckError(null);
     setDeckName(undefined);
+    setDeckId(undefined);
     try {
       setDeck(await api.generateDeck(pool.commander.name));
     } catch (e) {
@@ -75,6 +79,7 @@ export default function Dashboard() {
       const saved = await api.getSavedDeck(id);
       setDeck(saved.deck);
       setDeckName(saved.name);
+      setDeckId(saved.id);
       setPool(null);
     } catch (e) {
       setDeckError(e instanceof Error ? e.message : "Could not load deck");
@@ -140,13 +145,13 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <button
-                    onClick={() => { setDeck(null); setDeckName(undefined); }}
+                    onClick={() => { setDeck(null); setDeckName(undefined); setDeckId(undefined); }}
                     className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
                   >
                     ← Back
                   </button>
                 </div>
-                <DeckView deck={deck} deckName={deckName} onSaved={loadSavedDecks} />
+                <DeckView deck={deck} deckName={deckName} deckId={deckId} onSaved={loadSavedDecks} />
               </div>
             )}
 
@@ -175,7 +180,7 @@ export default function Dashboard() {
                       </div>
                       {deck ? (
                         <button
-                          onClick={() => { setDeck(null); setDeckName(undefined); }}
+                          onClick={() => { setDeck(null); setDeckName(undefined); setDeckId(undefined); }}
                           className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
                         >
                           ← Back to pool
@@ -194,7 +199,7 @@ export default function Dashboard() {
                     {deckError && <p className="text-rose-400">{deckError}</p>}
 
                     {deck ? (
-                      <DeckView deck={deck} deckName={deckName} onSaved={loadSavedDecks} />
+                      <DeckView deck={deck} deckName={deckName} deckId={deckId} onSaved={loadSavedDecks} />
                     ) : (
                       <>
                         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -206,6 +211,23 @@ export default function Dashboard() {
                         <ManaCurve curve={pool.curve} />
                         <PoolTable pool={pool.pool} />
                       </>
+                    )}
+                  </div>
+                )}
+
+                {/* Collection management */}
+                {!pool && (
+                  <div className="space-y-3">
+                    <button
+                      onClick={() => setShowImport((v) => !v)}
+                      className="text-sm text-slate-400 hover:text-slate-200"
+                    >
+                      {showImport ? "▾ Hide collection tools" : "▸ Collection import / export"}
+                    </button>
+                    {showImport && (
+                      <div className="max-w-xl">
+                        <ImportCollection onImported={loadSummary} hasCollection />
+                      </div>
                     )}
                   </div>
                 )}
