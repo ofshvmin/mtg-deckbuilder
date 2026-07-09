@@ -15,6 +15,15 @@ from ..services import importer
 router = APIRouter(prefix="/collection", tags=["collection"])
 
 _EXCEL_EXTENSIONS = {".xls", ".xlsx"}
+_EXCEL_MIMETYPES = {
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+def _is_excel(filename: str | None, content_type: str | None) -> bool:
+    ext = os.path.splitext(filename or "")[1].lower()
+    return ext in _EXCEL_EXTENSIONS or (content_type or "") in _EXCEL_MIMETYPES
 
 
 @router.get("/summary", response_model=CollectionSummary)
@@ -32,10 +41,9 @@ async def import_collection(
     current_user: dict = Depends(get_current_user),
 ):
     raw = await file.read()
-    ext = os.path.splitext(file.filename or "")[1].lower()
 
     try:
-        if ext in _EXCEL_EXTENSIONS:
+        if _is_excel(file.filename, file.content_type):
             result = await importer.import_collection(
                 db.get_db(), current_user["_id"], format_name=format, excel_bytes=raw,
             )
@@ -43,7 +51,7 @@ async def import_collection(
             try:
                 text = raw.decode("utf-8-sig")
             except UnicodeDecodeError:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, "File must be UTF-8 encoded CSV.")
+                text = raw.decode("latin-1")
             result = await importer.import_collection(
                 db.get_db(), current_user["_id"], csv_text=text, format_name=format,
             )

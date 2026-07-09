@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pymongo.asynchronous.database import AsyncDatabase
 
 from ..repositories import collection as collection_repo
-from ..util import normalize_name
+from ..util import normalize_name, strip_diacritics
 from . import csv_formats
 
 
@@ -39,9 +39,22 @@ def _parse_float(value):
         return None
 
 
-async def _name_to_oracle_id(db: AsyncDatabase) -> dict[str, str]:
+async def _name_to_oracle_id(db: AsyncDatabase) -> tuple[dict[str, str], dict[str, str]]:
+    """Return (exact_map, ascii_map) for card name lookups.
+
+    exact_map: NFC-normalized name → oracle_id
+    ascii_map: diacritics-stripped name → oracle_id (fallback)
+    """
+    exact: dict[str, str] = {}
+    ascii_fb: dict[str, str] = {}
     cursor = db.cards.find({}, {"_id": 1, "name_normalized": 1})
-    return {doc["name_normalized"]: doc["_id"] async for doc in cursor}
+    async for doc in cursor:
+        norm = doc["name_normalized"]
+        exact[norm] = doc["_id"]
+        folded = normalize_name(strip_diacritics(norm))
+        if folded not in ascii_fb:
+            ascii_fb[folded] = doc["_id"]
+    return exact, ascii_fb
 
 
 async def import_collection(
@@ -51,7 +64,7 @@ async def import_collection(
     format_name: str | None = None,
     excel_bytes: bytes | None = None,
 ) -> ImportResult:
-    name_map = await _name_to_oracle_id(db)
+    name_map, ascii_map = await _name_to_oracle_id(db)
     if not name_map:
         raise RuntimeError("The cards collection is empty — run the Scryfall sync first.")
 
@@ -80,7 +93,7 @@ async def import_collection(
         if not name:
             continue
         name_norm = normalize_name(name)
-        oracle_id = name_map.get(name_norm)
+        oracle_id = name_map.get(name_norm) or ascii_map.get(normalize_name(strip_diacritics(name)))
         result.total += 1
         if oracle_id is None:
             result.unmatched += 1
