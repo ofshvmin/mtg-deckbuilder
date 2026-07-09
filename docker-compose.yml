@@ -1,0 +1,17 @@
+# Local dev orchestration. Data lives in MongoDB Atlas (cloud), so no local
+# Mongo service is needed — the backend reads MONGODB_URI from backend/.env.
+#
+#   docker compose up --build backend
+#
+# The web app runs via the Vite dev server for hot-reload during development:
+#   cd clients && npm install && npm run dev
+# (web containerization is finalized at deploy time.)
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped

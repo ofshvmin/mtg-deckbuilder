@@ -1,0 +1,14 @@
+{
+  "name": "mtg-deckbuilder-clients",
+  "private": true,
+  "version": "0.1.0",
+  "description": "JS/TS workspace: shared package + web app (+ future React Native mobile app)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @mtg/web",
+    "build": "npm run build --workspace @mtg/web"
+  }
+}
