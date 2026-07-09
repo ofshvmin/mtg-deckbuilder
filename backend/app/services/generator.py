@@ -33,6 +33,9 @@ ROLE_FILL_ORDER = [roles.BOARD_WIPE, roles.REMOVAL, roles.RAMP, roles.CARD_DRAW]
 # role bonus (3.0) so role quotas still fill, but above the efficiency tiebreak
 # so that among role/curve-equivalent cards, the community-proven one wins.
 QUALITY_WEIGHT = 2.0
+# Bonus for a card that is a piece of a combo assemblable from the pool, to
+# encourage the generator to actually include all the pieces.
+COMBO_WEIGHT = 1.5
 # Target nonland mana-curve shape (fractions by MV bucket 0..7, 7 = 7+).
 CURVE_WEIGHTS = {0: 0.03, 1: 0.12, 2: 0.22, 3: 0.20, 4: 0.15, 5: 0.11, 6: 0.08, 7: 0.09}
 
@@ -105,9 +108,11 @@ def generate(
     land_count: int = DEFAULT_LAND_COUNT,
     quotas: dict | None = None,
     quality: dict[str, float] | None = None,
+    combo_pieces: set[str] | None = None,
 ) -> GeneratedDeck:
     quotas = {**DEFAULT_QUOTAS, **(quotas or {})}
     quality = quality or {}
+    combo_pieces = combo_pieces or set()
     max_quality = max(quality.values()) if quality else 0.0
     deck = GeneratedDeck(land_count=land_count)
 
@@ -148,6 +153,8 @@ def generate(
             if curve_remaining.get(b, 0) > 0:
                 score += 1.5
             score += QUALITY_WEIGHT * q_norm(doc["_id"])  # EDHREC community signal
+            if doc["_id"] in combo_pieces:
+                score += COMBO_WEIGHT  # piece of an assemblable combo
             score += max(0.0, 8 - (doc.get("cmc") or 0)) * 0.05  # efficiency tiebreak
             if roles.CREATURE in rset:
                 score += 0.15

@@ -56,6 +56,15 @@ class DeckCardOut(BaseModel):
     reason: str
     count: int
     quality: float
+    in_combo: bool = False
+
+
+class ComboOut(BaseModel):
+    id: str
+    cards: list[str]          # card names
+    produces: list[str]       # what the combo does
+    popularity: int
+    missing_name: str | None = None   # set only for "near" combos (one card away)
 
 
 class GeneratedDeckResponse(BaseModel):
@@ -70,6 +79,8 @@ class GeneratedDeckResponse(BaseModel):
     stats: dict[str, float]
     warnings: list[str]
     edhrec_available: bool
+    combos: list[ComboOut]        # combos fully present in the generated deck
+    near_combos: list[ComboOut]   # combos your pool is one card away from
     cards: list[DeckCardOut]
 
 

@@ -8,12 +8,14 @@ from .. import db
 from ..auth.deps import get_current_user
 from ..models.responses import (
     CardSummary,
+    ComboOut,
     CurveBucket,
     DeckCardOut,
     GeneratedDeckResponse,
 )
 from ..services import edhrec, generator
 from ..services import pool as pool_service
+from ..services import spellbook
 from ..util import normalize_name
 
 router = APIRouter(prefix="/decks", tags=["decks"])
@@ -55,6 +57,11 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
     }
     edhrec_available = any(v > 0 for v in quality.values())
 
+    # Commander Spellbook: combos assemblable from the pool (incl. the commander).
+    pool_ids = {card["_id"] for card in result.pool} | {result.commander["_id"]}
+    pool_full, pool_near = await spellbook.detect(database, pool_ids, result.color_identity)
+    combo_pieces = {oid for combo in pool_full for oid in combo["cards"]}
+
     deck = generator.generate(
         result.commander,
         result.pool,
@@ -63,11 +70,17 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         land_count=body.land_count or generator.DEFAULT_LAND_COUNT,
         quotas=body.quotas,
         quality=quality,
+        combo_pieces=combo_pieces,
     )
     if not edhrec_available:
         deck.warnings.append(
             "EDHREC data unavailable for this commander — ranked by curve and role fit only."
         )
+
+    # Which of the pool's combos actually assembled in the final deck?
+    deck_ids = {dc.oracle_id for dc in deck.cards} | {result.commander["_id"]}
+    deck_combos = [c for c in pool_full if set(c["cards"]) <= deck_ids]
+    combo_card_ids = {oid for combo in deck_combos for oid in combo["cards"]}
 
     c = result.commander
     return GeneratedDeckResponse(
@@ -90,6 +103,8 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         stats=deck.stats,
         warnings=deck.warnings,
         edhrec_available=edhrec_available,
+        combos=[_combo_out(c) for c in deck_combos],
+        near_combos=[_combo_out(c) for c in pool_near],
         cards=[
             DeckCardOut(
                 oracle_id=dc.oracle_id,
@@ -103,7 +118,18 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
                 reason=dc.reason,
                 count=dc.count,
                 quality=dc.quality,
+                in_combo=dc.oracle_id in combo_card_ids,
             )
             for dc in deck.cards
         ],
+    )
+
+
+def _combo_out(combo: dict) -> ComboOut:
+    return ComboOut(
+        id=combo["_id"],
+        cards=combo.get("card_names", []),
+        produces=combo.get("produces", []),
+        popularity=combo.get("popularity", 0),
+        missing_name=combo.get("missing_name"),
     )

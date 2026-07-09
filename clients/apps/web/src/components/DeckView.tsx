@@ -1,4 +1,4 @@
-import type { DeckCard, GeneratedDeck } from "@mtg/shared";
+import type { Combo, DeckCard, GeneratedDeck } from "@mtg/shared";
 import { formatManaCost } from "../lib/format";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
@@ -39,14 +39,30 @@ export default function DeckView({ deck }: { deck: GeneratedDeck }) {
           <>
             cards fill role quotas and the mana curve, ranked by{" "}
             <span className="text-emerald-400">EDHREC</span> — how often the playerbase runs each
-            card with this commander. The <span className="text-emerald-400">◆</span> marks
-            high-synergy picks. (Combo detection arrives next.)
+            card with this commander. <span className="text-emerald-400">◆</span> = high-synergy
+            pick; <span className="text-fuchsia-400">⚡</span> = part of a combo.
           </>
         ) : (
           <>cards fill role quotas and the mana curve, ranked by curve fit and efficiency (no
             EDHREC data for this commander).</>
         )}
       </div>
+
+      {deck.combos.length > 0 && (
+        <ComboSection
+          title={`Combos in this deck (${deck.combos.length})`}
+          combos={deck.combos}
+          accent="fuchsia"
+        />
+      )}
+      {deck.near_combos.length > 0 && (
+        <ComboSection
+          title="One card away"
+          combos={deck.near_combos}
+          accent="amber"
+          near
+        />
+      )}
 
       <ManaCurve curve={deck.curve} />
 
@@ -83,6 +99,11 @@ function DeckRow({ card }: { card: DeckCard }) {
       <span className="text-slate-200">
         {card.count > 1 && <span className="mr-1 text-slate-500">{card.count}×</span>}
         {card.name}
+        {card.in_combo && (
+          <span className="ml-1.5 text-fuchsia-400" title="Part of a combo in this deck">
+            ⚡
+          </span>
+        )}
         {highSynergy && (
           <span
             className="ml-1.5 text-emerald-400"
@@ -96,5 +117,48 @@ function DeckRow({ card }: { card: DeckCard }) {
         {formatManaCost(card.mana_cost)}
       </span>
     </li>
+  );
+}
+
+function ComboSection({
+  title,
+  combos,
+  accent,
+  near = false,
+}: {
+  title: string;
+  combos: Combo[];
+  accent: "fuchsia" | "amber";
+  near?: boolean;
+}) {
+  const border = accent === "fuchsia" ? "border-fuchsia-800/40" : "border-amber-800/40";
+  const text = accent === "fuchsia" ? "text-fuchsia-300" : "text-amber-300";
+  const shown = combos.slice(0, 8);
+  return (
+    <div className={`rounded-xl border ${border} bg-slate-900/60`}>
+      <div className={`border-b ${border} px-4 py-2 text-xs font-medium uppercase tracking-wider ${text}`}>
+        {title}
+      </div>
+      <ul className="divide-y divide-slate-800/60">
+        {shown.map((combo) => (
+          <li key={combo.id} className="px-4 py-2 text-sm">
+            <div className="text-slate-200">
+              {near && combo.missing_name && (
+                <span className="mr-1 text-amber-400">+ {combo.missing_name}:</span>
+              )}
+              {combo.cards.join(" + ")}
+            </div>
+            {combo.produces.length > 0 && (
+              <div className="text-xs text-slate-500">→ {combo.produces.join(", ")}</div>
+            )}
+          </li>
+        ))}
+      </ul>
+      {combos.length > shown.length && (
+        <div className="px-4 py-2 text-xs text-slate-500">
+          + {combos.length - shown.length} more
+        </div>
+      )}
+    </div>
   );
 }

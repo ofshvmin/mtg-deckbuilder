@@ -44,6 +44,9 @@ _BOUNCE_RE = re.compile(r"return target .* to (its|their) owner'?s hand")
 _SHRINK_RE = re.compile(r"target creature gets [+-]?\d*/-[1-9]")
 # Board wipe = damage to each *creature* (not "each opponent/player", which is a pinger).
 _DMG_EACH_RE = re.compile(r"deals? \d+ damage to each creature")
+# Mass bounce (Cyclonic Rift, Evacuation) returns permanents to owners' HANDS —
+# distinct from recursion that returns cards to the battlefield.
+_MASS_BOUNCE_RE = re.compile(r"return (all|each) .{0,80}?to (its|their) owner")
 
 
 def _produces_mana(card: dict) -> bool:
@@ -85,8 +88,7 @@ def tag_roles(card: dict) -> set[str]:
         or "all creatures get -" in text
         or bool(_DMG_EACH_RE.search(text))
         or "each player sacrifices" in text
-        or "return all" in text            # mass bounce (Evacuation)
-        or "return each" in text            # mass bounce (Cyclonic Rift overload)
+        or bool(_MASS_BOUNCE_RE.search(text))   # mass bounce to hand (Evacuation, Cyclonic Rift)
     )
     if is_wipe:
         roles.add(BOARD_WIPE)

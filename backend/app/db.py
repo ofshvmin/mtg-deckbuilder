@@ -69,3 +69,6 @@ async def ensure_indexes(db: AsyncDatabase) -> None:
     await db.collection_items.create_index([("user_id", 1), ("oracle_id", 1)])
 
     await db.decks.create_index([("user_id", 1), ("updated_at", -1)])
+
+    await db.combos.create_index("cards")     # multikey — combo detection by owned oracle_ids
+    await db.combos.create_index("identity")

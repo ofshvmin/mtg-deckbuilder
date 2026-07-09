@@ -93,6 +93,15 @@ export interface DeckCard {
   reason: string;
   count: number;
   quality: number; // EDHREC quality score (0 if unknown)
+  in_combo: boolean;
+}
+
+export interface Combo {
+  id: string;
+  cards: string[];
+  produces: string[];
+  popularity: number;
+  missing_name: string | null; // set only for "near" (one-card-away) combos
 }
 
 export interface GeneratedDeck {
@@ -107,5 +116,7 @@ export interface GeneratedDeck {
   stats: Record<string, number>;
   warnings: string[];
   edhrec_available: boolean;
+  combos: Combo[];
+  near_combos: Combo[];
   cards: DeckCard[];
 }
