@@ -44,6 +44,33 @@ class PoolResponse(BaseModel):
     pool: list[PoolCard]
 
 
+class DeckCardOut(BaseModel):
+    oracle_id: str
+    name: str
+    mana_cost: str
+    cmc: float
+    type_line: str
+    color_identity: list[str]
+    roles: list[str]
+    slot: str
+    reason: str
+    count: int
+
+
+class GeneratedDeckResponse(BaseModel):
+    commander: CardSummary
+    color_identity: list[str]
+    total: int
+    land_count: int
+    nonland_count: int
+    role_counts: dict[str, int]
+    curve: list[CurveBucket]
+    color_sources: dict[str, int]
+    stats: dict[str, float]
+    warnings: list[str]
+    cards: list[DeckCardOut]
+
+
 class CollectionSummary(BaseModel):
     has_collection: bool
     total_cards: int          # sum of copies across all rows

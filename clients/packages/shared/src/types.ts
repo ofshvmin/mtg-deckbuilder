@@ -80,3 +80,30 @@ export interface PoolResponse {
   curve: CurveBucket[];
   pool: PoolCard[];
 }
+
+export interface DeckCard {
+  oracle_id: string;
+  name: string;
+  mana_cost: string;
+  cmc: number;
+  type_line: string;
+  color_identity: Color[];
+  roles: string[];
+  slot: string; // land | ramp | card_draw | removal | board_wipe | game_plan
+  reason: string;
+  count: number;
+}
+
+export interface GeneratedDeck {
+  commander: CardSummary;
+  color_identity: Color[];
+  total: number;
+  land_count: number;
+  nonland_count: number;
+  role_counts: Record<string, number>;
+  curve: CurveBucket[];
+  color_sources: Record<string, number>;
+  stats: Record<string, number>;
+  warnings: string[];
+  cards: DeckCard[];
+}

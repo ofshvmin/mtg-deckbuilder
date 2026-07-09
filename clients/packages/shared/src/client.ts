@@ -10,6 +10,7 @@ import type {
   AuthTokens,
   CollectionSummary,
   CommanderOption,
+  GeneratedDeck,
   HealthStatus,
   ImportResult,
   PoolResponse,
@@ -105,6 +106,15 @@ export class ApiClient {
       "GET",
       `/pool?commander=${encodeURIComponent(commanderName)}`,
     );
+  }
+
+  generateDeck(
+    commanderName: string,
+    opts?: { land_count?: number; quotas?: Record<string, number> },
+  ): Promise<GeneratedDeck> {
+    return this.request<GeneratedDeck>("POST", "/decks/generate", {
+      body: { commander: commanderName, ...opts },
+    });
   }
 
   // ---- Core request machinery ----
