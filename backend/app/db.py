@@ -9,23 +9,35 @@ If MONGODB_URI is unset, the app still starts but `ping()` returns False and
 """
 from __future__ import annotations
 
+import logging
+
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
 
 from .config import get_settings
 
+logger = logging.getLogger("uvicorn.error")
 _client: AsyncMongoClient | None = None
 
 
 async def connect() -> None:
-    """Create the client and verify connectivity. Called on startup."""
+    """Create the client and best-effort verify connectivity + indexes on startup.
+
+    Deliberately does NOT crash the app if Mongo is briefly unreachable (e.g. an
+    Atlas allowlist change still propagating): the client auto-reconnects, so we
+    let the app boot — health checks pass, `/health` reports db_connected:false,
+    and requests recover once the database is reachable.
+    """
     global _client
     settings = get_settings()
     if not settings.mongodb_uri:
         return
     _client = AsyncMongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
-    await _client.admin.command("ping")  # fail fast if credentials/URI are wrong
-    await ensure_indexes(_client[settings.mongodb_db])
+    try:
+        await _client.admin.command("ping")
+        await ensure_indexes(_client[settings.mongodb_db])
+    except Exception as e:
+        logger.warning("MongoDB not reachable at startup (will retry on demand): %s", e)
 
 
 async def disconnect() -> None:
