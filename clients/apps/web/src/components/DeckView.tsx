@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { Combo, DeckCard, GeneratedDeck } from "@mtg/shared";
+import { api } from "../lib/api";
 import { formatManaCost } from "../lib/format";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
@@ -13,11 +15,115 @@ const SLOTS: { key: string; label: string }[] = [
   { key: "game_plan", label: "Game Plan" },
 ];
 
-export default function DeckView({ deck }: { deck: GeneratedDeck }) {
+const EXPORT_FORMATS = ["Moxfield", "Archidekt", "Dragon Shield", "Deckbox", "ManaBox"] as const;
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export default function DeckView({
+  deck,
+  deckName,
+  deckId,
+  onSaved,
+}: {
+  deck: GeneratedDeck;
+  deckName?: string;
+  deckId?: string;
+  onSaved?: () => void;
+}) {
   const bySlot = (slot: string) => deck.cards.filter((c) => c.slot === slot);
+  const [name, setName] = useState(deckName ?? `${deck.commander.name} Deck`);
+  const [saving, setSaving] = useState(false);
+  const [savedAs, setSavedAs] = useState<string | null>(deckName ?? null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [exportFormat, setExportFormat] = useState<string>("Moxfield");
+  const [exporting, setExporting] = useState(false);
+
+  async function handleSave() {
+    if (!name.trim()) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (deckId) {
+        await api.updateSavedDeck(deckId, { name: name.trim(), deck });
+      } else {
+        await api.saveDeck(name.trim(), deck);
+      }
+      setSavedAs(name.trim());
+      onSaved?.();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Failed to save deck");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleExport() {
+    if (!deckId) return;
+    setExporting(true);
+    try {
+      const blob = await api.exportDeckBlob(deckId, exportFormat);
+      const safeName = (savedAs || name).replace(/\s+/g, "-");
+      downloadBlob(blob, `${safeName}.csv`);
+    } catch {
+      // silent
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const nameChanged = savedAs !== null && name.trim() !== savedAs;
+  const isUnsaved = savedAs === null;
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Deck name"
+          className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving || !name.trim() || (!isUnsaved && !nameChanged)}
+          className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : isUnsaved ? "Save deck" : nameChanged ? "Update name" : "Saved"}
+        </button>
+        {deckId && (
+          <>
+            <select
+              value={exportFormat}
+              onChange={(e) => setExportFormat(e.target.value)}
+              className="rounded-md border border-slate-700 bg-slate-800 px-2 py-2 text-sm text-slate-200"
+            >
+              {EXPORT_FORMATS.map((f) => (
+                <option key={f} value={f}>{f}</option>
+              ))}
+            </select>
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800 disabled:opacity-50"
+            >
+              {exporting ? "…" : "Export"}
+            </button>
+          </>
+        )}
+      </div>
+      {savedAs && !deckName && !nameChanged && (
+        <p className="text-sm text-emerald-400">Deck saved as "{savedAs}"</p>
+      )}
+      {saveError && <p className="text-sm text-rose-400">{saveError}</p>}
+
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatTile label="Deck size" value={`${deck.total} + CMD`} />
         <StatTile label="Lands" value={deck.land_count} />

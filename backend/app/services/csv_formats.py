@@ -160,3 +160,40 @@ def normalize_row(row: dict[str, str], fmt: CsvFormat) -> dict[str, str]:
             val = "foil" if val.strip().lower() in _FOIL_VALUES else ""
         canonical[dest_field] = val
     return canonical
+
+
+def _reverse_map(fmt: CsvFormat) -> dict[str, str]:
+    """Canonical field → format-specific column name."""
+    return {v: k for k, v in fmt.column_map.items()}
+
+
+def _format_foil(value: str, fmt: CsvFormat) -> str:
+    """Convert canonical 'foil' back to format-specific value."""
+    if not value:
+        return ""
+    rev = _reverse_map(fmt)
+    foil_col = rev.get("foil", "")
+    if foil_col == "Printing":   # Dragon Shield
+        return "Foil"
+    if foil_col == "Finish":     # Archidekt
+        return "Foil"
+    return "foil"                # Moxfield, Deckbox, ManaBox
+
+
+def export_rows_csv(rows: list[dict], fmt: CsvFormat) -> str:
+    """Convert canonical rows to CSV text in the given format."""
+    rev = _reverse_map(fmt)
+    headers = list(fmt.column_map.keys())
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=headers)
+    writer.writeheader()
+    for row in rows:
+        out: dict[str, str] = {}
+        for col in headers:
+            canonical_field = fmt.column_map[col]
+            val = row.get(canonical_field, "")
+            if canonical_field == "foil":
+                val = _format_foil(val, fmt)
+            out[col] = val
+        writer.writerow(out)
+    return buf.getvalue()

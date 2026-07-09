@@ -1,7 +1,8 @@
-"""Deck generation endpoint (Phase 3)."""
+"""Deck generation and saved-deck management endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from .. import db
@@ -12,8 +13,13 @@ from ..models.responses import (
     CurveBucket,
     DeckCardOut,
     GeneratedDeckResponse,
+    SaveDeckRequest,
+    SavedDeckResponse,
+    SavedDeckSummary,
+    UpdateDeckRequest,
 )
-from ..services import edhrec, generator
+from ..repositories import decks as decks_repo
+from ..services import csv_formats, edhrec, generator
 from ..services import pool as pool_service
 from ..services import spellbook
 from ..util import normalize_name
@@ -132,4 +138,116 @@ def _combo_out(combo: dict) -> ComboOut:
         produces=combo.get("produces", []),
         popularity=combo.get("popularity", 0),
         missing_name=combo.get("missing_name"),
+    )
+
+
+# ---- Saved decks ----
+
+
+@router.post("/save", response_model=SavedDeckResponse, status_code=status.HTTP_201_CREATED)
+async def save_deck(body: SaveDeckRequest, current_user: dict = Depends(get_current_user)):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Deck name cannot be empty.")
+    database = db.get_db()
+    deck_data = body.deck.model_dump()
+    deck_id = await decks_repo.save_deck(database, current_user["_id"], name, deck_data)
+    saved = await decks_repo.get_deck(database, current_user["_id"], deck_id)
+    return SavedDeckResponse(
+        id=saved["_id"],
+        name=saved["name"],
+        deck=saved["deck"],
+        created_at=saved["created_at"],
+        updated_at=saved["updated_at"],
+    )
+
+
+@router.get("/saved", response_model=list[SavedDeckSummary])
+async def list_saved_decks(current_user: dict = Depends(get_current_user)):
+    database = db.get_db()
+    docs = await decks_repo.list_decks(database, current_user["_id"])
+    return [
+        SavedDeckSummary(
+            id=doc["_id"],
+            name=doc["name"],
+            commander_name=doc["deck"].get("commander", {}).get("name", "Unknown"),
+            color_identity=doc["deck"].get("color_identity", []),
+            total=doc["deck"].get("total", 0),
+            created_at=doc["created_at"],
+            updated_at=doc["updated_at"],
+        )
+        for doc in docs
+    ]
+
+
+@router.get("/saved/{deck_id}", response_model=SavedDeckResponse)
+async def get_saved_deck(deck_id: str, current_user: dict = Depends(get_current_user)):
+    database = db.get_db()
+    doc = await decks_repo.get_deck(database, current_user["_id"], deck_id)
+    if not doc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found.")
+    return SavedDeckResponse(
+        id=doc["_id"],
+        name=doc["name"],
+        deck=doc["deck"],
+        created_at=doc["created_at"],
+        updated_at=doc["updated_at"],
+    )
+
+
+@router.put("/saved/{deck_id}", response_model=SavedDeckResponse)
+async def update_saved_deck(
+    deck_id: str, body: UpdateDeckRequest, current_user: dict = Depends(get_current_user),
+):
+    database = db.get_db()
+    deck_data = body.deck.model_dump() if body.deck else None
+    name = body.name.strip() if body.name else None
+    doc = await decks_repo.update_deck(
+        database, current_user["_id"], deck_id, name=name, deck_data=deck_data,
+    )
+    if not doc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found.")
+    return SavedDeckResponse(
+        id=doc["_id"],
+        name=doc["name"],
+        deck=doc["deck"],
+        created_at=doc["created_at"],
+        updated_at=doc["updated_at"],
+    )
+
+
+@router.delete("/saved/{deck_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_saved_deck(deck_id: str, current_user: dict = Depends(get_current_user)):
+    database = db.get_db()
+    deleted = await decks_repo.delete_deck(database, current_user["_id"], deck_id)
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found.")
+
+
+@router.get("/saved/{deck_id}/export")
+async def export_saved_deck(
+    deck_id: str,
+    format: str = Query("Moxfield"),
+    current_user: dict = Depends(get_current_user),
+):
+    fmt = csv_formats.get_format_by_name(format)
+    if not fmt:
+        supported = ", ".join(f.name for f in csv_formats.FORMATS)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown format '{format}'. Supported: {supported}")
+
+    database = db.get_db()
+    doc = await decks_repo.get_deck(database, current_user["_id"], deck_id)
+    if not doc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found.")
+
+    cards = doc["deck"].get("cards", [])
+    rows = [{"name": c["name"], "count": str(c.get("count", 1))} for c in cards]
+    csv_text = csv_formats.export_rows_csv(rows, fmt)
+
+    safe_name = doc["name"].replace(" ", "-").replace('"', "")
+    filename = f"{safe_name}-{fmt.name.lower().replace(' ', '-')}.csv"
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

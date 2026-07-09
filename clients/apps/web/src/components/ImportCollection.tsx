@@ -3,13 +3,31 @@ import type { ImportResult } from "@mtg/shared";
 import { api } from "../lib/api";
 
 const FORMAT_OPTIONS = ["Auto-detect", "Moxfield", "Archidekt", "Dragon Shield", "Deckbox", "ManaBox"] as const;
+const EXPORT_FORMATS = ["Moxfield", "Archidekt", "Dragon Shield", "Deckbox", "ManaBox"] as const;
 
-export default function ImportCollection({ onImported }: { onImported: () => void }) {
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export default function ImportCollection({
+  onImported,
+  hasCollection = false,
+}: {
+  onImported: () => void;
+  hasCollection?: boolean;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [format, setFormat] = useState<string>("Auto-detect");
+  const [exportFormat, setExportFormat] = useState<string>("Moxfield");
+  const [exporting, setExporting] = useState(false);
 
   async function handleFile(file: File) {
     setBusy(true);
@@ -26,12 +44,29 @@ export default function ImportCollection({ onImported }: { onImported: () => voi
     }
   }
 
+  async function handleExport() {
+    setExporting(true);
+    setError(null);
+    try {
+      const blob = await api.exportCollectionBlob(exportFormat);
+      const filename = `collection-${exportFormat.toLowerCase().replace(" ", "-")}.csv`;
+      downloadBlob(blob, filename);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-8 text-center">
-      <h2 className="text-xl font-semibold">Import your collection</h2>
+      <h2 className="text-xl font-semibold">
+        {hasCollection ? "Update your collection" : "Import your collection"}
+      </h2>
       <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">
         Upload a collection CSV or Excel file from Moxfield, Archidekt, Dragon Shield, Deckbox, or
         ManaBox. Format is auto-detected.
+        {hasCollection && " This will replace your current collection."}
       </p>
 
       <div className="mx-auto mt-4 flex items-center justify-center gap-3">
@@ -74,6 +109,30 @@ export default function ImportCollection({ onImported }: { onImported: () => voi
           {result.matched.toLocaleString()} matched, {result.unmatched.toLocaleString()} unmatched ·{" "}
           {result.unique_owned.toLocaleString()} unique cards.
         </p>
+      )}
+
+      {hasCollection && (
+        <div className="mt-6 border-t border-slate-800 pt-6">
+          <p className="text-sm font-medium text-slate-300">Export collection</p>
+          <div className="mt-2 flex items-center justify-center gap-3">
+            <select
+              value={exportFormat}
+              onChange={(e) => setExportFormat(e.target.value)}
+              className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200"
+            >
+              {EXPORT_FORMATS.map((f) => (
+                <option key={f} value={f}>{f}</option>
+              ))}
+            </select>
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="rounded-lg border border-slate-700 px-4 py-1.5 text-sm text-slate-200 transition hover:bg-slate-800 disabled:opacity-50"
+            >
+              {exporting ? "Exporting…" : "Download CSV"}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

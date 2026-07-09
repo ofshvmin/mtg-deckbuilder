@@ -1,16 +1,17 @@
-"""Collection endpoints: import a collection CSV/Excel file, and summarize what's owned."""
+"""Collection endpoints: import/export a collection, and summarize what's owned."""
 from __future__ import annotations
 
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 
 from .. import db
 from ..auth.deps import get_current_user
 from ..models.responses import CollectionSummary, ImportResultResponse
 from ..repositories import collection as collection_repo
-from ..services import importer
+from ..services import csv_formats, importer
 
 router = APIRouter(prefix="/collection", tags=["collection"])
 
@@ -65,4 +66,35 @@ async def import_collection(
         unique_owned=result.unique_owned,
         unmatched_names=result.unmatched_names[:50],
         detected_format=result.detected_format,
+    )
+
+
+# Canonical fields stored on each collection_item doc
+_EXPORT_FIELDS = [
+    "name", "count", "edition", "condition", "language", "foil",
+    "tags", "collector_number", "purchase_price", "tradelist_count",
+    "altered", "proxy",
+]
+
+
+@router.get("/export")
+async def export_collection(
+    format: str = Query("Moxfield"),
+    current_user: dict = Depends(get_current_user),
+):
+    fmt = csv_formats.get_format_by_name(format)
+    if not fmt:
+        supported = ", ".join(f.name for f in csv_formats.FORMATS)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown format '{format}'. Supported: {supported}")
+
+    database = db.get_db()
+    items = await collection_repo.list_items(database, current_user["_id"])
+    rows = [{k: str(item.get(k, "") or "") for k in _EXPORT_FIELDS} for item in items]
+    csv_text = csv_formats.export_rows_csv(rows, fmt)
+
+    filename = f"collection-{fmt.name.lower().replace(' ', '-')}.csv"
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
