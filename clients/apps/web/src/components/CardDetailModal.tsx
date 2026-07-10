@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { CollectionCard, Printing } from "@mtg/shared";
 import { api } from "../lib/api";
+import { lookupSet, useScryfallSets } from "../lib/scryfallSets";
 import CardImage from "./CardImage";
 import ColorPips from "./ColorPips";
 import ManaCost from "./ManaCost";
+import SetSymbol from "./SetSymbol";
 
 // Modal focused on one owned printing of a card at a time, with left/right
 // navigation (buttons, arrow keys, touch swipe) across every printing owned,
@@ -24,6 +26,10 @@ export default function CardDetailModal({
 
   const count = printings.length;
   const current: Printing | undefined = printings[index];
+
+  const sets = useScryfallSets();
+  const setInfo = lookupSet(sets, current?.edition);
+  const setName = setInfo?.name ?? (current?.edition ? current.edition.toUpperCase() : "Unknown set");
 
   const go = (delta: number) => {
     if (count <= 1) return;
@@ -99,6 +105,45 @@ export default function CardDetailModal({
           </button>
         </div>
 
+        {/* Set banner — the primary identity of this copy. Updates per printing. */}
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 bg-slate-900/40 px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <SetSymbol iconUri={setInfo?.iconSvgUri} code={current?.edition} className="h-11 w-11" />
+            <div className="min-w-0">
+              <div className="truncate text-lg font-semibold text-slate-100">{setName}</div>
+              <div className="text-xs uppercase tracking-wider text-slate-500">
+                {current?.edition?.toUpperCase() || "—"}
+                {current?.finish === "foil" && <span className="ml-1.5 text-amber-500">Foil</span>}
+              </div>
+            </div>
+          </div>
+          {count > 1 && (
+            <div className="flex flex-col items-end gap-1.5">
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                {printings.map((p, i) => (
+                  <button
+                    key={p.printing_key}
+                    onClick={() => setIndex(i)}
+                    className={
+                      "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase transition " +
+                      (i === index
+                        ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
+                        : "border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300")
+                    }
+                    title={`${p.edition || "—"}${p.finish === "foil" ? " · foil" : ""}`}
+                  >
+                    {p.edition || "—"}
+                    {p.finish === "foil" && <span className="ml-0.5 text-amber-500">✦</span>}
+                  </button>
+                ))}
+              </div>
+              <span className="text-[11px] text-slate-500">
+                Printing {index + 1} of {count}
+              </span>
+            </div>
+          )}
+        </div>
+
         <div className="grid gap-6 p-5 sm:grid-cols-[minmax(0,300px)_1fr]">
           {/* Image + printing navigation */}
           <div className="space-y-3">
@@ -127,30 +172,6 @@ export default function CardDetailModal({
                 </>
               )}
             </div>
-
-            {count > 1 && (
-              <div className="flex flex-wrap items-center justify-center gap-1.5">
-                {printings.map((p, i) => (
-                  <button
-                    key={p.printing_key}
-                    onClick={() => setIndex(i)}
-                    className={
-                      "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase transition " +
-                      (i === index
-                        ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
-                        : "border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300")
-                    }
-                    title={`${p.edition || "—"}${p.finish === "foil" ? " · foil" : ""}`}
-                  >
-                    {p.edition || "—"}
-                    {p.finish === "foil" && <span className="ml-0.5 text-amber-500">✦</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-            <p className="text-center text-xs text-slate-500">
-              {count > 1 ? `Printing ${index + 1} of ${count}` : "1 printing owned"}
-            </p>
           </div>
 
           {/* Detail panel for the focused printing */}
@@ -160,15 +181,7 @@ export default function CardDetailModal({
                 This copy
               </h3>
               <dl className="mt-2 divide-y divide-slate-800/60 rounded-xl border border-slate-800 bg-slate-900/40 text-sm">
-                <DetailRow label="Set" value={current?.edition?.toUpperCase()} />
-                <DetailRow label="Collector #" value={current?.collector_number} />
-                <DetailRow
-                  label="Finish"
-                  value={current?.finish === "foil" ? "Foil" : "Nonfoil"}
-                />
-                <DetailRow label="Condition" value={current?.condition} />
-                <DetailRow label="Language" value={current?.language?.toUpperCase()} />
-                <DetailRow label="Copies" value={current ? `${current.count}` : undefined} />
+                <DetailRow label="Owned" value={current ? `${current.count}` : undefined} />
                 <DetailRow
                   label="Purchase price"
                   value={
@@ -177,7 +190,8 @@ export default function CardDetailModal({
                       : undefined
                   }
                 />
-                <DetailRow label="Date added" value={formatDate(current?.added_at)} />
+                <DetailRow label="Finish" value={current?.finish === "foil" ? "Foil" : "Nonfoil"} />
+                <DetailRow label="Condition" value={current?.condition} />
               </dl>
               <p className="mt-2 text-xs text-slate-500">
                 Total owned across all printings: {card.total_count}
@@ -218,11 +232,4 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
       <dd className="text-right text-slate-200">{value}</dd>
     </div>
   );
-}
-
-function formatDate(iso?: string | null): string | undefined {
-  if (!iso) return undefined;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return undefined;
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
