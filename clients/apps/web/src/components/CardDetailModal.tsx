@@ -30,7 +30,7 @@ export function fromCollectionCard(c: CollectionCard): CardModalData {
 // navigation (buttons, arrow keys, touch swipe) across every printing owned,
 // plus a detail panel exposing the persisted inventory data for that copy.
 export default function CardDetailModal({
-  card,
+  card: initialCard,
   onClose,
   onRemoved,
 }: {
@@ -38,10 +38,37 @@ export default function CardDetailModal({
   onClose: () => void;
   onRemoved?: () => void;
 }) {
-  const printings = card.printings?.length ? card.printings : [];
+  const [card, setCard] = useState<CardModalData>(initialCard);
   const [index, setIndex] = useState(0);
   const [removing, setRemoving] = useState(false);
   const touchStartX = useRef<number | null>(null);
+
+  // If opened with incomplete data (no oracle_text or no printings), fetch the
+  // full card from the collection API so every modal looks the same.
+  useEffect(() => {
+    if (card.oracle_text && card.printings?.length) return;
+    let cancelled = false;
+    api.listCollectionCards().then((cards) => {
+      if (cancelled) return;
+      const match = cards.find(
+        (c) => c.oracle_id === card.oracle_id || c.name === card.name,
+      );
+      if (match) {
+        setCard((prev) => ({
+          ...prev,
+          oracle_text: prev.oracle_text || match.oracle_text,
+          printings: prev.printings?.length ? prev.printings : match.printings,
+          total_count: prev.total_count ?? match.total_count,
+          type_line: prev.type_line || match.type_line,
+          mana_cost: prev.mana_cost || match.mana_cost,
+          color_identity: prev.color_identity?.length ? prev.color_identity : match.color_identity,
+        }));
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const printings = card.printings?.length ? card.printings : [];
 
   const count = printings.length;
   const current: Printing | undefined = printings[index];
