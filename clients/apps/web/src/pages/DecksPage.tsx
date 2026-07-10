@@ -3,6 +3,7 @@ import type { GeneratedDeck, SavedDeckSummary } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
+import CommanderArt from "../components/CommanderArt";
 import DeckView from "../components/DeckView";
 
 export default function DecksPage() {
@@ -91,22 +92,31 @@ export default function DecksPage() {
           No saved decks yet — build one from the Build tab and save it.
         </p>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {decks.map((d) => (
-            <div key={d.id} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <button
-                    onClick={() => open(d.id)}
-                    disabled={opening}
-                    className="text-left text-sm font-medium text-slate-200 hover:text-white"
-                  >
-                    {d.name}
-                  </button>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {d.commander_name} · {formatColorIdentity(d.color_identity)} · {d.total} cards
-                  </p>
-                </div>
+            <div
+              key={d.id}
+              className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 transition hover:border-slate-700"
+            >
+              <button
+                onClick={() => open(d.id)}
+                disabled={opening}
+                className="block w-full text-left"
+                title={`Open ${d.name}`}
+              >
+                <CommanderArt name={d.commander_name} className="h-28">
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+                  <div className="absolute inset-x-0 bottom-0 p-3">
+                    <h3 className="truncate text-sm font-semibold text-white drop-shadow transition group-hover:text-emerald-300">
+                      {d.name}
+                    </h3>
+                  </div>
+                </CommanderArt>
+              </button>
+              <div className="flex items-center justify-between gap-2 px-3 py-2">
+                <p className="min-w-0 truncate text-xs text-slate-400">
+                  {d.commander_name} · {formatColorIdentity(d.color_identity)} · {d.total} cards
+                </p>
                 <button
                   onClick={() => remove(d.id)}
                   className="shrink-0 text-xs text-slate-600 hover:text-rose-400"
