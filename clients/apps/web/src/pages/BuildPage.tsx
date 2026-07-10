@@ -110,6 +110,50 @@ export default function BuildPage() {
             </>
           ) : (
             <>
+              {/* Strategy picker — shared by both modes */}
+              {strategies.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Strategy</label>
+                  <div className="flex flex-wrap gap-2">
+                    {strategies.map((s) => (
+                      <button
+                        key={s.name}
+                        onClick={() => setSelectedStrategy(s.name)}
+                        className={
+                          "rounded-lg border px-3 py-1.5 text-sm transition " +
+                          (selectedStrategy === s.name
+                            ? "border-emerald-600 bg-emerald-600/20 text-emerald-300"
+                            : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200")
+                        }
+                        title={s.description}
+                      >
+                        {s.name}
+                      </button>
+                    ))}
+                  </div>
+                  {selectedStrategy && selectedStrategy !== "Balanced" && (
+                    <p className="text-xs text-slate-500">
+                      {strategies.find((s) => s.name === selectedStrategy)?.description}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Theme input — shared by both modes */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Theme (optional)</label>
+                <input
+                  type="text"
+                  value={theme}
+                  onChange={(e) => setTheme(e.target.value)}
+                  placeholder="e.g. cats, landfall, zombies, Urza, tokens..."
+                  className="max-w-sm rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
+                />
+                <p className="text-xs text-slate-500">
+                  Matches card names, creature types, and oracle text. Try a tribe, mechanic, or keyword.
+                </p>
+              </div>
+
               {/* Auto / Manual mode toggle */}
               <div className="flex flex-wrap items-center gap-3">
                 <div className="inline-flex rounded-lg border border-slate-700 p-0.5">
@@ -126,7 +170,7 @@ export default function BuildPage() {
                     disabled={buildingDeck}
                     className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
                   >
-                    {buildingDeck ? "Building…" : "⚡ Build 99-card deck"}
+                    {buildingDeck ? "Building…" : "Build 99-card deck"}
                   </button>
                 )}
               </div>
@@ -135,47 +179,6 @@ export default function BuildPage() {
 
               {mode === "auto" ? (
                 <>
-                  {/* Strategy picker */}
-                  {strategies.length > 0 && (
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Strategy</label>
-                      <div className="flex flex-wrap gap-2">
-                        {strategies.map((s) => (
-                          <button
-                            key={s.name}
-                            onClick={() => setSelectedStrategy(s.name)}
-                            className={
-                              "rounded-lg border px-3 py-1.5 text-sm transition " +
-                              (selectedStrategy === s.name
-                                ? "border-emerald-600 bg-emerald-600/20 text-emerald-300"
-                                : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200")
-                            }
-                            title={s.description}
-                          >
-                            {s.name}
-                          </button>
-                        ))}
-                      </div>
-                      {selectedStrategy && selectedStrategy !== "Balanced" && (
-                        <p className="text-xs text-slate-500">
-                          {strategies.find((s) => s.name === selectedStrategy)?.description}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Theme input */}
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Theme (optional)</label>
-                    <input
-                      type="text"
-                      value={theme}
-                      onChange={(e) => setTheme(e.target.value)}
-                      placeholder="e.g. cats, landfall, zombies, tokens..."
-                      className="max-w-sm rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
-                    />
-                  </div>
-
                   <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                     <StatTile label="Legal pool" value={pool.pool_size.toLocaleString()} />
                     <StatTile label="Lands" value={pool.land_count} />
@@ -186,7 +189,13 @@ export default function BuildPage() {
                   <PoolTable pool={pool.pool} />
                 </>
               ) : (
-                <ManualBuilder pool={pool} commanderName={pool.commander.name} onSaved={refreshSaved} />
+                <ManualBuilder
+                  pool={pool}
+                  commanderName={pool.commander.name}
+                  strategy={selectedStrategy}
+                  theme={theme}
+                  onSaved={refreshSaved}
+                />
               )}
             </>
           )}
