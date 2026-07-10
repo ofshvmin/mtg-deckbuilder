@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { PoolCard } from "@mtg/shared";
-import { formatManaCost } from "../lib/format";
 import ColorPips from "./ColorPips";
+import ManaCost from "./ManaCost";
 
 const DISPLAY_CAP = 300;
 
@@ -52,8 +52,8 @@ export default function PoolTable({ pool }: { pool: PoolCard[] }) {
               <tr key={c.oracle_id} className="border-t border-slate-800/60 hover:bg-slate-800/40">
                 <td className="px-4 py-2 text-slate-100">{c.name}</td>
                 <td className="px-4 py-2 text-slate-400">{shortType(c.type_line)}</td>
-                <td className="px-4 py-2 font-mono text-xs text-slate-300">
-                  {formatManaCost(c.mana_cost)}
+                <td className="px-4 py-2">
+                  <ManaCost cost={c.mana_cost} className="text-xs" />
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums text-slate-400">
                   {c.is_land ? "—" : c.cmc}

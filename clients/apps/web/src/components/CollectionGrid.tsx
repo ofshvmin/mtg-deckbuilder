@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import type { CollectionCard } from "@mtg/shared";
-import { formatManaCost } from "../lib/format";
 import CardDetailModal from "./CardDetailModal";
 import ColorPips from "./ColorPips";
+import ManaCost from "./ManaCost";
 import PrintingChips from "./PrintingChips";
 
 const DISPLAY_CAP = 400;
@@ -71,8 +71,8 @@ export default function CollectionGrid({
                 <td className="hidden px-4 py-2 text-slate-400 sm:table-cell">
                   {shortType(c.type_line)}
                 </td>
-                <td className="hidden px-4 py-2 font-mono text-xs text-slate-300 md:table-cell">
-                  {formatManaCost(c.mana_cost)}
+                <td className="hidden px-4 py-2 md:table-cell">
+                  <ManaCost cost={c.mana_cost} className="text-xs" />
                 </td>
                 <td className="hidden px-4 py-2 text-right tabular-nums text-slate-400 sm:table-cell">
                   {shortType(c.type_line).toLowerCase().includes("land") ? "—" : c.cmc}

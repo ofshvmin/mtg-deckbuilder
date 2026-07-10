@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { CollectionCard, Printing } from "@mtg/shared";
 import { api } from "../lib/api";
-import { formatManaCost } from "../lib/format";
 import CardImage from "./CardImage";
 import ColorPips from "./ColorPips";
+import ManaCost from "./ManaCost";
 
 // Modal focused on one owned printing of a card at a time, with left/right
 // navigation (buttons, arrow keys, touch swipe) across every printing owned,
@@ -86,11 +86,7 @@ export default function CardDetailModal({
             <h2 className="truncate text-xl font-semibold text-slate-100">{card.name}</h2>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-400">
               <span>{card.type_line}</span>
-              {card.mana_cost && (
-                <span className="font-mono text-xs text-slate-300">
-                  {formatManaCost(card.mana_cost)}
-                </span>
-              )}
+              {card.mana_cost && <ManaCost cost={card.mana_cost} className="text-sm" />}
               <ColorPips colors={card.color_identity} />
             </div>
           </div>

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import type { Combo, DeckCard, GeneratedDeck } from "@mtg/shared";
 import { api } from "../lib/api";
-import { formatColorIdentity, formatManaCost } from "../lib/format";
+import { formatColorIdentity } from "../lib/format";
 import CommanderArt from "./CommanderArt";
+import ManaCost from "./ManaCost";
 import ManaCurve from "./ManaCurve";
 import PrintingChips from "./PrintingChips";
 import StatTile from "./StatTile";
@@ -173,13 +174,15 @@ export default function DeckView({
       {/* Featured deck list (left) + combos as blocks (right) */}
       <div className={hasCombos ? "grid gap-6 lg:grid-cols-3" : ""}>
         <div className={hasCombos ? "lg:col-span-2" : ""}>
-          <div className="grid gap-4 sm:grid-cols-2">
+          {/* Masonry: blocks pack by height (break-inside-avoid keeps each intact)
+              so short sections don't leave gaps beside long ones. */}
+          <div className={`gap-4 [column-fill:balance] ${hasCombos ? "columns-1 sm:columns-2" : "columns-1 sm:columns-2 lg:columns-3"}`}>
             {SLOTS.map(({ key, label, dot }) => {
               const cards = bySlot(key);
               if (cards.length === 0) return null;
               const total = cards.reduce((s, c) => s + c.count, 0);
               return (
-                <div key={key} className="rounded-xl border border-slate-800 bg-slate-900/60">
+                <div key={key} className="mb-4 break-inside-avoid rounded-xl border border-slate-800 bg-slate-900/60">
                   <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2">
                     <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-300">
                       <span className={`h-2 w-2 rounded-full ${dot}`} />
@@ -257,9 +260,7 @@ function DeckRow({ card }: { card: DeckCard }) {
         )}
         <PrintingChips printings={card.printings} />
       </span>
-      <span className="shrink-0 font-mono text-xs text-slate-500">
-        {formatManaCost(card.mana_cost)}
-      </span>
+      <ManaCost cost={card.mana_cost} className="shrink-0 text-xs" />
     </li>
   );
 }
