@@ -20,8 +20,10 @@ export default function ImportCollection({
   const [format, setFormat] = useState<string>("Auto-detect");
 
   async function handleFile(file: File) {
+    if (busy) return; // prevent double-submit
     setBusy(true);
     setError(null);
+    setResult(null);
     try {
       const fmt = format === "Auto-detect" ? undefined : format;
       const res = await api.importCollection(file, file.name, fmt);
@@ -31,6 +33,8 @@ export default function ImportCollection({
       setError(e instanceof Error ? e.message : "Import failed");
     } finally {
       setBusy(false);
+      // Reset file input so re-selecting the same file triggers onChange
+      if (inputRef.current) inputRef.current.value = "";
     }
   }
 
