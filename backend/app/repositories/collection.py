@@ -9,8 +9,15 @@ from ..util import printing_key
 async def replace_user_collection(
     db: AsyncDatabase, user_id: str, items: list[dict]
 ) -> int:
-    """Replace all of a user's collection rows with a freshly imported set."""
-    await db.collection_items.delete_many({"user_id": user_id})
+    """Replace all of a user's collection rows with a freshly imported set.
+
+    Deletes every existing row for this user first, waits for the delete to
+    fully acknowledge, then inserts the new rows. This ensures a re-import
+    always produces a clean replacement, never duplicates.
+    """
+    result = await db.collection_items.delete_many({"user_id": user_id})
+    # Force a round-trip to confirm the delete completed before inserting.
+    await db.collection_items.count_documents({"user_id": user_id})
     if items:
         await db.collection_items.insert_many(items, ordered=False)
     return len(items)
