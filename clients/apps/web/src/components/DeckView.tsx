@@ -3,6 +3,7 @@ import type { Combo, DeckCard, GeneratedDeck } from "@mtg/shared";
 import { api } from "../lib/api";
 import { formatManaCost } from "../lib/format";
 import ManaCurve from "./ManaCurve";
+import PrintingChips from "./PrintingChips";
 import StatTile from "./StatTile";
 
 // Slot display order + labels.
@@ -202,22 +203,25 @@ function DeckRow({ card }: { card: DeckCard }) {
   const highSynergy = card.quality >= 0.3;
   return (
     <li className="flex items-center justify-between gap-3 px-4 py-1.5 text-sm">
-      <span className="text-slate-200">
-        {card.count > 1 && <span className="mr-1 text-slate-500">{card.count}×</span>}
-        {card.name}
+      <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-slate-200">
+        <span className="truncate">
+          {card.count > 1 && <span className="mr-1 text-slate-500">{card.count}×</span>}
+          {card.name}
+        </span>
         {card.in_combo && (
-          <span className="ml-1.5 text-fuchsia-400" title="Part of a combo in this deck">
+          <span className="text-fuchsia-400" title="Part of a combo in this deck">
             ⚡
           </span>
         )}
         {highSynergy && (
           <span
-            className="ml-1.5 text-emerald-400"
+            className="text-emerald-400"
             title={`High synergy with this commander (EDHREC score ${card.quality.toFixed(2)})`}
           >
             ◆
           </span>
         )}
+        <PrintingChips printings={card.printings} />
       </span>
       <span className="shrink-0 font-mono text-xs text-slate-500">
         {formatManaCost(card.mana_cost)}

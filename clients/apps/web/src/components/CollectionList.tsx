@@ -1,6 +1,23 @@
 import { useState } from "react";
-import type { CollectionItem } from "@mtg/shared";
+import type { CollectionItem, Printing } from "@mtg/shared";
 import { api } from "../lib/api";
+import PrintingChips from "./PrintingChips";
+
+// Adapt a collection row to the printing-chip shape (single owned printing).
+function itemPrintings(item: CollectionItem): Printing[] {
+  if (!item.edition) return [];
+  return [
+    {
+      printing_key: `${item.edition}|${item.condition ?? ""}|${item.foil ? "foil" : "nonfoil"}`,
+      edition: item.edition,
+      collector_number: null,
+      finish: item.foil ? "foil" : "nonfoil",
+      condition: item.condition ?? null,
+      language: null,
+      count: item.count,
+    },
+  ];
+}
 
 export default function CollectionList({
   items,
@@ -48,12 +65,7 @@ export default function CollectionList({
                 <span className="shrink-0 text-slate-500">{item.count}x</span>
               )}
               <span className="truncate text-slate-200">{item.name}</span>
-              {item.edition && (
-                <span className="shrink-0 text-xs text-slate-600 uppercase">{item.edition}</span>
-              )}
-              {item.foil && (
-                <span className="shrink-0 text-xs text-amber-500">Foil</span>
-              )}
+              <PrintingChips printings={itemPrintings(item)} />
               {!item.oracle_id && (
                 <span className="shrink-0 text-xs text-rose-500">unmatched</span>
               )}

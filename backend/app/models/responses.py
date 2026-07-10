@@ -44,6 +44,17 @@ class PoolResponse(BaseModel):
     pool: list[PoolCard]
 
 
+class PrintingOut(BaseModel):
+    """One owned printing (physical inventory unit) of a card."""
+    printing_key: str
+    edition: str | None = None
+    collector_number: str | None = None
+    finish: str = "nonfoil"        # "foil" | "nonfoil"
+    condition: str | None = None
+    language: str | None = None
+    count: int = 1
+
+
 class DeckCardOut(BaseModel):
     oracle_id: str
     name: str
@@ -57,6 +68,8 @@ class DeckCardOut(BaseModel):
     count: int
     quality: float
     in_combo: bool = False
+    printings: list[PrintingOut] = []          # owned printings (empty for basics)
+    selected_printing_key: str | None = None   # which owned copy this deck earmarks
 
 
 class ComboOut(BaseModel):

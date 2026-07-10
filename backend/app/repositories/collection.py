@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pymongo.asynchronous.database import AsyncDatabase
 
+from ..util import printing_key
+
 
 async def replace_user_collection(
     db: AsyncDatabase, user_id: str, items: list[dict]
@@ -27,6 +29,56 @@ async def owned_counts(db: AsyncDatabase, user_id: str) -> dict[str, int]:
     cursor = await db.collection_items.aggregate(pipeline)
     async for row in cursor:
         result[row["_id"]] = row["copies"]
+    return result
+
+
+async def owned_printings(db: AsyncDatabase, user_id: str) -> dict[str, list[dict]]:
+    """Map of oracle_id -> the distinct printing units the user owns of that card.
+
+    Each unit is one physical inventory line: a specific (edition, collector
+    number, finish, condition, language) combination, with the total count owned
+    and a stable ``printing_key``. Rows that never matched a card (oracle_id =
+    None) are skipped — they can't be attached to a deck card.
+
+    This is the counterpart to ``owned_counts`` (which collapses every printing
+    into a single number for legality/inclusion math). Here we keep the printings
+    apart so the deck output can tell Danko *which physical card* to pull.
+    """
+    pipeline = [
+        {"$match": {"user_id": user_id, "oracle_id": {"$ne": None}}},
+        {
+            "$group": {
+                "_id": {
+                    "oracle_id": "$oracle_id",
+                    "edition": "$edition",
+                    "collector_number": "$collector_number",
+                    "foil": "$foil",
+                    "condition": "$condition",
+                    "language": "$language",
+                },
+                "count": {"$sum": "$count"},
+            }
+        },
+    ]
+    result: dict[str, list[dict]] = {}
+    cursor = await db.collection_items.aggregate(pipeline)
+    async for row in cursor:
+        g = row["_id"]
+        oracle_id = g["oracle_id"]
+        finish = "foil" if str(g.get("foil") or "").strip().lower() in {"foil", "etched"} else "nonfoil"
+        unit = {
+            "printing_key": printing_key(g.get("edition"), g.get("collector_number"), g.get("foil")),
+            "edition": g.get("edition") or None,
+            "collector_number": g.get("collector_number") or None,
+            "finish": finish,
+            "condition": g.get("condition") or None,
+            "language": g.get("language") or None,
+            "count": row["count"],
+        }
+        result.setdefault(oracle_id, []).append(unit)
+    # Stable display order: set code, then collector number, then finish.
+    for units in result.values():
+        units.sort(key=lambda u: (u["edition"] or "", u["collector_number"] or "", u["finish"]))
     return result
 
 
