@@ -161,6 +161,13 @@ export class ApiClient {
     });
   }
 
+  /** Analyze an exact chosen card list into deck categories + stats (manual builder). */
+  composeDeck(commanderName: string, oracleIds: string[]): Promise<GeneratedDeck> {
+    return this.request<GeneratedDeck>("POST", "/decks/compose", {
+      body: { commander: commanderName, oracle_ids: oracleIds },
+    });
+  }
+
   // ---- Saved decks ----
 
   saveDeck(name: string, deck: GeneratedDeck): Promise<SavedDeck> {

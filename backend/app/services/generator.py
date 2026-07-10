@@ -299,3 +299,94 @@ def generate(
             )
 
     return deck
+
+
+def compose(
+    chosen_docs: list[dict],
+    identity: list[str],
+    quality: dict[str, float] | None = None,
+    printings: dict[str, list[dict]] | None = None,
+) -> GeneratedDeck:
+    """Analyze an *exact* user-chosen set of cards into the same deck shape as
+    ``generate`` — same role categories, curve, color sources and mana-math
+    stats — but with no greedy fill and no auto-added basics. Powers the manual
+    builder: whatever the user has added so far, computed live.
+    """
+    quality = quality or {}
+    printings = printings or {}
+    max_quality = max(quality.values()) if quality else 0.0
+
+    def q(oid: str) -> float:
+        return quality.get(oid, 0.0)
+
+    def q_norm(oid: str) -> float:
+        return (q(oid) / max_quality) if max_quality > 0 else 0.0
+
+    deck = GeneratedDeck()
+    tagged = [(doc, roles.tag_roles(doc)) for doc in chosen_docs]
+
+    chosen: list[DeckCard] = []
+    land_cards: list[DeckCard] = []
+    for doc, rset in tagged:
+        if roles.LAND in rset:
+            land_cards.append(_deck_card(doc, rset, "land", "Land", printings=printings))
+            continue
+        role = next((r for r in ROLE_FILL_ORDER if r in rset), None)
+        if role:
+            slot, reason = role, roles.ROLE_LABELS[role]
+        elif q_norm(doc["_id"]) >= 0.5:
+            slot, reason = "game_plan", "High-synergy pick (popular with this commander)"
+        else:
+            slot, reason = "game_plan", "Game plan"
+        chosen.append(_deck_card(doc, rset, slot, reason, quality=q(doc["_id"]), printings=printings))
+
+    deck.cards = land_cards + chosen
+    deck.nonland_count = len(chosen)
+    actual_lands = sum(c.count for c in land_cards)
+    deck.land_count = actual_lands
+    total = sum(c.count for c in deck.cards)
+
+    role_counts: dict[str, int] = {}
+    for c in chosen:
+        role_counts[c.slot] = role_counts.get(c.slot, 0) + 1
+    deck.role_counts = role_counts
+
+    curve_hist = {b: 0 for b in range(8)}
+    for c in chosen:
+        curve_hist[_bucket(c.cmc)] += 1
+    deck.curve = [{"cmc": b, "count": curve_hist[b]} for b in range(8)]
+
+    sources = {c: 0 for c in COLOR_ORDER if c in identity}
+    id_to_doc = {d["_id"]: d for d, _ in tagged}
+    for c in deck.cards:
+        doc = id_to_doc.get(c.oracle_id)
+        produced = set(doc.get("produced_mana") or []) if doc else set()
+        for color in produced:
+            if color in sources:
+                sources[color] += c.count
+    deck.color_sources = sources
+
+    # Consistency on the CURRENT deck size (opening-hand math needs >= 7 cards).
+    if total >= 7:
+        deck.stats = {
+            "p_2plus_lands_opening": round(
+                mana_math.hypergeometric_at_least(total, actual_lands, 7, 2) * 100, 1
+            ),
+            "p_3plus_lands_opening": round(
+                mana_math.hypergeometric_at_least(total, actual_lands, 7, 3) * 100, 1
+            ),
+            "avg_nonland_mv": round(sum(c.cmc for c in chosen) / len(chosen), 2) if chosen else 0.0,
+        }
+    else:
+        deck.stats = {
+            "p_2plus_lands_opening": 0.0,
+            "p_3plus_lands_opening": 0.0,
+            "avg_nonland_mv": round(sum(c.cmc for c in chosen) / len(chosen), 2) if chosen else 0.0,
+        }
+
+    if total < 99:
+        deck.warnings.append(f"{total}/99 cards — add {99 - total} more to complete the deck.")
+    elif total > 99:
+        deck.warnings.append(f"{total} cards — {total - 99} over the 99-card limit.")
+
+    return deck

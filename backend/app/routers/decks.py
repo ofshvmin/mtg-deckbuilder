@@ -88,20 +88,72 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
     # Which of the pool's combos actually assembled in the final deck?
     deck_ids = {dc.oracle_id for dc in deck.cards} | {result.commander["_id"]}
     deck_combos = [c for c in pool_full if set(c["cards"]) <= deck_ids]
-    combo_card_ids = {oid for combo in deck_combos for oid in combo["cards"]}
 
-    c = result.commander
+    return _deck_response(
+        result.commander, result.color_identity, deck, edhrec_available, deck_combos, pool_near
+    )
+
+
+class ComposeRequest(BaseModel):
+    commander: str
+    oracle_ids: list[str]
+
+
+@router.post("/compose", response_model=GeneratedDeckResponse)
+async def compose_deck(body: ComposeRequest, current_user: dict = Depends(get_current_user)):
+    """Analyze an exact user-chosen card list into the deck shape (categories +
+    stats), for the manual builder. Same rendering as an auto-built deck."""
+    database = db.get_db()
+    try:
+        result = await pool_service.get_pool(database, current_user["_id"], body.commander)
+    except pool_service.CommanderNotFound as e:
+        detail = f"No card found matching '{e.name}'."
+        if e.suggestions:
+            detail += " Did you mean: " + ", ".join(e.suggestions[:5])
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+
+    # Keep only ids that are actually in this commander's legal owned pool.
+    pool_by_id = {card["_id"]: card for card in result.pool}
+    chosen_docs = [pool_by_id[oid] for oid in body.oracle_ids if oid in pool_by_id]
+
+    score_map = await edhrec.get_score_map(database, result.commander)
+    quality = {card["_id"]: score_map.get(card["name_normalized"], 0.0) for card in result.pool}
+    edhrec_available = any(v > 0 for v in quality.values())
+
+    deck = generator.compose(
+        chosen_docs, result.color_identity, quality=quality, printings=result.printings
+    )
+
+    # Combos present in the current deck, plus combos it's one card away from.
+    deck_ids = {dc.oracle_id for dc in deck.cards} | {result.commander["_id"]}
+    deck_combos, near_combos = await spellbook.detect(database, deck_ids, result.color_identity)
+
+    return _deck_response(
+        result.commander, result.color_identity, deck, edhrec_available, deck_combos, near_combos
+    )
+
+
+def _deck_response(
+    commander: dict,
+    identity: list[str],
+    deck,  # generator.GeneratedDeck
+    edhrec_available: bool,
+    deck_combos: list[dict],
+    near_combos: list[dict],
+) -> GeneratedDeckResponse:
+    """Assemble a GeneratedDeckResponse from a computed deck (shared by generate + compose)."""
+    combo_card_ids = {oid for combo in deck_combos for oid in combo["cards"]}
     return GeneratedDeckResponse(
         commander=CardSummary(
-            oracle_id=c["_id"],
-            name=c["name"],
-            mana_cost=c.get("mana_cost", ""),
-            cmc=c.get("cmc", 0.0),
-            type_line=c.get("type_line", ""),
-            color_identity=c.get("color_identity", []),
-            oracle_text=c.get("oracle_text", ""),
+            oracle_id=commander["_id"],
+            name=commander["name"],
+            mana_cost=commander.get("mana_cost", ""),
+            cmc=commander.get("cmc", 0.0),
+            type_line=commander.get("type_line", ""),
+            color_identity=commander.get("color_identity", []),
+            oracle_text=commander.get("oracle_text", ""),
         ),
-        color_identity=result.color_identity,
+        color_identity=identity,
         total=sum(dc.count for dc in deck.cards),
         land_count=deck.land_count,
         nonland_count=deck.nonland_count,
@@ -112,7 +164,7 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         warnings=deck.warnings,
         edhrec_available=edhrec_available,
         combos=[_combo_out(c) for c in deck_combos],
-        near_combos=[_combo_out(c) for c in pool_near],
+        near_combos=[_combo_out(c) for c in near_combos],
         cards=[
             DeckCardOut(
                 oracle_id=dc.oracle_id,

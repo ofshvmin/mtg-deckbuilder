@@ -1,22 +1,11 @@
 import { useState } from "react";
-import type { Combo, DeckCard, GeneratedDeck } from "@mtg/shared";
+import type { Combo, GeneratedDeck } from "@mtg/shared";
 import { api } from "../lib/api";
 import { formatColorIdentity } from "../lib/format";
 import CommanderArt from "./CommanderArt";
-import ManaCost from "./ManaCost";
+import DeckCardList from "./DeckCardList";
 import ManaCurve from "./ManaCurve";
-import PrintingChips from "./PrintingChips";
 import StatTile from "./StatTile";
-
-// Slot display order + labels + an accent dot for visual grouping.
-const SLOTS: { key: string; label: string; dot: string }[] = [
-  { key: "land", label: "Lands", dot: "bg-amber-500" },
-  { key: "ramp", label: "Ramp", dot: "bg-emerald-500" },
-  { key: "card_draw", label: "Card Draw", dot: "bg-sky-500" },
-  { key: "removal", label: "Removal", dot: "bg-rose-500" },
-  { key: "board_wipe", label: "Board Wipes", dot: "bg-red-600" },
-  { key: "game_plan", label: "Game Plan", dot: "bg-fuchsia-500" },
-];
 
 const EXPORT_FORMATS = ["Moxfield", "Archidekt", "Dragon Shield", "Deckbox", "ManaBox"] as const;
 
@@ -40,7 +29,6 @@ export default function DeckView({
   deckId?: string;
   onSaved?: () => void;
 }) {
-  const bySlot = (slot: string) => deck.cards.filter((c) => c.slot === slot);
   const [name, setName] = useState(deckName ?? `${deck.commander.name} Deck`);
   const [saving, setSaving] = useState(false);
   const [savedAs, setSavedAs] = useState<string | null>(deckName ?? null);
@@ -174,31 +162,10 @@ export default function DeckView({
       {/* Featured deck list (left) + combos as blocks (right) */}
       <div className={hasCombos ? "grid gap-6 lg:grid-cols-3" : ""}>
         <div className={hasCombos ? "lg:col-span-2" : ""}>
-          {/* Masonry: blocks pack by height (break-inside-avoid keeps each intact)
-              so short sections don't leave gaps beside long ones. */}
-          <div className={`gap-4 [column-fill:balance] ${hasCombos ? "columns-1 sm:columns-2" : "columns-1 sm:columns-2 lg:columns-3"}`}>
-            {SLOTS.map(({ key, label, dot }) => {
-              const cards = bySlot(key);
-              if (cards.length === 0) return null;
-              const total = cards.reduce((s, c) => s + c.count, 0);
-              return (
-                <div key={key} className="mb-4 break-inside-avoid rounded-xl border border-slate-800 bg-slate-900/60">
-                  <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2">
-                    <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-300">
-                      <span className={`h-2 w-2 rounded-full ${dot}`} />
-                      {label}
-                    </span>
-                    <span className="text-xs tabular-nums text-slate-500">{total}</span>
-                  </div>
-                  <ul className="divide-y divide-slate-800/60">
-                    {cards.map((c) => (
-                      <DeckRow key={c.oracle_id} card={c} />
-                    ))}
-                  </ul>
-                </div>
-              );
-            })}
-          </div>
+          <DeckCardList
+            cards={deck.cards}
+            columnsClassName={hasCombos ? "columns-1 sm:columns-2" : "columns-1 sm:columns-2 lg:columns-3"}
+          />
         </div>
 
         {hasCombos && (
@@ -233,35 +200,6 @@ export default function DeckView({
         )}
       </div>
     </div>
-  );
-}
-
-function DeckRow({ card }: { card: DeckCard }) {
-  const highSynergy = card.quality >= 0.3;
-  return (
-    <li className="flex items-center justify-between gap-3 px-4 py-1.5 text-sm">
-      <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-slate-200">
-        <span className="truncate">
-          {card.count > 1 && <span className="mr-1 text-slate-500">{card.count}×</span>}
-          {card.name}
-        </span>
-        {card.in_combo && (
-          <span className="text-fuchsia-400" title="Part of a combo in this deck">
-            ⚡
-          </span>
-        )}
-        {highSynergy && (
-          <span
-            className="text-emerald-400"
-            title={`High synergy with this commander (EDHREC score ${card.quality.toFixed(2)})`}
-          >
-            ◆
-          </span>
-        )}
-        <PrintingChips printings={card.printings} />
-      </span>
-      <ManaCost cost={card.mana_cost} className="shrink-0 text-xs" />
-    </li>
   );
 }
 
