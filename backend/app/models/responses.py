@@ -53,6 +53,21 @@ class PrintingOut(BaseModel):
     condition: str | None = None
     language: str | None = None
     count: int = 1
+    purchase_price: float | None = None
+    added_at: str | None = None    # ISO timestamp; stamped on import/add going forward
+
+
+class CollectionCardOut(BaseModel):
+    """One owned oracle card for the collection browser: oracle data + printings."""
+    oracle_id: str
+    name: str
+    mana_cost: str = ""
+    cmc: float = 0.0
+    type_line: str = ""
+    color_identity: list[str] = []
+    oracle_text: str = ""
+    total_count: int
+    printings: list[PrintingOut] = []
 
 
 class DeckCardOut(BaseModel):
