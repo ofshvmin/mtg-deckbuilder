@@ -124,6 +124,48 @@ def test_reanimator_match():
     assert matcher.matches(card) is True
 
 
+# --- Name matching ---
+
+def test_name_match_single_word():
+    matcher = ThemeMatcher("urza")
+    card = _card("P", "Urza's Tower", "Land — Urza's Tower", "{T}: Add {C}.")
+    assert matcher.matches(card) is True
+
+
+def test_name_match_no_substring_false_positive():
+    """'cat' should not match 'Scatter' via name (word boundary)."""
+    matcher = ThemeMatcher("cat")
+    card = _card("Q", "Scatter to the Winds", "Instant", "Counter target spell.")
+    assert matcher.matches(card) is False
+
+
+def test_multiword_theme_filters_stopwords():
+    """'Urza's lands' → distinctive keyword 'urza's' matches Urza's Mine."""
+    matcher = ThemeMatcher("Urza's lands")
+    card = _card("R", "Urza's Mine", "Land — Urza's Mine", "{T}: Add {C}.")
+    assert matcher.matches(card) is True
+
+
+def test_multiword_theme_no_match():
+    matcher = ThemeMatcher("Urza's lands")
+    card = _card("S", "Lightning Bolt", "Instant", "Deal 3 damage.")
+    assert matcher.matches(card) is False
+
+
+def test_type_line_match():
+    """Theme keyword found in full type_line (e.g. 'Land — Urza's Tower')."""
+    matcher = ThemeMatcher("urza's")
+    card = _card("T", "Urza's Power Plant", "Land — Urza's Power-Plant", "{T}: Add {C}.")
+    assert matcher.matches(card) is True
+
+
+def test_name_match_dragon():
+    """'dragon' matches a card named 'Dragon Tempest'."""
+    matcher = ThemeMatcher("dragon")
+    card = _card("U", "Dragon Tempest", "Enchantment", "Whenever a Dragon enters...")
+    assert matcher.matches(card) is True
+
+
 # --- compute_theme_matches ---
 
 def test_compute_theme_matches_none():

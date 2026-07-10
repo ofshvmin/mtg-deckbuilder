@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { GeneratedDeck, PoolResponse } from "@mtg/shared";
+import type { DeckCard, GeneratedDeck, PoolCard, PoolResponse } from "@mtg/shared";
 import { api } from "../lib/api";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
@@ -18,13 +18,20 @@ function shortType(typeLine: string): string {
 // Hands-on deck builder: add cards from the legal pool and watch a live deck
 // take shape — same categories + stats as an auto-built deck, computed by the
 // backend /decks/compose endpoint on each (debounced) change.
+//
+// The "Get suggestions" button generates a full deck using the auto-builder
+// and shows those cards as recommendations the user can cherry-pick from.
 export default function ManualBuilder({
   pool,
   commanderName,
+  strategy,
+  theme,
   onSaved,
 }: {
   pool: PoolResponse;
   commanderName: string;
+  strategy?: string;
+  theme?: string;
   onSaved?: () => void;
 }) {
   const [selected, setSelected] = useState<string[]>([]);
@@ -37,7 +44,16 @@ export default function ManualBuilder({
   const [modal, setModal] = useState<CardModalData | null>(null);
   const { hover, onEnter, onLeave } = useCardHover();
 
+  // Suggestions state
+  const [suggestions, setSuggestions] = useState<DeckCard[] | null>(null);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
   const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const suggestedIds = useMemo(
+    () => new Set((suggestions ?? []).map((c) => c.oracle_id)),
+    [suggestions],
+  );
   // Guards against out-of-order compose responses: only the latest applies.
   const composeSeq = useRef(0);
 
@@ -65,10 +81,44 @@ export default function ManualBuilder({
     return () => clearTimeout(t);
   }, [selected, commanderName]);
 
+  // Fetch suggestions via the auto-generator
+  async function fetchSuggestions() {
+    setLoadingSuggestions(true);
+    try {
+      const opts: { strategy?: string; theme?: string } = {};
+      if (strategy && strategy !== "Balanced") opts.strategy = strategy;
+      if (theme?.trim()) opts.theme = theme.trim();
+      const generated = await api.generateDeck(commanderName, opts);
+      // Only keep nonland cards as suggestions (lands are auto-handled)
+      setSuggestions(generated.cards.filter((c) => c.slot !== "land"));
+      setShowSuggestions(true);
+    } catch {
+      // silent
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  }
+
+  // Add all suggested cards at once
+  function addAllSuggestions() {
+    if (!suggestions) return;
+    const ids = suggestions.map((c) => c.oracle_id).filter((id) => !selectedSet.has(id));
+    setSelected((prev) => [...prev, ...ids]);
+  }
+
   const filtered = useMemo(() => {
     const f = filter.trim().toLowerCase();
-    return f ? pool.pool.filter((c) => c.name.toLowerCase().includes(f)) : pool.pool;
-  }, [pool.pool, filter]);
+    const base = f ? pool.pool.filter((c) => c.name.toLowerCase().includes(f)) : pool.pool;
+    // If showing suggestions, sort suggested cards to the top
+    if (showSuggestions && suggestedIds.size > 0) {
+      return [...base].sort((a, b) => {
+        const aS = suggestedIds.has(a.oracle_id) ? 0 : 1;
+        const bS = suggestedIds.has(b.oracle_id) ? 0 : 1;
+        return aS - bS;
+      });
+    }
+    return base;
+  }, [pool.pool, filter, showSuggestions, suggestedIds]);
   const shown = filtered.slice(0, POOL_CAP);
 
   const toggle = (id: string) =>
@@ -91,28 +141,81 @@ export default function ManualBuilder({
 
   const total = selected.length;
 
+  // Find suggestion data for a pool card (for showing slot/reason badges)
+  function suggestionFor(oracleId: string): DeckCard | undefined {
+    return suggestions?.find((s) => s.oracle_id === oracleId);
+  }
+
   return (
     <>
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Pool picker */}
         <div className="rounded-xl border border-slate-800 bg-slate-900/60">
           <div className="flex items-center justify-between gap-3 border-b border-slate-800 p-4">
-            <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-              Legal pool · {pool.pool_size.toLocaleString()}
+            <div className="flex items-center gap-3">
+              <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                Legal pool · {pool.pool_size.toLocaleString()}
+              </div>
+              <button
+                onClick={fetchSuggestions}
+                disabled={loadingSuggestions}
+                className="rounded-md border border-sky-700 px-2.5 py-1 text-xs font-medium text-sky-400 transition hover:bg-sky-900/30 disabled:opacity-50"
+                title="Use the auto-builder to suggest cards for your strategy and theme"
+              >
+                {loadingSuggestions ? "Thinking..." : showSuggestions ? "Refresh suggestions" : "Get suggestions"}
+              </button>
             </div>
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter by name…"
+              placeholder="Filter by name..."
               className="w-48 rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-emerald-500"
             />
           </div>
+
+          {/* Suggestion banner */}
+          {showSuggestions && suggestions && (
+            <div className="flex items-center justify-between border-b border-sky-800/40 bg-sky-950/30 px-4 py-2">
+              <span className="text-xs text-sky-300">
+                {suggestions.length} cards suggested
+                {theme?.trim() ? ` for "${theme.trim()}"` : ""}
+                {strategy && strategy !== "Balanced" ? ` (${strategy})` : ""}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={addAllSuggestions}
+                  className="rounded px-2 py-0.5 text-xs font-medium text-sky-300 transition hover:bg-sky-900/40"
+                >
+                  Add all
+                </button>
+                <button
+                  onClick={() => setShowSuggestions(false)}
+                  className="text-xs text-slate-500 hover:text-slate-300"
+                >
+                  Hide
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="max-h-[40rem] divide-y divide-slate-800/60 overflow-auto">
             {shown.map((c) => {
               const added = selectedSet.has(c.oracle_id);
+              const sug = showSuggestions ? suggestionFor(c.oracle_id) : undefined;
               return (
-                <div key={c.oracle_id} className="flex items-center justify-between gap-3 px-4 py-1.5 text-sm">
+                <div
+                  key={c.oracle_id}
+                  className={
+                    "flex items-center justify-between gap-3 px-4 py-1.5 text-sm" +
+                    (sug && !added ? " bg-sky-950/20" : "")
+                  }
+                >
                   <span className="flex min-w-0 items-center gap-2">
+                    {sug && !added && (
+                      <span className="shrink-0 text-[10px] text-sky-500" title={sug.reason}>
+                        *
+                      </span>
+                    )}
                     <span
                       className="cursor-pointer truncate text-slate-200 hover:text-emerald-300"
                       onClick={() => setModal({
@@ -131,6 +234,11 @@ export default function ManualBuilder({
                     <span className="hidden shrink-0 text-xs text-slate-500 sm:inline">
                       {shortType(c.type_line)}
                     </span>
+                    {sug && !added && (
+                      <span className="hidden shrink-0 rounded bg-sky-900/40 px-1.5 py-0.5 text-[10px] text-sky-400 sm:inline" title={sug.reason}>
+                        {sug.slot === "game_plan" ? sug.reason.split(" (")[0] : sug.slot.replace("_", " ")}
+                      </span>
+                    )}
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
                     <ManaCost cost={c.mana_cost} className="text-xs" />
@@ -143,7 +251,7 @@ export default function ManualBuilder({
                           : "border border-slate-700 text-slate-300 hover:bg-slate-800")
                       }
                     >
-                      {added ? "✓ Added" : "+ Add"}
+                      {added ? "Added" : "+ Add"}
                     </button>
                   </span>
                 </div>
@@ -170,24 +278,28 @@ export default function ManualBuilder({
               disabled={!deck || saving || !name.trim()}
               className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save deck"}
+              {saving ? "Saving..." : "Save deck"}
             </button>
           </div>
           {savedAs && <p className="text-sm text-emerald-400">Saved as "{savedAs}"</p>}
 
           {total === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-800 p-8 text-center text-sm text-slate-500">
-              Add cards from the pool to start building. Categories and stats appear here as you go.
+              <p>Add cards from the pool to start building.</p>
+              <p className="mt-2">
+                Use <strong>Get suggestions</strong> to see what the auto-builder recommends
+                {theme?.trim() ? ` for your "${theme.trim()}" theme` : ""}.
+              </p>
             </div>
           ) : (
             <>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <StatTile label="Cards" value={`${total} / 99`} />
-                <StatTile label="Lands" value={deck?.land_count ?? "…"} />
-                <StatTile label="Avg MV" value={deck?.stats.avg_nonland_mv ?? "…"} />
+                <StatTile label="Lands" value={deck?.land_count ?? "..."} />
+                <StatTile label="Avg MV" value={deck?.stats.avg_nonland_mv ?? "..."} />
                 <StatTile
                   label="2+ lands"
-                  value={deck ? `${deck.stats.p_2plus_lands_opening}%` : "…"}
+                  value={deck ? `${deck.stats.p_2plus_lands_opening}%` : "..."}
                 />
               </div>
               {deck && <ManaCurve curve={deck.curve} />}
@@ -199,7 +311,7 @@ export default function ManualBuilder({
                 </div>
               )}
               {deck && <DeckCardList cards={deck.cards} onRemove={remove} columnsClassName="columns-1" />}
-              {composing && <p className="text-xs text-slate-500">Updating…</p>}
+              {composing && <p className="text-xs text-slate-500">Updating...</p>}
             </>
           )}
         </div>
