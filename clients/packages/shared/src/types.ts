@@ -109,6 +109,22 @@ export interface Printing {
   condition: string | null;
   language: string | null;
   count: number;
+  purchase_price?: number | null;
+  added_at?: string | null; // ISO timestamp; present for items added after 2026-07
+}
+
+// One owned oracle card for the collection browser: oracle data + the physical
+// printings owned. Distinct cards (one per oracle_id), not printing lines.
+export interface CollectionCard {
+  oracle_id: string;
+  name: string;
+  mana_cost: string;
+  cmc: number;
+  type_line: string;
+  color_identity: Color[];
+  oracle_text: string;
+  total_count: number;
+  printings: Printing[];
 }
 
 export interface DeckCard {

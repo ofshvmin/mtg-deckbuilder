@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -10,7 +11,13 @@ from pydantic import BaseModel
 
 from .. import db
 from ..auth.deps import get_current_user
-from ..models.responses import CardSearchResult, CollectionItemOut, CollectionSummary, ImportResultResponse
+from ..models.responses import (
+    CardSearchResult,
+    CollectionCardOut,
+    CollectionItemOut,
+    CollectionSummary,
+    ImportResultResponse,
+)
 from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
 from ..services import csv_formats, importer
@@ -120,6 +127,16 @@ async def list_collection(current_user: dict = Depends(get_current_user)):
     ]
 
 
+@router.get("/cards", response_model=list[CollectionCardOut])
+async def list_collection_cards(current_user: dict = Depends(get_current_user)):
+    """One entry per owned oracle card, with oracle data + owned printings.
+
+    Powers the collection browser (distinct cards, not printing lines).
+    """
+    database = db.get_db()
+    return await collection_repo.list_collection_cards(database, current_user["_id"])
+
+
 class AddCardRequest(BaseModel):
     name: str
     count: int = 1
@@ -138,6 +155,7 @@ async def add_card(body: AddCardRequest, current_user: dict = Depends(get_curren
         "name": card["name"] if card else name,
         "name_normalized": normalize_name(name),
         "count": body.count,
+        "added_at": datetime.now(timezone.utc).isoformat(),
     }
     await collection_repo.add_item(database, current_user["_id"], item)
     return CollectionItemOut(

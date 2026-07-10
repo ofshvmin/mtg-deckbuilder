@@ -7,6 +7,7 @@ or can be specified explicitly.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from pymongo.asynchronous.database import AsyncDatabase
 
@@ -86,6 +87,7 @@ async def import_collection(
             raise ValueError(f"Could not detect format. Supported: {supported}")
 
     items: list[dict] = []
+    now_iso = datetime.now(timezone.utc).isoformat()
     result = ImportResult(detected_format=fmt.name)
     for row in rows:
         canonical = csv_formats.normalize_row(row, fmt)
@@ -122,6 +124,7 @@ async def import_collection(
                 "altered": canonical.get("altered"),
                 "proxy": canonical.get("proxy"),
                 "purchase_price": _parse_float(canonical.get("purchase_price")),
+                "added_at": now_iso,
             }
         )
 

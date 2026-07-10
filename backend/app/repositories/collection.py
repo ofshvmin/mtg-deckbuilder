@@ -57,6 +57,8 @@ async def owned_printings(db: AsyncDatabase, user_id: str) -> dict[str, list[dic
                     "language": "$language",
                 },
                 "count": {"$sum": "$count"},
+                "purchase_price": {"$first": "$purchase_price"},
+                "added_at": {"$min": "$added_at"},
             }
         },
     ]
@@ -74,12 +76,53 @@ async def owned_printings(db: AsyncDatabase, user_id: str) -> dict[str, list[dic
             "condition": g.get("condition") or None,
             "language": g.get("language") or None,
             "count": row["count"],
+            "purchase_price": row.get("purchase_price"),
+            "added_at": row.get("added_at"),
         }
         result.setdefault(oracle_id, []).append(unit)
     # Stable display order: set code, then collector number, then finish.
     for units in result.values():
         units.sort(key=lambda u: (u["edition"] or "", u["collector_number"] or "", u["finish"]))
     return result
+
+
+async def list_collection_cards(db: AsyncDatabase, user_id: str) -> list[dict]:
+    """One row per owned oracle card, with its oracle data + owned printings.
+
+    Powers the collection browser: distinct cards (not printing lines), each
+    carrying the total copies owned and the list of physical printing units.
+    Sorted by name. Cards whose oracle_id is unknown to the `cards` collection
+    are skipped (can't render oracle data for them).
+    """
+    printings = await owned_printings(db, user_id)
+    if not printings:
+        return []
+    oracle_ids = list(printings.keys())
+    cards: dict[str, dict] = {}
+    cursor = db.cards.find({"_id": {"$in": oracle_ids}})
+    async for doc in cursor:
+        cards[doc["_id"]] = doc
+
+    rows: list[dict] = []
+    for oracle_id, units in printings.items():
+        card = cards.get(oracle_id)
+        if card is None:
+            continue
+        rows.append(
+            {
+                "oracle_id": oracle_id,
+                "name": card.get("name", ""),
+                "mana_cost": card.get("mana_cost", ""),
+                "cmc": card.get("cmc", 0.0),
+                "type_line": card.get("type_line", ""),
+                "color_identity": card.get("color_identity", []),
+                "oracle_text": card.get("oracle_text", ""),
+                "total_count": sum(u["count"] for u in units),
+                "printings": units,
+            }
+        )
+    rows.sort(key=lambda r: r["name"].lower())
+    return rows
 
 
 async def unique_owned_count(db: AsyncDatabase, user_id: str) -> int:

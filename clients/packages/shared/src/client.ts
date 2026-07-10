@@ -9,6 +9,7 @@
 import type {
   AuthTokens,
   CardSearchResult,
+  CollectionCard,
   CollectionItem,
   CollectionSummary,
   CommanderOption,
@@ -94,6 +95,11 @@ export class ApiClient {
 
   listCollection(): Promise<CollectionItem[]> {
     return this.request<CollectionItem[]>("GET", "/collection/items");
+  }
+
+  /** Distinct owned cards (one per oracle_id) with oracle data + owned printings. */
+  listCollectionCards(): Promise<CollectionCard[]> {
+    return this.request<CollectionCard[]>("GET", "/collection/cards");
   }
 
   addCard(name: string, count = 1): Promise<CollectionItem> {
