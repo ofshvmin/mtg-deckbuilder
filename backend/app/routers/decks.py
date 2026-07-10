@@ -13,6 +13,7 @@ from ..models.responses import (
     CurveBucket,
     DeckCardOut,
     GeneratedDeckResponse,
+    PrintingOut,
     SaveDeckRequest,
     SavedDeckResponse,
     SavedDeckSummary,
@@ -77,6 +78,7 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         quotas=body.quotas,
         quality=quality,
         combo_pieces=combo_pieces,
+        printings=result.printings,
     )
     if not edhrec_available:
         deck.warnings.append(
@@ -125,10 +127,26 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
                 count=dc.count,
                 quality=dc.quality,
                 in_combo=dc.oracle_id in combo_card_ids,
+                printings=[PrintingOut(**p) for p in dc.printings],
+                selected_printing_key=dc.selected_printing_key,
             )
             for dc in deck.cards
         ],
     )
+
+
+def _selected_printing(card: dict) -> dict | None:
+    """The owned printing a deck card earmarks, for export as a pull-list.
+
+    Prefers the card's ``selected_printing_key``; falls back to the first owned
+    printing. Returns None for cards with no owned printing (e.g. basics), which
+    export with blank edition/collector-number columns.
+    """
+    prints = card.get("printings") or []
+    if not prints:
+        return None
+    key = card.get("selected_printing_key")
+    return next((p for p in prints if p.get("printing_key") == key), prints[0])
 
 
 def _combo_out(combo: dict) -> ComboOut:
@@ -241,7 +259,16 @@ async def export_saved_deck(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found.")
 
     cards = doc["deck"].get("cards", [])
-    rows = [{"name": c["name"], "count": str(c.get("count", 1))} for c in cards]
+    rows = []
+    for c in cards:
+        p = _selected_printing(c)
+        rows.append({
+            "name": c["name"],
+            "count": str(c.get("count", 1)),
+            "edition": (p.get("edition") or "") if p else "",
+            "collector_number": (p.get("collector_number") or "") if p else "",
+            "foil": "foil" if (p and p.get("finish") == "foil") else "",
+        })
     csv_text = csv_formats.export_rows_csv(rows, fmt)
 
     safe_name = doc["name"].replace(" ", "-").replace('"', "")

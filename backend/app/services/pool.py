@@ -29,6 +29,8 @@ class Pool:
     commander: dict
     color_identity: list[str]
     pool: list[dict]
+    # oracle_id -> list of owned printing units (see collection_repo.owned_printings)
+    printings: dict[str, list[dict]] = None  # type: ignore[assignment]
 
 
 def format_color_identity(colors: list[str]) -> str:
@@ -62,7 +64,8 @@ async def get_pool(db: AsyncDatabase, user_id: str, commander_name: str) -> Pool
 
     identity = commander.get("color_identity", [])
     owned = await collection_repo.owned_counts(db, user_id)
+    printings = await collection_repo.owned_printings(db, user_id)
     pool = await cards_repo.get_legal_pool(
         db, allowed_colors=identity, owned_counts=owned, exclude_oracle_id=commander["_id"]
     )
-    return Pool(commander=commander, color_identity=identity, pool=pool)
+    return Pool(commander=commander, color_identity=identity, pool=pool, printings=printings)

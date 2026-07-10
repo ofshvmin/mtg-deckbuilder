@@ -98,6 +98,19 @@ export interface PoolResponse {
   pool: PoolCard[];
 }
 
+// One owned printing (physical inventory unit) of a card: which set it's from,
+// its collector number, finish, and condition — the detail needed to locate the
+// paper card and, later, to value and allocate it.
+export interface Printing {
+  printing_key: string;
+  edition: string | null;
+  collector_number: string | null;
+  finish: string; // "foil" | "nonfoil"
+  condition: string | null;
+  language: string | null;
+  count: number;
+}
+
 export interface DeckCard {
   oracle_id: string;
   name: string;
@@ -111,6 +124,8 @@ export interface DeckCard {
   count: number;
   quality: number; // EDHREC quality score (0 if unknown)
   in_combo: boolean;
+  printings?: Printing[]; // owned printings (absent/empty for basics + pre-existing saved decks)
+  selected_printing_key?: string | null; // which owned copy this deck earmarks
 }
 
 export interface Combo {

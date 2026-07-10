@@ -55,6 +55,12 @@ class DeckCard:
     reason: str
     count: int = 1
     quality: float = 0.0   # EDHREC quality score (0 if unknown / not on EDHREC)
+    # Owned printing units for this card (which physical copies Danko has, and
+    # where they live). Empty for generator-added basics. selected_printing_key
+    # is the copy this deck earmarks — the forward hook for preferred-printing
+    # rules and inventory allocation.
+    printings: list = field(default_factory=list)
+    selected_printing_key: str | None = None
 
 
 @dataclass
@@ -83,8 +89,15 @@ def _bucket(cmc: float) -> int:
 
 
 def _deck_card(
-    doc: dict, role_set: set[str], slot: str, reason: str, count: int = 1, quality: float = 0.0
+    doc: dict,
+    role_set: set[str],
+    slot: str,
+    reason: str,
+    count: int = 1,
+    quality: float = 0.0,
+    printings: dict[str, list[dict]] | None = None,
 ) -> DeckCard:
+    units = (printings or {}).get(doc["_id"], [])
     return DeckCard(
         oracle_id=doc["_id"],
         name=doc["name"],
@@ -97,6 +110,8 @@ def _deck_card(
         reason=reason,
         count=count,
         quality=round(quality, 4),
+        printings=list(units),
+        selected_printing_key=units[0]["printing_key"] if units else None,
     )
 
 
@@ -109,10 +124,12 @@ def generate(
     quotas: dict | None = None,
     quality: dict[str, float] | None = None,
     combo_pieces: set[str] | None = None,
+    printings: dict[str, list[dict]] | None = None,
 ) -> GeneratedDeck:
     quotas = {**DEFAULT_QUOTAS, **(quotas or {})}
     quality = quality or {}
     combo_pieces = combo_pieces or set()
+    printings = printings or {}
     max_quality = max(quality.values()) if quality else 0.0
     deck = GeneratedDeck(land_count=land_count)
 
@@ -173,7 +190,7 @@ def generate(
             slot, reason = "game_plan", "High-synergy pick (popular with this commander)"
         else:
             slot, reason = "game_plan", f"Game plan / curve filler (MV {b if b < 7 else '7+'})"
-        chosen.append(_deck_card(doc, rset, slot, reason, quality=q(doc["_id"])))
+        chosen.append(_deck_card(doc, rset, slot, reason, quality=q(doc["_id"]), printings=printings))
 
     # ---- Mana base: owned nonbasic lands first, then basics by pip demand ----
     nonbasic = [(d, r) for d, r in owned_lands if not d.get("is_basic_land")]
@@ -186,7 +203,9 @@ def generate(
     )
     land_cards: list[DeckCard] = []
     for doc, rset in nonbasic[:land_count]:
-        land_cards.append(_deck_card(doc, rset, "land", "Mana base (owned nonbasic land)"))
+        land_cards.append(
+            _deck_card(doc, rset, "land", "Mana base (owned nonbasic land)", printings=printings)
+        )
 
     remaining_lands = land_count - len(land_cards)
     if remaining_lands > 0:

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pymongo.asynchronous.database import AsyncDatabase
 
 from ..repositories import collection as collection_repo
-from ..util import normalize_name, strip_diacritics
+from ..util import normalize_finish, normalize_name, printing_key, strip_diacritics
 from . import csv_formats
 
 
@@ -100,6 +100,9 @@ async def import_collection(
             result.unmatched_names.append(name)
         else:
             result.matched += 1
+        edition = canonical.get("edition")
+        collector_number = canonical.get("collector_number")
+        foil = canonical.get("foil")
         items.append(
             {
                 "user_id": user_id,
@@ -108,12 +111,14 @@ async def import_collection(
                 "name_normalized": name_norm,
                 "count": _parse_int(canonical.get("count"), 1),
                 "tradelist_count": _parse_int(canonical.get("tradelist_count"), 0),
-                "edition": canonical.get("edition"),
+                "edition": edition,
                 "condition": canonical.get("condition"),
                 "language": canonical.get("language"),
-                "foil": canonical.get("foil"),
+                "foil": foil,
+                "finish": normalize_finish(foil),
+                "printing_key": printing_key(edition, collector_number, foil),
                 "tags": canonical.get("tags"),
-                "collector_number": canonical.get("collector_number"),
+                "collector_number": collector_number,
                 "altered": canonical.get("altered"),
                 "proxy": canonical.get("proxy"),
                 "purchase_price": _parse_float(canonical.get("purchase_price")),
