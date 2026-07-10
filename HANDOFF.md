@@ -1,6 +1,8 @@
 # Handoff — MTG Deck Builder
 
-Updated 2026-07-10. Self-contained onboarding for a fresh clone.
+Updated 2026-07-10 (handoff-prep pass). Self-contained onboarding for a fresh clone — the project's
+machine-local memory and per-feature design plans (kept under `~/.claude/`, not in git) have been
+folded into this document.
 
 ---
 
@@ -10,7 +12,7 @@ Everything is **deployed and working**:
 - **Backend:** FastAPI on Fly.io at `https://mtg-deckbuilder-api.fly.dev`
 - **Frontend:** React SPA on Vercel at `https://mtg-deckbuilder-bice.vercel.app`
 - **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K+ oracle cards, 96K+ combos
-- **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`, latest `60e6cc3`, clean
+- **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`, latest ~`e3fc424`, clean
 - **Backend tests:** 57 passing (`pytest`)
 
 The app: a Commander (EDH) deck builder over your card collection. Import your collection,
@@ -141,6 +143,33 @@ apps/web/src/
 
 ---
 
+## Architecture decisions & intents (the "why")
+
+- **PyMongo native async (`AsyncMongoClient`, ≥4.9), NOT Motor** — Motor was deprecated 2025-05-14
+  (EOL 2026-05-14). `db.py` uses PyMongo's async client directly.
+- **Mongo holds everything**, including the ~38K Scryfall reference cards. Deliberately **no
+  serverless-hostile global in-memory cache** — rely on indexed queries (e.g. the color-identity
+  subset query `{color_identity: {$not: {$elemMatch: {$nin: allowed}}}}` in `repositories/cards.py`).
+- **Tailwind only** — hand-built components, no chart library (mana curve / role bars are SVG/CSS).
+- **The monorepo is built for an upcoming React Native app.** `packages/shared` (`@mtg/shared`) is
+  intentionally **DOM/React-free** portable TS (types + a fetch `ApiClient` + an injectable
+  `TokenStore`) so a future `apps/mobile` (Expo/RN) can reuse it unchanged: web plugs in a
+  localStorage `TokenStore`; mobile would plug in `expo-secure-store`. Keep new shared code
+  framework-free.
+- **Auth is provider-agnostic.** JWT (access ~15 min + refresh ~14 day, HS256) sent as
+  `Authorization: Bearer` (no cookies → identical flow on web + RN). Users carry an `identities`
+  array (`local` = argon2 hash today); **Google / Apple / social login can be added later with no
+  migration** (find-or-link by email, then issue our own JWTs).
+- **Client-agnostic REST API** — the single contract for web, future mobile, and any other client.
+
+## Maintenance & data freshness
+
+- Re-sync reference data periodically (~weekly): `backend/scripts/sync_scryfall.py` (cards) and
+  `backend/scripts/sync_spellbook.py` (combos). `edhrec_cache` auto-refreshes per commander on a
+  7-day TTL.
+
+---
+
 ## Deployment
 
 ### Backend (Fly.io) — MANUAL deploy
@@ -212,6 +241,11 @@ delete the throwaway user's `users` + `collection_items` + `decks` docs.
 - Orphan `seed-user` collection in Atlas from early testing — harmless, deletable.
 - Atlas password was pasted in chat long ago — worth rotating; confirm whether the Fly secret already
   uses a rotated value. Atlas Network Access is `0.0.0.0/0` (Atlas flags this; tighten later).
+- **Engine caveats (by design, revisit later):** the mana-source model is raw no-mulligan
+  (conservative vs Karsten's London-mulligan tables); `generator._color_pips` double-counts pips on
+  MDFC/split cards (mana_cost is stored as "front // back"); the ramp/draw counts feeding the land
+  formula are heuristic; a few role-tagger edge cases are accepted (e.g. Cyclonic Rift reads as
+  removal rather than a board wipe).
 
 ---
 
@@ -224,3 +258,18 @@ delete the throwaway user's `users` + `collection_items` + `decks` docs.
 - **Inventory allocation** — track which physical copies are committed to which decks (the fleet model).
 - **Playtest simulator**, **power-level / bracket estimation**, **budget upgrade suggestions**.
 - **Pagination/virtualization** for large collections; **CI/CD** (GitHub Actions → tests + Fly deploy).
+
+---
+
+## Repo docs & machine-local notes
+
+- In-repo docs: `README.md`, `DEPLOY.md`, and `MTG_Deckbuilder_Plan.md` (the original design doc /
+  6-piece engine plan). `docker-compose.yml` runs backend + frontend locally.
+- `backend/.env.example` lists the env vars the backend needs — copy to `backend/.env` and fill in
+  the Atlas URI + a generated `JWT_SECRET` (real values are not in git).
+- **Machine-local artifacts are now captured here.** Per-feature **design plans** lived under
+  `~/.claude/plans/` and are transient — each has been implemented and shipped; their forward-looking
+  items are in **What to work on next** above. Project **memory** under `~/.claude/` (architecture
+  decisions, the printing/inventory model + roadmap, the visual-verification recipe, the macOS SSL
+  fix, deployment/workflow, engine caveats, and working preferences) has been folded into this
+  document, so a fresh clone needs nothing from those files.
