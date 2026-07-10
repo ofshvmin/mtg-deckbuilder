@@ -19,6 +19,7 @@ import type {
   PoolResponse,
   SavedDeck,
   SavedDeckSummary,
+  StrategyOption,
   User,
 } from "./types";
 
@@ -174,9 +175,13 @@ export class ApiClient {
     );
   }
 
+  listStrategies(): Promise<StrategyOption[]> {
+    return this.request<StrategyOption[]>("GET", "/decks/strategies");
+  }
+
   generateDeck(
     commanderName: string,
-    opts?: { land_count?: number; quotas?: Record<string, number> },
+    opts?: { land_count?: number; quotas?: Record<string, number>; strategy?: string; theme?: string },
   ): Promise<GeneratedDeck> {
     return this.request<GeneratedDeck>("POST", "/decks/generate", {
       body: { commander: commanderName, ...opts },

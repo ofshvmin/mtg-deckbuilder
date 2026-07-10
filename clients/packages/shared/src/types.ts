@@ -167,6 +167,14 @@ export interface GeneratedDeck {
   combos: Combo[];
   near_combos: Combo[];
   cards: DeckCard[];
+  strategy?: string | null;
+  theme?: string | null;
+  theme_count?: number;
+}
+
+export interface StrategyOption {
+  name: string;
+  description: string;
 }
 
 export interface SavedDeck {
