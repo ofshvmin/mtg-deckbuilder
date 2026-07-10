@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Printing } from "@mtg/shared";
 import {
   scryfallImageUrl,
@@ -28,7 +28,7 @@ export default function CardImage({
 }) {
   const foil = isFoil || printing?.finish === "foil";
   const dfc = isDfc(typeLine, manaCost);
-  const key = `${printing?.printing_key ?? "named"}|${name}`;
+  const printingKey = printing?.printing_key ?? "named";
 
   const [face, setFace] = useState<CardFace>("front");
   const [src, setSrc] = useState(() => scryfallImageUrl(printing, name, "normal", "front"));
@@ -36,22 +36,21 @@ export default function CardImage({
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  // Reset when the focused printing (or card) changes.
-  useEffect(() => {
-    setFace("front");
-    setSrc(scryfallImageUrl(printing, name, "normal", "front"));
-    setTriedFallback(false);
-    setFailed(false);
-    setLoaded(false);
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Reset face to front when the printing changes.
+  const prevPrintingKey = useRef(printingKey);
+  if (prevPrintingKey.current !== printingKey) {
+    prevPrintingKey.current = printingKey;
+    if (face !== "front") setFace("front");
+  }
 
-  // Update image when face toggles.
+  // Single effect: update image whenever printing or face changes.
   useEffect(() => {
-    setSrc(scryfallImageUrl(printing, name, "normal", face));
+    const currentFace = face;
+    setSrc(scryfallImageUrl(printing, name, "normal", currentFace));
     setTriedFallback(false);
     setFailed(false);
     setLoaded(false);
-  }, [face]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [printingKey, name, face]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleError() {
     if (face === "back") {

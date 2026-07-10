@@ -178,6 +178,7 @@ export default function CardDetailModal({
               onTouchEnd={onTouchEnd}
             >
               <CardImage
+                key={current?.printing_key ?? "no-printing"}
                 printing={current}
                 name={card.name}
                 typeLine={card.type_line}
