@@ -1,7 +1,10 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import type { Combo, GeneratedDeck } from "@mtg/shared";
 import { api } from "../lib/api";
 import { formatColorIdentity } from "../lib/format";
+import CardDetailModal, { type CardModalData } from "./CardDetailModal";
+import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import CommanderArt from "./CommanderArt";
 import DeckCardList from "./DeckCardList";
 import ManaCurve from "./ManaCurve";
@@ -217,29 +220,60 @@ function ComboSection({
   const border = accent === "fuchsia" ? "border-fuchsia-800/40" : "border-amber-800/40";
   const text = accent === "fuchsia" ? "text-fuchsia-300" : "text-amber-300";
   const shown = combos.slice(0, 10);
+
+  const [modal, setModal] = useState<CardModalData | null>(null);
+  const { hover, onEnter, onLeave } = useCardHover();
+
   return (
-    <div className={`rounded-xl border ${border} bg-slate-900/60`}>
-      <div className={`border-b ${border} px-4 py-2 text-xs font-medium uppercase tracking-wider ${text}`}>
-        {title}
-      </div>
-      <ul className="divide-y divide-slate-800/60">
-        {shown.map((combo) => (
-          <li key={combo.id} className="px-4 py-2 text-sm">
-            <div className="text-slate-200">
-              {near && combo.missing_name && (
-                <span className="mr-1 text-amber-400">+ {combo.missing_name}:</span>
+    <>
+      <div className={`rounded-xl border ${border} bg-slate-900/60`}>
+        <div className={`border-b ${border} px-4 py-2 text-xs font-medium uppercase tracking-wider ${text}`}>
+          {title}
+        </div>
+        <ul className="divide-y divide-slate-800/60">
+          {shown.map((combo) => (
+            <li key={combo.id} className="px-4 py-2 text-sm">
+              <div className="text-slate-200">
+                {near && combo.missing_name && (
+                  <span className="mr-1 text-amber-400">+ {combo.missing_name}:</span>
+                )}
+                {combo.cards.map((cardName, i) => (
+                  <span key={cardName}>
+                    {i > 0 && " + "}
+                    <span
+                      className="cursor-pointer hover:text-emerald-300"
+                      onClick={() => setModal({ name: cardName })}
+                      onMouseEnter={(e) => onEnter(e, cardName)}
+                      onMouseLeave={onLeave}
+                    >
+                      {cardName}
+                    </span>
+                  </span>
+                ))}
+              </div>
+              {combo.produces.length > 0 && (
+                <div className="text-xs text-slate-500">→ {combo.produces.join(", ")}</div>
               )}
-              {combo.cards.join(" + ")}
-            </div>
-            {combo.produces.length > 0 && (
-              <div className="text-xs text-slate-500">→ {combo.produces.join(", ")}</div>
-            )}
-          </li>
-        ))}
-      </ul>
-      {combos.length > shown.length && (
-        <div className="px-4 py-2 text-xs text-slate-500">+ {combos.length - shown.length} more</div>
+            </li>
+          ))}
+        </ul>
+        {combos.length > shown.length && (
+          <div className="px-4 py-2 text-xs text-slate-500">+ {combos.length - shown.length} more</div>
+        )}
+      </div>
+
+      {hover && createPortal(
+        <CardHoverPreview
+          name={hover.name}
+          printing={hover.printing}
+          anchorRect={hover.rect}
+        />,
+        document.body,
       )}
-    </div>
+
+      {modal && (
+        <CardDetailModal card={modal} onClose={() => setModal(null)} />
+      )}
+    </>
   );
 }

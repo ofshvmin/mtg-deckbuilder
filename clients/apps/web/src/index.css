@@ -1,1 +1,30 @@
 @import "tailwindcss";
+
+/* Foil shimmer overlay — a translucent rainbow gradient that animates across
+   the card surface. Applied on top of the card image via an ::after pseudo. */
+.foil-shimmer {
+  position: relative;
+}
+.foil-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 20%,
+    rgba(255, 200, 100, 0.12) 30%,
+    rgba(100, 220, 255, 0.14) 40%,
+    rgba(200, 130, 255, 0.12) 50%,
+    rgba(100, 255, 180, 0.10) 60%,
+    transparent 80%
+  );
+  background-size: 250% 100%;
+  animation: foil-sweep 3.5s ease-in-out infinite;
+  mix-blend-mode: screen;
+}
+@keyframes foil-sweep {
+  0%, 100% { background-position: 150% 0; }
+  50% { background-position: -50% 0; }
+}

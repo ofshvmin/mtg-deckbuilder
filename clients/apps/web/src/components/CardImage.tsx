@@ -1,34 +1,65 @@
 import { useEffect, useState } from "react";
 import type { Printing } from "@mtg/shared";
-import { scryfallImageUrl, scryfallNamedImageUrl } from "../lib/scryfall";
+import {
+  scryfallImageUrl,
+  scryfallNamedImageUrl,
+  isDfc,
+  type CardFace,
+} from "../lib/scryfall";
 
 // A card image that resolves the exact owned printing, with a graceful chain:
-// per-printing (set/collector) → name lookup → a text placeholder. Shows a
-// subtle skeleton while loading.
+// per-printing (set/collector) -> name lookup -> text placeholder. Shows a
+// subtle skeleton while loading. Foil printings get a shimmer overlay; DFCs
+// get a flip button to toggle front/back.
 export default function CardImage({
   printing,
   name,
+  typeLine,
+  manaCost,
   className = "",
+  isFoil = false,
 }: {
   printing?: Printing;
   name: string;
+  typeLine?: string;
+  manaCost?: string;
   className?: string;
+  isFoil?: boolean;
 }) {
+  const foil = isFoil || printing?.finish === "foil";
+  const dfc = isDfc(typeLine, manaCost);
   const key = `${printing?.printing_key ?? "named"}|${name}`;
-  const [src, setSrc] = useState(() => scryfallImageUrl(printing, name));
+
+  const [face, setFace] = useState<CardFace>("front");
+  const [src, setSrc] = useState(() => scryfallImageUrl(printing, name, "normal", "front"));
   const [triedFallback, setTriedFallback] = useState(false);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   // Reset when the focused printing (or card) changes.
   useEffect(() => {
-    setSrc(scryfallImageUrl(printing, name));
+    setFace("front");
+    setSrc(scryfallImageUrl(printing, name, "normal", "front"));
     setTriedFallback(false);
     setFailed(false);
     setLoaded(false);
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Update image when face toggles.
+  useEffect(() => {
+    setSrc(scryfallImageUrl(printing, name, "normal", face));
+    setTriedFallback(false);
+    setFailed(false);
+    setLoaded(false);
+  }, [face]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleError() {
+    if (face === "back") {
+      // Back face failed — just show "no image" rather than falling back to
+      // a name lookup (which would return the front face anyway).
+      setFailed(true);
+      return;
+    }
     const named = scryfallNamedImageUrl(name);
     if (!triedFallback && src !== named) {
       setSrc(named);
@@ -36,6 +67,10 @@ export default function CardImage({
     } else {
       setFailed(true);
     }
+  }
+
+  function flip() {
+    setFace((f) => (f === "front" ? "back" : "front"));
   }
 
   if (failed) {
@@ -60,17 +95,28 @@ export default function CardImage({
   return (
     <div className={"relative overflow-hidden rounded-xl " + className}>
       {!loaded && <div className="absolute inset-0 animate-pulse bg-slate-800" />}
-      <img
-        src={src}
-        alt={name}
-        loading="lazy"
-        onLoad={() => setLoaded(true)}
-        onError={handleError}
-        className={
-          "h-full w-full object-contain transition-opacity duration-200 " +
-          (loaded ? "opacity-100" : "opacity-0")
-        }
-      />
+      <div className={foil ? "foil-shimmer h-full w-full" : "h-full w-full"}>
+        <img
+          src={src}
+          alt={name}
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+          onError={handleError}
+          className={
+            "h-full w-full object-contain transition-opacity duration-200 " +
+            (loaded ? "opacity-100" : "opacity-0")
+          }
+        />
+      </div>
+      {dfc && (
+        <button
+          onClick={(e) => { e.stopPropagation(); flip(); }}
+          className="absolute bottom-2 right-2 rounded-full bg-black/70 px-2.5 py-1 text-xs font-medium text-white backdrop-blur transition hover:bg-black/90"
+          title={face === "front" ? "Show back face" : "Show front face"}
+        >
+          {face === "front" ? "Flip" : "Front"}
+        </button>
+      )}
     </div>
   );
 }

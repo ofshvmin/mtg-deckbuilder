@@ -1,33 +1,43 @@
 import type { Printing } from "@mtg/shared";
 
-// Card images aren't stored in our DB (we deferred the printing catalog). But
-// each owned printing has a set code + collector number, so we render the exact
-// printing straight from Scryfall's image endpoint, falling back to a name
-// lookup when a collector number is missing. Images are only requested in the
-// detail modal (a handful at a time), which keeps us within Scryfall's etiquette.
+// Card images aren't stored in our DB (we deferred the printing catalog). Each
+// owned printing has a set code + collector number, so we resolve the exact
+// printing straight from Scryfall's image endpoint. For DFCs/MDFCs the `face`
+// param selects front or back. Foil distinction is handled purely in CSS (the
+// card face artwork is identical — Scryfall doesn't serve separate foil images).
 
 export type ScryfallImageSize = "small" | "normal" | "large" | "png" | "art_crop";
+export type CardFace = "front" | "back";
 
 /** Image URL for a specific owned printing (set/collector), or name fallback. */
 export function scryfallImageUrl(
   printing: Printing | undefined,
   cardName: string,
   size: ScryfallImageSize = "normal",
+  face: CardFace = "front",
 ): string {
   if (printing?.edition && printing.collector_number) {
     const set = encodeURIComponent(printing.edition.toLowerCase());
     const cn = encodeURIComponent(printing.collector_number);
-    return `https://api.scryfall.com/cards/${set}/${cn}?format=image&version=${size}`;
+    const faceParam = face === "back" ? "&face=back" : "";
+    return `https://api.scryfall.com/cards/${set}/${cn}?format=image&version=${size}${faceParam}`;
   }
-  return scryfallNamedImageUrl(cardName, size);
+  return scryfallNamedImageUrl(cardName, size, face);
 }
 
 /** Fallback: a representative image looked up by exact card name. */
 export function scryfallNamedImageUrl(
   cardName: string,
   size: ScryfallImageSize = "normal",
+  face: CardFace = "front",
 ): string {
+  const faceParam = face === "back" ? "&face=back" : "";
   return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(
     cardName,
-  )}&format=image&version=${size}`;
+  )}&format=image&version=${size}${faceParam}`;
+}
+
+/** Heuristic: does this card have two faces (MDFC, transform, etc.)? */
+export function isDfc(typeLine?: string, manaCost?: string): boolean {
+  return (typeLine?.includes(" // ") || manaCost?.includes(" // ")) ?? false;
 }

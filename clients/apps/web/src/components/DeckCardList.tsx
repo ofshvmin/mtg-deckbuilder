@@ -1,10 +1,15 @@
+import { useState } from "react";
+import { createPortal } from "react-dom";
 import type { DeckCard } from "@mtg/shared";
+import CardDetailModal, { type CardModalData } from "./CardDetailModal";
+import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import ManaCost from "./ManaCost";
 import PrintingChips from "./PrintingChips";
 
 // Deck cards grouped into role categories, laid out as a height-balanced
 // masonry so short sections don't leave gaps. Shared by the read-only DeckView
-// and the interactive manual builder (which passes onRemove to add a ✕ per row).
+// and the interactive manual builder (which passes onRemove to add a x per row).
+// Every card name shows a hover image preview and opens a detail modal on click.
 
 const SLOTS: { key: string; label: string; dot: string }[] = [
   { key: "land", label: "Lands", dot: "bg-amber-500" },
@@ -24,39 +29,94 @@ export default function DeckCardList({
   onRemove?: (oracleId: string) => void;
   columnsClassName?: string;
 }) {
+  const [modal, setModal] = useState<CardModalData | null>(null);
+  const { hover, onEnter, onLeave } = useCardHover();
+
   const bySlot = (slot: string) => cards.filter((c) => c.slot === slot);
   return (
-    <div className={`gap-4 [column-fill:balance] ${columnsClassName}`}>
-      {SLOTS.map(({ key, label, dot }) => {
-        const slotCards = bySlot(key);
-        if (slotCards.length === 0) return null;
-        const total = slotCards.reduce((s, c) => s + c.count, 0);
-        return (
-          <div key={key} className="mb-4 break-inside-avoid rounded-xl border border-slate-800 bg-slate-900/60">
-            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2">
-              <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-300">
-                <span className={`h-2 w-2 rounded-full ${dot}`} />
-                {label}
-              </span>
-              <span className="text-xs tabular-nums text-slate-500">{total}</span>
+    <>
+      <div className={`gap-4 [column-fill:balance] ${columnsClassName}`}>
+        {SLOTS.map(({ key, label, dot }) => {
+          const slotCards = bySlot(key);
+          if (slotCards.length === 0) return null;
+          const total = slotCards.reduce((s, c) => s + c.count, 0);
+          return (
+            <div key={key} className="mb-4 break-inside-avoid rounded-xl border border-slate-800 bg-slate-900/60">
+              <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2">
+                <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-300">
+                  <span className={`h-2 w-2 rounded-full ${dot}`} />
+                  {label}
+                </span>
+                <span className="text-xs tabular-nums text-slate-500">{total}</span>
+              </div>
+              <ul className="divide-y divide-slate-800/60">
+                {slotCards.map((c) => (
+                  <DeckRow
+                    key={c.oracle_id}
+                    card={c}
+                    onRemove={onRemove}
+                    onClick={() => setModal(deckCardToModal(c))}
+                    onHoverEnter={onEnter}
+                    onHoverLeave={onLeave}
+                  />
+                ))}
+              </ul>
             </div>
-            <ul className="divide-y divide-slate-800/60">
-              {slotCards.map((c) => (
-                <DeckRow key={c.oracle_id} card={c} onRemove={onRemove} />
-              ))}
-            </ul>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+
+      {hover && createPortal(
+        <CardHoverPreview
+          name={hover.name}
+          printing={hover.printing}
+          anchorRect={hover.rect}
+        />,
+        document.body,
+      )}
+
+      {modal && (
+        <CardDetailModal card={modal} onClose={() => setModal(null)} />
+      )}
+    </>
   );
 }
 
-function DeckRow({ card, onRemove }: { card: DeckCard; onRemove?: (oracleId: string) => void }) {
+function deckCardToModal(c: DeckCard): CardModalData {
+  return {
+    oracle_id: c.oracle_id,
+    name: c.name,
+    mana_cost: c.mana_cost,
+    cmc: c.cmc,
+    type_line: c.type_line,
+    color_identity: c.color_identity,
+    printings: c.printings,
+  };
+}
+
+function DeckRow({
+  card,
+  onRemove,
+  onClick,
+  onHoverEnter,
+  onHoverLeave,
+}: {
+  card: DeckCard;
+  onRemove?: (oracleId: string) => void;
+  onClick: () => void;
+  onHoverEnter: (e: React.MouseEvent, name: string, printing?: import("@mtg/shared").Printing) => void;
+  onHoverLeave: () => void;
+}) {
   const highSynergy = card.quality >= 0.3;
+  const firstPrinting = card.printings?.[0];
   return (
     <li className="group flex items-center justify-between gap-3 px-4 py-1.5 text-sm">
-      <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-slate-200">
+      <span
+        className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 text-slate-200 hover:text-emerald-300"
+        onClick={onClick}
+        onMouseEnter={(e) => onHoverEnter(e, card.name, firstPrinting)}
+        onMouseLeave={onHoverLeave}
+      >
         <span className="truncate">
           {card.count > 1 && <span className="mr-1 text-slate-500">{card.count}×</span>}
           {card.name}
