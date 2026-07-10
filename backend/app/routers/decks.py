@@ -22,7 +22,7 @@ from ..models.responses import (
 from ..repositories import decks as decks_repo
 from ..services import csv_formats, edhrec, generator
 from ..services import pool as pool_service
-from ..services import spellbook
+from ..services import spellbook, strategies, themes
 from ..util import normalize_name
 
 router = APIRouter(prefix="/decks", tags=["decks"])
@@ -32,6 +32,8 @@ class GenerateRequest(BaseModel):
     commander: str
     land_count: int | None = None
     quotas: dict[str, int] | None = None
+    strategy: str | None = None
+    theme: str | None = None
 
 
 async def _basics_by_color(database) -> dict[str, dict]:
@@ -41,6 +43,11 @@ async def _basics_by_color(database) -> dict[str, dict]:
         if doc:
             result[color] = doc
     return result
+
+
+@router.get("/strategies")
+async def list_strategies():
+    return strategies.list_strategies()
 
 
 @router.post("/generate", response_model=GeneratedDeckResponse)
@@ -69,20 +76,33 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
     pool_full, pool_near = await spellbook.detect(database, pool_ids, result.color_identity)
     combo_pieces = {oid for combo in pool_full for oid in combo["cards"]}
 
+    # Resolve strategy and theme
+    strat = strategies.get_strategy(body.strategy)
+    theme_matches = themes.compute_theme_matches(result.pool, body.theme)
+
     deck = generator.generate(
         result.commander,
         result.pool,
         result.color_identity,
         basics,
-        land_count=body.land_count or generator.DEFAULT_LAND_COUNT,
+        land_count=body.land_count,
         quotas=body.quotas,
         quality=quality,
         combo_pieces=combo_pieces,
         printings=result.printings,
+        strategy=strat if body.strategy else None,
+        theme_matches=theme_matches,
     )
+    # Attach theme string so frontend can display it
+    deck.theme = body.theme if body.theme and body.theme.strip() else None
+
     if not edhrec_available:
         deck.warnings.append(
             "EDHREC data unavailable for this commander — ranked by curve and role fit only."
+        )
+    if theme_matches is not None and len(theme_matches) == 0:
+        deck.warnings.append(
+            f"No cards in your pool matched the '{body.theme}' theme — deck built without theme bias."
         )
 
     # Which of the pool's combos actually assembled in the final deck?
@@ -165,6 +185,9 @@ def _deck_response(
         edhrec_available=edhrec_available,
         combos=[_combo_out(c) for c in deck_combos],
         near_combos=[_combo_out(c) for c in near_combos],
+        strategy=deck.strategy,
+        theme=deck.theme,
+        theme_count=deck.theme_count,
         cards=[
             DeckCardOut(
                 oracle_id=dc.oracle_id,

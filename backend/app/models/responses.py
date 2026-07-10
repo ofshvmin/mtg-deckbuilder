@@ -110,6 +110,9 @@ class GeneratedDeckResponse(BaseModel):
     combos: list[ComboOut]        # combos fully present in the generated deck
     near_combos: list[ComboOut]   # combos your pool is one card away from
     cards: list[DeckCardOut]
+    strategy: str | None = None
+    theme: str | None = None
+    theme_count: int = 0
 
 
 class CollectionItemOut(BaseModel):

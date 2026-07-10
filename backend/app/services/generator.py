@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass, field
 
 from . import mana_math, roles
+from .strategies import Strategy, get_strategy
 
 COLOR_ORDER = ["W", "U", "B", "R", "G"]
 BASIC_FOR_COLOR = {"W": "Plains", "U": "Island", "B": "Swamp", "R": "Mountain", "G": "Forest"}
@@ -36,6 +37,10 @@ QUALITY_WEIGHT = 2.0
 # Bonus for a card that is a piece of a combo assemblable from the pool, to
 # encourage the generator to actually include all the pieces.
 COMBO_WEIGHT = 1.5
+# Bonus for a card that matches the user's chosen theme. Sits between the role
+# bonus (3.0) and EDHREC quality (2.0), so role cards still fill first but
+# theme-matching cards dominate among the "game plan" slots.
+THEME_WEIGHT = 2.5
 # Target nonland mana-curve shape (fractions by MV bucket 0..7, 7 = 7+).
 CURVE_WEIGHTS = {0: 0.03, 1: 0.12, 2: 0.22, 3: 0.20, 4: 0.15, 5: 0.11, 6: 0.08, 7: 0.09}
 
@@ -73,6 +78,9 @@ class GeneratedDeck:
     color_sources: dict = field(default_factory=dict)
     stats: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    strategy: str | None = None
+    theme: str | None = None
+    theme_count: int = 0
 
 
 def _color_pips(mana_cost: str) -> dict:
@@ -120,18 +128,26 @@ def generate(
     pool: list[dict],
     identity: list[str],
     basics_by_color: dict[str, dict],
-    land_count: int = DEFAULT_LAND_COUNT,
+    land_count: int | None = None,
     quotas: dict | None = None,
     quality: dict[str, float] | None = None,
     combo_pieces: set[str] | None = None,
     printings: dict[str, list[dict]] | None = None,
+    strategy: Strategy | None = None,
+    theme_matches: set[str] | None = None,
 ) -> GeneratedDeck:
-    quotas = {**DEFAULT_QUOTAS, **(quotas or {})}
+    strat = strategy or get_strategy(None)
+    # Explicit params override strategy defaults
+    effective_land_count = land_count if land_count is not None else strat.land_count
+    effective_quotas = {**strat.quotas, **(quotas or {})}
+    effective_curve = strat.curve_weights
+    effective_combo_weight = strat.combo_weight_override if strat.combo_weight_override is not None else COMBO_WEIGHT
     quality = quality or {}
     combo_pieces = combo_pieces or set()
+    theme_matches = theme_matches or set()
     printings = printings or {}
     max_quality = max(quality.values()) if quality else 0.0
-    deck = GeneratedDeck(land_count=land_count)
+    deck = GeneratedDeck(land_count=effective_land_count)
 
     def q(oid: str) -> float:
         return quality.get(oid, 0.0)
@@ -144,11 +160,11 @@ def generate(
     nonlands = [(d, r) for d, r in tagged if roles.LAND not in r]
     owned_lands = [(d, r) for d, r in tagged if roles.LAND in r]
 
-    nonland_slots = max(0, 99 - land_count)
+    nonland_slots = max(0, 99 - effective_land_count)
 
     # ---- Greedy nonland fill ----
-    role_remaining = dict(quotas)
-    curve_remaining = {b: round(CURVE_WEIGHTS[b] * nonland_slots) for b in range(8)}
+    role_remaining = dict(effective_quotas)
+    curve_remaining = {b: round(effective_curve[b] * nonland_slots) for b in range(8)}
     chosen: list[DeckCard] = []
     used: set[str] = set()
 
@@ -171,7 +187,11 @@ def generate(
                 score += 1.5
             score += QUALITY_WEIGHT * q_norm(doc["_id"])  # EDHREC community signal
             if doc["_id"] in combo_pieces:
-                score += COMBO_WEIGHT  # piece of an assemblable combo
+                score += effective_combo_weight  # piece of an assemblable combo
+            if doc["_id"] in theme_matches:
+                score += THEME_WEIGHT  # matches the user's chosen theme
+            for scorer in strat.extra_scorers:
+                score += scorer(doc, rset)
             score += max(0.0, 8 - (doc.get("cmc") or 0)) * 0.05  # efficiency tiebreak
             if roles.CREATURE in rset:
                 score += 0.15
@@ -185,7 +205,12 @@ def generate(
         curve_remaining[b] = curve_remaining.get(b, 0) - 1
         if best_role:
             role_remaining[best_role] -= 1
-            slot, reason = best_role, f"Fills {roles.ROLE_LABELS[best_role].lower()} slot"
+            slot = best_role
+            reason = f"Fills {roles.ROLE_LABELS[best_role].lower()} slot"
+            if doc["_id"] in theme_matches:
+                reason += " (theme match)"
+        elif doc["_id"] in theme_matches:
+            slot, reason = "game_plan", "Theme pick"
         elif q_norm(doc["_id"]) >= 0.5:
             slot, reason = "game_plan", "High-synergy pick (popular with this commander)"
         else:
@@ -202,12 +227,12 @@ def generate(
         )
     )
     land_cards: list[DeckCard] = []
-    for doc, rset in nonbasic[:land_count]:
+    for doc, rset in nonbasic[:effective_land_count]:
         land_cards.append(
             _deck_card(doc, rset, "land", "Mana base (owned nonbasic land)", printings=printings)
         )
 
-    remaining_lands = land_count - len(land_cards)
+    remaining_lands = effective_land_count - len(land_cards)
     if remaining_lands > 0:
         demand = {c: 0 for c in COLOR_ORDER}
         for dc in chosen:
@@ -284,6 +309,13 @@ def generate(
             sum(c.cmc for c in chosen) / len(chosen), 2
         ) if chosen else 0.0,
     }
+
+    # Strategy / theme metadata
+    deck.strategy = strat.name if strategy else None
+    deck.theme = None
+    deck.theme_count = 0
+    if theme_matches:
+        deck.theme_count = sum(1 for c in chosen if c.oracle_id in theme_matches)
 
     # Warnings for unmet quotas / short pool.
     total = sum(c.count for c in deck.cards)

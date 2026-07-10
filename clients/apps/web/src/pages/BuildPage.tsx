@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { CommanderOption, GeneratedDeck, PoolResponse } from "@mtg/shared";
+import { useState, useEffect } from "react";
+import type { CommanderOption, GeneratedDeck, PoolResponse, StrategyOption } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
@@ -21,6 +21,13 @@ export default function BuildPage() {
   const [buildingDeck, setBuildingDeck] = useState(false);
   const [deckError, setDeckError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("auto");
+  const [strategies, setStrategies] = useState<StrategyOption[]>([]);
+  const [selectedStrategy, setSelectedStrategy] = useState<string>("Balanced");
+  const [theme, setTheme] = useState("");
+
+  useEffect(() => {
+    api.listStrategies().then(setStrategies).catch(() => {});
+  }, []);
 
   async function selectCommander(c: CommanderOption) {
     setLoadingPool(true);
@@ -42,7 +49,10 @@ export default function BuildPage() {
     setBuildingDeck(true);
     setDeckError(null);
     try {
-      setDeck(await api.generateDeck(pool.commander.name));
+      const opts: { strategy?: string; theme?: string } = {};
+      if (selectedStrategy && selectedStrategy !== "Balanced") opts.strategy = selectedStrategy;
+      if (theme.trim()) opts.theme = theme.trim();
+      setDeck(await api.generateDeck(pool.commander.name, opts));
     } catch (e) {
       setDeckError(e instanceof Error ? e.message : "Could not build deck");
     } finally {
@@ -125,6 +135,47 @@ export default function BuildPage() {
 
               {mode === "auto" ? (
                 <>
+                  {/* Strategy picker */}
+                  {strategies.length > 0 && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Strategy</label>
+                      <div className="flex flex-wrap gap-2">
+                        {strategies.map((s) => (
+                          <button
+                            key={s.name}
+                            onClick={() => setSelectedStrategy(s.name)}
+                            className={
+                              "rounded-lg border px-3 py-1.5 text-sm transition " +
+                              (selectedStrategy === s.name
+                                ? "border-emerald-600 bg-emerald-600/20 text-emerald-300"
+                                : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200")
+                            }
+                            title={s.description}
+                          >
+                            {s.name}
+                          </button>
+                        ))}
+                      </div>
+                      {selectedStrategy && selectedStrategy !== "Balanced" && (
+                        <p className="text-xs text-slate-500">
+                          {strategies.find((s) => s.name === selectedStrategy)?.description}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Theme input */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Theme (optional)</label>
+                    <input
+                      type="text"
+                      value={theme}
+                      onChange={(e) => setTheme(e.target.value)}
+                      placeholder="e.g. cats, landfall, zombies, tokens..."
+                      className="max-w-sm rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
+                    />
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                     <StatTile label="Legal pool" value={pool.pool_size.toLocaleString()} />
                     <StatTile label="Lands" value={pool.land_count} />

@@ -190,16 +190,37 @@ export default function DeckView({
       {/* How this was built — de-emphasized footer */}
       <div className="rounded-lg border border-slate-800/60 bg-slate-900/30 p-3 text-xs leading-relaxed text-slate-500">
         <span className="font-medium text-slate-400">How this was built:</span>{" "}
+        {deck.strategy && (
+          <>
+            <span className="text-sky-400">{deck.strategy}</span> strategy
+            {deck.theme ? ", " : ". "}
+          </>
+        )}
+        {deck.theme && (
+          <>
+            <span className="text-amber-400">{deck.theme}</span> theme
+            {deck.theme_count != null && deck.theme_count > 0
+              ? ` (${deck.theme_count} of ${deck.nonland_count} nonlands match)`
+              : deck.theme_count === 0
+                ? " (no cards in your pool matched this theme)"
+                : ""}
+            .{" "}
+          </>
+        )}
         {deck.edhrec_available ? (
           <>
-            cards fill role quotas and the mana curve, ranked by{" "}
+            {!deck.strategy && !deck.theme && "C"}
+            {(deck.strategy || deck.theme) && "c"}ards fill role quotas and the mana curve, ranked by{" "}
             <span className="text-emerald-500">EDHREC</span> — how often the playerbase runs each
             card with this commander. <span className="text-emerald-500">◆</span> = high-synergy
             pick; <span className="text-fuchsia-500">⚡</span> = part of a combo.
           </>
         ) : (
-          <>cards fill role quotas and the mana curve, ranked by curve fit and efficiency (no EDHREC
-            data for this commander).</>
+          <>
+            {!deck.strategy && !deck.theme && "C"}
+            {(deck.strategy || deck.theme) && "c"}ards fill role quotas and the mana curve, ranked by curve fit and efficiency (no EDHREC
+            data for this commander).
+          </>
         )}
       </div>
     </div>
