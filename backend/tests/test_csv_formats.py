@@ -35,13 +35,40 @@ def test_detect_format_unknown():
 # ---- Preprocessing ----
 
 def test_preprocess_strips_sep_line():
-    raw = "sep=,\nCard Name,Quantity\nSol Ring,1\n"
-    assert preprocess_csv(raw) == "Card Name,Quantity\nSol Ring,1\n"
+    body, delim = preprocess_csv("sep=,\nCard Name,Quantity\nSol Ring,1\n")
+    assert body == "Card Name,Quantity\nSol Ring,1\n"
+    assert delim == ","
 
 
 def test_preprocess_noop_for_normal_csv():
-    raw = "Name,Count\nSol Ring,1\n"
-    assert preprocess_csv(raw) == raw
+    body, delim = preprocess_csv("Name,Count\nSol Ring,1\n")
+    assert body == "Name,Count\nSol Ring,1\n"
+    assert delim == ","
+
+
+# ---- Dragon Shield / Excel export quirks (regression for real-world files) ----
+
+_DS_HEADER = ("Folder Name,Quantity,Trade Quantity,Card Name,Set Code,Set Name,"
+              "Card Number,Condition,Printing,Language,Price Bought,Date Bought,LOW,MID,MARKET")
+_DS_ROW = '"MTG","1","0","Sol Ring","C21","Commander 2021","263","NearMint","Normal","English","","","","",""'
+
+
+@pytest.mark.parametrize("label,text", [
+    ("plain sep", f"sep=,\n{_DS_HEADER}\n{_DS_ROW}\n"),
+    ("no sep line", f"{_DS_HEADER}\n{_DS_ROW}\n"),
+    ("quoted sep", f'"sep=,"\n{_DS_HEADER}\n{_DS_ROW}\n'),
+    ("crlf", f"sep=,\r\n{_DS_HEADER}\r\n{_DS_ROW}\r\n"),
+    ("bom + sep", "﻿" + f"sep=,\n{_DS_HEADER}\n{_DS_ROW}\n"),
+    ("semicolon sep", "sep=;\n" + _DS_HEADER.replace(",", ";") + "\n" + _DS_ROW.replace(",", ";") + "\n"),
+    ("semicolon no directive", _DS_HEADER.replace(",", ";") + "\n" + _DS_ROW.replace(",", ";") + "\n"),
+])
+def test_dragon_shield_variants(label, text):
+    headers, rows = parse_csv(text)
+    fmt = detect_format(headers)
+    assert fmt is not None and fmt.name == "Dragon Shield", f"{label}: detect failed ({headers[:3]})"
+    assert len(rows) == 1, f"{label}: expected 1 row, got {len(rows)}"
+    canon = normalize_row(rows[0], get_format_by_name("Dragon Shield"))
+    assert canon["name"] == "Sol Ring", f"{label}: name not parsed"
 
 
 # ---- get_format_by_name ----

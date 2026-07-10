@@ -104,9 +104,9 @@ _FOIL_VALUES = {"foil", "etched"}
 
 
 def parse_csv(text: str) -> tuple[list[str], list[dict[str, str]]]:
-    """Parse CSV text into (headers, rows-as-dicts)."""
-    text = preprocess_csv(text)
-    reader = csv.DictReader(io.StringIO(text))
+    """Parse CSV text into (headers, rows-as-dicts), honoring the file's delimiter."""
+    body, delimiter = preprocess_csv(text)
+    reader = csv.DictReader(io.StringIO(body), delimiter=delimiter)
     return list(reader.fieldnames or []), list(reader)
 
 
@@ -121,12 +121,43 @@ def parse_excel(raw: bytes) -> tuple[list[str], list[dict[str, str]]]:
     return headers, rows
 
 
-def preprocess_csv(text: str) -> str:
-    """Strip Dragon Shield's ``sep=,`` first line if present."""
-    if text.startswith("sep="):
-        _, _, rest = text.partition("\n")
-        return rest
-    return text
+_DELIMITERS = (",", ";", "\t")
+
+
+def _sniff_delimiter(header_line: str) -> str:
+    """Pick the most frequent of comma/semicolon/tab in a header line."""
+    counts = {d: header_line.count(d) for d in _DELIMITERS}
+    best = max(_DELIMITERS, key=lambda d: counts[d])
+    return best if counts[best] > 0 else ","
+
+
+def preprocess_csv(text: str) -> tuple[str, str]:
+    """Return ``(body, delimiter)`` for a CSV export.
+
+    Strips a leading BOM and an Excel/Dragon Shield ``sep=`` directive line, and
+    honors the delimiter it declares (comma, semicolon, or tab). The directive may
+    be quoted (``"sep=,"``) and the file may carry a BOM. Without a directive, the
+    delimiter is sniffed from the header line, so semicolon/tab exports still work.
+    """
+    # Strip a leading BOM — either the Unicode form, or a latin-1 mis-decode of it.
+    for bom in ("﻿", "ï»¿"):
+        if text.startswith(bom):
+            text = text[len(bom):]
+            break
+
+    first, _, rest = text.partition("\n")
+    directive = first.strip().strip('"').strip("'").strip()
+    if directive.lower().startswith("sep="):
+        declared = directive[4:].strip()
+        if declared in ("\\t", "tab", "\t"):
+            delimiter = "\t"
+        elif declared:
+            delimiter = declared[0]
+        else:
+            delimiter = ","
+        return rest, delimiter
+
+    return text, _sniff_delimiter(first)
 
 
 def detect_format(headers: list[str]) -> CsvFormat | None:
