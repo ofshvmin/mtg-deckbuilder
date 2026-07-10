@@ -102,8 +102,30 @@ export class ApiClient {
     return this.request<CollectionCard[]>("GET", "/collection/cards");
   }
 
-  addCard(name: string, count = 1): Promise<CollectionItem> {
-    return this.request<CollectionItem>("POST", "/collection/items", { body: { name, count } });
+  addCard(input: {
+    name: string;
+    count?: number;
+    oracleId?: string;
+    edition?: string | null;
+    collectorNumber?: string | null;
+    finish?: string | null;
+    condition?: string | null;
+    purchasePrice?: number | null;
+    language?: string | null;
+  }): Promise<CollectionItem> {
+    return this.request<CollectionItem>("POST", "/collection/items", {
+      body: {
+        name: input.name,
+        count: input.count ?? 1,
+        oracle_id: input.oracleId,
+        edition: input.edition,
+        collector_number: input.collectorNumber,
+        finish: input.finish,
+        condition: input.condition,
+        purchase_price: input.purchasePrice,
+        language: input.language,
+      },
+    });
   }
 
   removeCard(oracleId: string): Promise<void> {

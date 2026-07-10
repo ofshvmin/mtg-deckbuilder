@@ -21,7 +21,7 @@ from ..models.responses import (
 from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
 from ..services import csv_formats, importer
-from ..util import normalize_name
+from ..util import normalize_finish, normalize_name, printing_key
 
 router = APIRouter(prefix="/collection", tags=["collection"])
 
@@ -140,6 +140,13 @@ async def list_collection_cards(current_user: dict = Depends(get_current_user)):
 class AddCardRequest(BaseModel):
     name: str
     count: int = 1
+    oracle_id: str | None = None
+    edition: str | None = None            # set code
+    collector_number: str | None = None
+    finish: str | None = None             # "foil" | "nonfoil" (or a foil variant)
+    condition: str | None = None
+    language: str | None = None
+    purchase_price: float | None = None
 
 
 @router.post("/items", response_model=CollectionItemOut, status_code=status.HTTP_201_CREATED)
@@ -148,13 +155,30 @@ async def add_card(body: AddCardRequest, current_user: dict = Depends(get_curren
     if not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Card name is required.")
     database = db.get_db()
-    card = await cards_repo.find_by_normalized_name(database, name)
+
+    # Prefer an explicit oracle_id (from the frontend's card pick); else match by name.
+    card = None
+    if body.oracle_id:
+        card = await database.cards.find_one({"_id": body.oracle_id})
+    if card is None:
+        card = await cards_repo.find_by_normalized_name(database, name)
     oracle_id = card["_id"] if card else None
+
+    edition = body.edition
+    collector_number = body.collector_number
     item = {
         "oracle_id": oracle_id,
         "name": card["name"] if card else name,
         "name_normalized": normalize_name(name),
         "count": body.count,
+        "edition": edition,
+        "collector_number": collector_number,
+        "finish": normalize_finish(body.finish),
+        "foil": "foil" if normalize_finish(body.finish) == "foil" else "",
+        "condition": body.condition,
+        "language": body.language,
+        "purchase_price": body.purchase_price,
+        "printing_key": printing_key(edition, collector_number, body.finish),
         "added_at": datetime.now(timezone.utc).isoformat(),
     }
     await collection_repo.add_item(database, current_user["_id"], item)
@@ -162,6 +186,9 @@ async def add_card(body: AddCardRequest, current_user: dict = Depends(get_curren
         oracle_id=oracle_id,
         name=item["name"],
         count=item["count"],
+        edition=edition,
+        condition=body.condition,
+        foil=item["foil"] or None,
     )
 
 
