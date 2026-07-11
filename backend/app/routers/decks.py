@@ -9,6 +9,7 @@ from .. import db
 from ..auth.deps import get_current_user
 from ..models.responses import (
     CardSummary,
+    ComboFinisher,
     ComboOut,
     CurveBucket,
     DeckCardOut,
@@ -264,6 +265,86 @@ async def compose_deck(body: ComposeRequest, current_user: dict = Depends(get_cu
     return _deck_response(
         result.commander, result.color_identity, deck, edhrec_available, deck_combos, near_combos
     )
+
+
+class ComboFinishRequest(BaseModel):
+    commander: str
+    oracle_ids: list[str]
+
+
+def _build_finishers(
+    finishers: list[dict],
+    docs_by_id: dict[str, dict],
+    owned_ids: set[str],
+    commander_id: str,
+    limit: int,
+) -> list[ComboFinisher]:
+    """Enrich + rank combo finishers (pure): owned first, then by combos/popularity."""
+    out: list[ComboFinisher] = []
+    for f in finishers:
+        oid = f["oracle_id"]
+        doc = docs_by_id.get(oid)
+        if oid == commander_id or doc is None:
+            continue
+        combos = f["combos"]
+        out.append(
+            ComboFinisher(
+                oracle_id=oid,
+                name=doc["name"],
+                mana_cost=doc.get("mana_cost", ""),
+                cmc=doc.get("cmc", 0.0),
+                type_line=doc.get("type_line", ""),
+                color_identity=doc.get("color_identity", []),
+                owned=oid in owned_ids,
+                combo_count=f["combo_count"],
+                popularity=f["popularity"],
+                produces=combos[0].get("produces", []) if combos else [],
+                combos=[
+                    ComboOut(
+                        id=c["_id"],
+                        cards=c.get("card_names", []),
+                        produces=c.get("produces", []),
+                        popularity=c.get("popularity", 0),
+                        missing_name=doc["name"],
+                    )
+                    for c in combos[:5]
+                ],
+            )
+        )
+    # Owned finishers first (addable now), then most combos, then most popular.
+    out.sort(key=lambda r: (not r.owned, -r.combo_count, -r.popularity))
+    return out[:limit]
+
+
+@router.post("/combo-finishers", response_model=list[ComboFinisher])
+async def combo_finishers(body: ComboFinishRequest, current_user: dict = Depends(get_current_user)):
+    """Cards that would complete a combo with the current deck's cards.
+
+    Owned finishers can be added immediately; unowned ones are acquisition
+    suggestions. Prices are fetched client-side (and later gated by a max-price
+    preference, which only applies to unowned cards).
+    """
+    database = db.get_db()
+    try:
+        result = await pool_service.get_pool(database, current_user["_id"], body.commander)
+    except pool_service.CommanderNotFound as e:
+        detail = f"No card found matching '{e.name}'."
+        if e.suggestions:
+            detail += " Did you mean: " + ", ".join(e.suggestions[:5])
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+
+    deck_ids = set(body.oracle_ids) | {result.commander["_id"]}
+    finishers = await spellbook.combo_finishers(database, deck_ids, result.color_identity)
+    if not finishers:
+        return []
+
+    docs_by_id: dict[str, dict] = {}
+    cursor = database.cards.find({"_id": {"$in": [f["oracle_id"] for f in finishers]}})
+    async for doc in cursor:
+        docs_by_id[doc["_id"]] = doc
+
+    owned = await collection_repo.owned_counts(database, current_user["_id"])
+    return _build_finishers(finishers, docs_by_id, set(owned), result.commander["_id"], limit=30)
 
 
 def _deck_response(

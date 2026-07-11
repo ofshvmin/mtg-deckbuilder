@@ -115,6 +115,25 @@ class GeneratedDeckResponse(BaseModel):
     theme_count: int = 0
 
 
+class ComboFinisher(BaseModel):
+    """A card that would complete one or more combos with the current deck.
+
+    ``owned`` cards can be added immediately; unowned ones are acquisition
+    suggestions (prices fetched client-side, gated later by a max-price setting).
+    """
+    oracle_id: str
+    name: str
+    mana_cost: str = ""
+    cmc: float = 0.0
+    type_line: str = ""
+    color_identity: list[str] = []
+    owned: bool = False
+    combo_count: int = 0
+    popularity: int = 0
+    produces: list[str] = []        # what its most popular finished combo makes
+    combos: list[ComboOut] = []     # the combos this card would complete
+
+
 class UpgradeSuggestion(BaseModel):
     """A card the user does NOT own that EDHREC recommends for the commander.
 

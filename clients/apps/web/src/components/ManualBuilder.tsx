@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import DeckCardList from "./DeckCardList";
+import DeckComboFinishers from "./DeckComboFinishers";
 import ManaCost from "./ManaCost";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
@@ -322,6 +323,12 @@ export default function ManualBuilder({
               )}
               {deck && <DeckCardList cards={deck.cards} onRemove={remove} columnsClassName="columns-1" />}
               {composing && <p className="text-xs text-slate-500">Updating...</p>}
+              <DeckComboFinishers
+                commanderName={commanderName}
+                deckCardIds={selected}
+                defaultOpen
+                onAdd={(id) => setSelected((prev) => (prev.includes(id) ? prev : [...prev, id]))}
+              />
             </>
           )}
         </div>

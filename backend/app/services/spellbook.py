@@ -117,6 +117,50 @@ async def detect(
     return full[:full_limit], near[:near_limit]
 
 
+async def combo_finishers(
+    db: AsyncDatabase,
+    deck_ids: set[str],
+    identity: list[str],
+) -> list[dict]:
+    """Cards that would *complete* a combo with the current deck.
+
+    Finds combos whose color identity fits and that are missing **exactly one**
+    piece from ``deck_ids``; that missing piece is a "finisher". Aggregates by
+    finisher card, so each result lists every deck-combo it would complete.
+
+    Returns ``[{oracle_id, combos, combo_count, popularity}]`` sorted by how many
+    combos the card finishes (then total popularity). Owned/price enrichment and
+    the final owned-first ranking happen in the router.
+    """
+    allowed = list(identity)
+    query = {
+        "identity": {"$not": {"$elemMatch": {"$nin": allowed}}},
+        "cards": {"$in": list(deck_ids)},
+    }
+    by_finisher: dict[str, list[dict]] = {}
+    cursor = db.combos.find(query)
+    async for combo in cursor:
+        missing = set(combo["cards"]) - deck_ids
+        if len(missing) != 1:
+            continue
+        by_finisher.setdefault(next(iter(missing)), []).append(combo)
+
+    out: list[dict] = []
+    for finisher_id, combos in by_finisher.items():
+        combos = _dedupe(combos)
+        combos.sort(key=lambda c: -(c.get("popularity") or 0))
+        out.append(
+            {
+                "oracle_id": finisher_id,
+                "combos": combos,
+                "combo_count": len(combos),
+                "popularity": sum(c.get("popularity") or 0 for c in combos),
+            }
+        )
+    out.sort(key=lambda e: (-e["combo_count"], -e["popularity"]))
+    return out
+
+
 def _dedupe(combos: list[dict]) -> list[dict]:
     """Collapse variants that use the same card set, keeping the most popular
     (Commander Spellbook lists a separate variant per produced feature)."""

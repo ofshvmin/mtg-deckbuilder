@@ -9,6 +9,7 @@
 import type {
   AuthTokens,
   CardSearchResult,
+  ComboFinisher,
   CollectionCard,
   CollectionItem,
   CollectionSummary,
@@ -204,6 +205,13 @@ export class ApiClient {
   /** Analyze an exact chosen card list into deck categories + stats (manual builder). */
   composeDeck(commanderName: string, oracleIds: string[]): Promise<GeneratedDeck> {
     return this.request<GeneratedDeck>("POST", "/decks/compose", {
+      body: { commander: commanderName, oracle_ids: oracleIds },
+    });
+  }
+
+  /** Cards that would complete a combo with the given deck cards (owned first). */
+  getComboFinishers(commanderName: string, oracleIds: string[]): Promise<ComboFinisher[]> {
+    return this.request<ComboFinisher[]>("POST", "/decks/combo-finishers", {
       body: { commander: commanderName, oracle_ids: oracleIds },
     });
   }

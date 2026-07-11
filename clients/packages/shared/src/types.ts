@@ -177,6 +177,21 @@ export interface StrategyOption {
   description: string;
 }
 
+/** A card that would complete one or more combos with the current deck. */
+export interface ComboFinisher {
+  oracle_id: string;
+  name: string;
+  mana_cost: string;
+  cmc: number;
+  type_line: string;
+  color_identity: string[];
+  owned: boolean;
+  combo_count: number;
+  popularity: number;
+  produces: string[];
+  combos: Combo[];
+}
+
 /** A card the user doesn't own that EDHREC recommends for a commander. */
 export interface UpgradeSuggestion {
   oracle_id: string;

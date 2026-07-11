@@ -7,6 +7,7 @@ import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import CommanderArt from "./CommanderArt";
 import DeckCardList from "./DeckCardList";
+import DeckComboFinishers from "./DeckComboFinishers";
 import DeckUpgrades from "./DeckUpgrades";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
@@ -277,6 +278,12 @@ export default function DeckView({
           </aside>
         )}
       </div>
+
+      {/* Combo finishers — cards that complete a combo with this deck */}
+      <DeckComboFinishers
+        commanderName={deck.commander.name}
+        deckCardIds={deck.cards.map((c) => c.oracle_id)}
+      />
 
       {/* Budget upgrades — cards you don't own that EDHREC recommends */}
       <DeckUpgrades
