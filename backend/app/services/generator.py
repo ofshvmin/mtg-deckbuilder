@@ -135,6 +135,7 @@ def generate(
     printings: dict[str, list[dict]] | None = None,
     strategy: Strategy | None = None,
     theme_matches: set[str] | None = None,
+    locked_ids: set[str] | None = None,
 ) -> GeneratedDeck:
     strat = strategy or get_strategy(None)
     # Explicit params override strategy defaults
@@ -146,6 +147,7 @@ def generate(
     combo_pieces = combo_pieces or set()
     theme_matches = theme_matches or set()
     printings = printings or {}
+    locked_ids = locked_ids or set()
     max_quality = max(quality.values()) if quality else 0.0
     deck = GeneratedDeck(land_count=effective_land_count)
 
@@ -168,7 +170,28 @@ def generate(
     chosen: list[DeckCard] = []
     used: set[str] = set()
 
-    for _ in range(nonland_slots):
+    # Pre-place locked nonlands (kept from a previous build), counting them
+    # against role/curve budgets so the greedy fill builds *around* them.
+    for doc, rset in nonlands:
+        if doc["_id"] not in locked_ids or len(chosen) >= nonland_slots:
+            continue
+        used.add(doc["_id"])
+        curve_remaining[_bucket(doc.get("cmc", 0))] -= 1
+        role = next(
+            (r for r in ROLE_FILL_ORDER if r in rset and role_remaining.get(r, 0) > 0),
+            None,
+        )
+        if role:
+            role_remaining[role] -= 1
+            slot = role
+            reason = f"Kept · fills {roles.ROLE_LABELS[role].lower()} slot"
+        else:
+            slot, reason = "game_plan", "Kept (locked)"
+        chosen.append(
+            _deck_card(doc, rset, slot, reason, quality=q(doc["_id"]), printings=printings)
+        )
+
+    for _ in range(nonland_slots - len(chosen)):
         best = None
         best_score = float("-inf")
         best_role = None
@@ -219,9 +242,10 @@ def generate(
 
     # ---- Mana base: owned nonbasic lands first, then basics by pip demand ----
     nonbasic = [(d, r) for d, r in owned_lands if not d.get("is_basic_land")]
-    # Prefer lands that fix more of the deck's colors.
+    # Keep locked lands first, then prefer lands that fix more of the deck's colors.
     nonbasic.sort(
         key=lambda dr: (
+            0 if dr[0]["_id"] in locked_ids else 1,
             -len(set(dr[0].get("produced_mana") or []) & set(identity)),
             dr[0].get("name") or "",
         )

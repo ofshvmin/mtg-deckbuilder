@@ -27,20 +27,26 @@ export default function ManualBuilder({
   strategy,
   theme,
   onSaved,
+  initialSelected,
+  deckId,
+  deckName,
 }: {
   pool: PoolResponse;
   commanderName: string;
   strategy?: string;
   theme?: string;
   onSaved?: () => void;
+  initialSelected?: string[];         // seed the editor from an existing deck
+  deckId?: string;                    // when set, Save updates this saved deck in place
+  deckName?: string;
 }) {
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>(initialSelected ?? []);
   const [deck, setDeck] = useState<GeneratedDeck | null>(null);
   const [composing, setComposing] = useState(false);
   const [filter, setFilter] = useState("");
-  const [name, setName] = useState(`${commanderName} Deck`);
+  const [name, setName] = useState(deckName ?? `${commanderName} Deck`);
   const [saving, setSaving] = useState(false);
-  const [savedAs, setSavedAs] = useState<string | null>(null);
+  const [savedAs, setSavedAs] = useState<string | null>(deckName ?? null);
   const [modal, setModal] = useState<CardModalData | null>(null);
   const { hover, onEnter, onLeave } = useCardHover();
 
@@ -129,7 +135,11 @@ export default function ManualBuilder({
     if (!deck || !name.trim()) return;
     setSaving(true);
     try {
-      await api.saveDeck(name.trim(), deck);
+      if (deckId) {
+        await api.updateSavedDeck(deckId, { name: name.trim(), deck });
+      } else {
+        await api.saveDeck(name.trim(), deck);
+      }
       setSavedAs(name.trim());
       onSaved?.();
     } catch {
@@ -278,7 +288,7 @@ export default function ManualBuilder({
               disabled={!deck || saving || !name.trim()}
               className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
             >
-              {saving ? "Saving..." : "Save deck"}
+              {saving ? "Saving..." : deckId ? "Update deck" : "Save deck"}
             </button>
           </div>
           {savedAs && <p className="text-sm text-emerald-400">Saved as "{savedAs}"</p>}

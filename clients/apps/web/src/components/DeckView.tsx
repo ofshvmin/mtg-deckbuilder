@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Combo, GeneratedDeck } from "@mtg/shared";
 import { api } from "../lib/api";
@@ -23,22 +23,64 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 export default function DeckView({
-  deck,
+  deck: initialDeck,
   deckName,
   deckId,
   onSaved,
+  onEdit,
 }: {
   deck: GeneratedDeck;
   deckName?: string;
   deckId?: string;
   onSaved?: () => void;
+  onEdit?: (deck: GeneratedDeck) => void;
 }) {
-  const [name, setName] = useState(deckName ?? `${deck.commander.name} Deck`);
+  // The deck is held in local state so "Regenerate unlocked" can replace it.
+  const [deck, setDeck] = useState<GeneratedDeck>(initialDeck);
+  const [name, setName] = useState(deckName ?? `${initialDeck.commander.name} Deck`);
   const [saving, setSaving] = useState(false);
   const [savedAs, setSavedAs] = useState<string | null>(deckName ?? null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<string>("Moxfield");
   const [exporting, setExporting] = useState(false);
+  const [dirty, setDirty] = useState(false);            // unsaved regenerate changes
+  const [regenerating, setRegenerating] = useState(false);
+  const [locked, setLocked] = useState<Set<string>>(new Set());
+
+  // Sync when the parent hands us a different deck (e.g. opening another saved deck).
+  useEffect(() => {
+    setDeck(initialDeck);
+    setLocked(new Set());
+    setDirty(false);
+  }, [initialDeck]);
+
+  function toggleLock(oracleId: string) {
+    setLocked((prev) => {
+      const next = new Set(prev);
+      if (next.has(oracleId)) next.delete(oracleId);
+      else next.add(oracleId);
+      return next;
+    });
+  }
+
+  async function handleRegenerate() {
+    setRegenerating(true);
+    setSaveError(null);
+    try {
+      const opts: { locked: string[]; strategy?: string; theme?: string } = {
+        locked: [...locked],
+      };
+      if (deck.strategy && deck.strategy !== "Balanced") opts.strategy = deck.strategy;
+      if (deck.theme) opts.theme = deck.theme;
+      const next = await api.generateDeck(deck.commander.name, opts);
+      setDeck(next);
+      setDirty(true);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Failed to regenerate deck");
+    } finally {
+      setRegenerating(false);
+    }
+  }
 
   async function handleSave() {
     if (!name.trim()) return;
@@ -51,6 +93,7 @@ export default function DeckView({
         await api.saveDeck(name.trim(), deck);
       }
       setSavedAs(name.trim());
+      setDirty(false);
       onSaved?.();
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Failed to save deck");
@@ -113,11 +156,25 @@ export default function DeckView({
         />
         <button
           onClick={handleSave}
-          disabled={saving || !name.trim() || (!isUnsaved && !nameChanged)}
+          disabled={saving || !name.trim() || (!isUnsaved && !nameChanged && !dirty)}
           className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
         >
-          {saving ? "Saving…" : isUnsaved ? "Save deck" : nameChanged ? "Update name" : "Saved"}
+          {saving
+            ? "Saving…"
+            : isUnsaved
+              ? "Save deck"
+              : nameChanged || dirty
+                ? "Update deck"
+                : "Saved"}
         </button>
+        {onEdit && (
+          <button
+            onClick={() => onEdit(deck)}
+            className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
+          >
+            Edit cards
+          </button>
+        )}
         {deckId && (
           <>
             <select
@@ -163,11 +220,44 @@ export default function DeckView({
         </div>
       )}
 
+      {/* Regenerate toolbar: pin cards to keep, reroll the rest */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800/60 bg-slate-900/30 px-4 py-2">
+        <span className="text-xs text-slate-500">
+          📌 Pin cards to keep, then regenerate to rebuild the rest around them.
+          {locked.size > 0 && (
+            <span className="ml-1 text-amber-400">{locked.size} locked</span>
+          )}
+        </span>
+        <div className="flex items-center gap-2">
+          {locked.size > 0 && (
+            <button
+              onClick={() => setLocked(new Set())}
+              className="text-xs text-slate-500 transition hover:text-slate-300"
+            >
+              Clear pins
+            </button>
+          )}
+          <button
+            onClick={handleRegenerate}
+            disabled={regenerating}
+            className="rounded-lg border border-emerald-700 px-3 py-1.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-900/30 disabled:opacity-50"
+          >
+            {regenerating
+              ? "Regenerating…"
+              : locked.size > 0
+                ? `🎲 Regenerate (keep ${locked.size})`
+                : "🎲 Regenerate deck"}
+          </button>
+        </div>
+      </div>
+
       {/* Featured deck list (left) + combos as blocks (right) */}
       <div className={hasCombos ? "grid gap-6 lg:grid-cols-3" : ""}>
         <div className={hasCombos ? "lg:col-span-2" : ""}>
           <DeckCardList
             cards={deck.cards}
+            locked={locked}
+            onToggleLock={toggleLock}
             columnsClassName={hasCombos ? "columns-1 sm:columns-2" : "columns-1 sm:columns-2 lg:columns-3"}
           />
         </div>

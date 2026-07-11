@@ -188,7 +188,13 @@ export class ApiClient {
 
   generateDeck(
     commanderName: string,
-    opts?: { land_count?: number; quotas?: Record<string, number>; strategy?: string; theme?: string },
+    opts?: {
+      land_count?: number;
+      quotas?: Record<string, number>;
+      strategy?: string;
+      theme?: string;
+      locked?: string[];
+    },
   ): Promise<GeneratedDeck> {
     return this.request<GeneratedDeck>("POST", "/decks/generate", {
       body: { commander: commanderName, ...opts },

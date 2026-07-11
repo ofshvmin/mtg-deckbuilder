@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { GeneratedDeck, SavedDeckSummary } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
@@ -8,6 +9,7 @@ import DeckView from "../components/DeckView";
 
 export default function DecksPage() {
   const { refreshSaved } = useLayout();
+  const navigate = useNavigate();
   const [decks, setDecks] = useState<SavedDeckSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [openDeck, setOpenDeck] = useState<{ id: string; name: string; deck: GeneratedDeck } | null>(
@@ -53,6 +55,21 @@ export default function DecksPage() {
     refreshSaved();
   }
 
+  // "Edit cards" on a saved deck → open the manual editor seeded with its cards.
+  function editInBuilder(deck: GeneratedDeck) {
+    if (!openDeck) return;
+    navigate("/build", {
+      state: {
+        editCommander: deck.commander.name,
+        editSelected: deck.cards
+          .filter((c) => !c.oracle_id.startsWith("basic:"))
+          .map((c) => c.oracle_id),
+        editDeckId: openDeck.id,
+        editDeckName: openDeck.name,
+      },
+    });
+  }
+
   if (openDeck) {
     return (
       <div className="space-y-6">
@@ -76,6 +93,7 @@ export default function DecksPage() {
           deckName={openDeck.name}
           deckId={openDeck.id}
           onSaved={onSaved}
+          onEdit={editInBuilder}
         />
       </div>
     );

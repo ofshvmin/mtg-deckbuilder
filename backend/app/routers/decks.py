@@ -37,6 +37,7 @@ class GenerateRequest(BaseModel):
     quotas: dict[str, int] | None = None
     strategy: str | None = None
     theme: str | None = None
+    locked: list[str] | None = None   # oracle_ids to keep and build around
 
 
 async def _basics_by_color(database) -> dict[str, dict]:
@@ -187,6 +188,10 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
     strat = strategies.get_strategy(body.strategy)
     theme_matches = themes.compute_theme_matches(result.pool, body.theme)
 
+    # Locked cards to keep and build around (only those actually in the pool).
+    pool_id_set = {card["_id"] for card in result.pool}
+    locked_ids = {oid for oid in (body.locked or []) if oid in pool_id_set}
+
     deck = generator.generate(
         result.commander,
         result.pool,
@@ -199,6 +204,7 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         printings=result.printings,
         strategy=strat if body.strategy else None,
         theme_matches=theme_matches,
+        locked_ids=locked_ids,
     )
     # Attach theme string so frontend can display it
     deck.theme = body.theme if body.theme and body.theme.strip() else None

@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import type { CommanderOption, GeneratedDeck, PoolResponse, StrategyOption } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
@@ -12,8 +13,11 @@ import StatTile from "../components/StatTile";
 
 type Mode = "auto" | "manual";
 
+type EditSeed = { selected: string[]; deckId?: string; deckName?: string };
+
 export default function BuildPage() {
   const { summary, refreshSaved } = useLayout();
+  const location = useLocation();
   const [pool, setPool] = useState<PoolResponse | null>(null);
   const [poolError, setPoolError] = useState<string | null>(null);
   const [loadingPool, setLoadingPool] = useState(false);
@@ -24,10 +28,40 @@ export default function BuildPage() {
   const [strategies, setStrategies] = useState<StrategyOption[]>([]);
   const [selectedStrategy, setSelectedStrategy] = useState<string>("Balanced");
   const [theme, setTheme] = useState("");
+  const [editSeed, setEditSeed] = useState<EditSeed | null>(null);
+  const editApplied = useRef(false);
 
   useEffect(() => {
     api.listStrategies().then(setStrategies).catch(() => {});
   }, []);
+
+  // Editing an existing saved deck: DecksPage navigates here with router state.
+  useEffect(() => {
+    if (editApplied.current) return;
+    const st = location.state as
+      | { editCommander?: string; editSelected?: string[]; editDeckId?: string; editDeckName?: string }
+      | null;
+    if (!st?.editCommander) return;
+    editApplied.current = true;
+    (async () => {
+      setLoadingPool(true);
+      setPoolError(null);
+      setDeck(null);
+      setMode("manual");
+      try {
+        setPool(await api.getPool(st.editCommander!));
+        setEditSeed({
+          selected: st.editSelected ?? [],
+          deckId: st.editDeckId,
+          deckName: st.editDeckName,
+        });
+      } catch (e) {
+        setPoolError(e instanceof Error ? e.message : "Could not load pool");
+      } finally {
+        setLoadingPool(false);
+      }
+    })();
+  }, [location.state]);
 
   async function selectCommander(c: CommanderOption) {
     setLoadingPool(true);
@@ -35,6 +69,7 @@ export default function BuildPage() {
     setPool(null);
     setDeck(null);
     setMode("auto");
+    setEditSeed(null);
     try {
       setPool(await api.getPool(c.name));
     } catch (e) {
@@ -42,6 +77,19 @@ export default function BuildPage() {
     } finally {
       setLoadingPool(false);
     }
+  }
+
+  // "Edit cards" on a built deck → open the manual editor seeded with its cards.
+  function editDeck(built: GeneratedDeck, deckId?: string, deckName?: string) {
+    setEditSeed({
+      selected: built.cards
+        .filter((c) => !c.oracle_id.startsWith("basic:"))
+        .map((c) => c.oracle_id),
+      deckId,
+      deckName,
+    });
+    setMode("manual");
+    setDeck(null);
   }
 
   async function buildDeck() {
@@ -106,7 +154,7 @@ export default function BuildPage() {
           {deck ? (
             <>
               {deckError && <p className="text-rose-400">{deckError}</p>}
-              <DeckView deck={deck} onSaved={refreshSaved} />
+              <DeckView deck={deck} onSaved={refreshSaved} onEdit={(d) => editDeck(d)} />
             </>
           ) : (
             <>
@@ -190,11 +238,15 @@ export default function BuildPage() {
                 </>
               ) : (
                 <ManualBuilder
+                  key={editSeed?.deckId ?? (editSeed ? "edit" : "new")}
                   pool={pool}
                   commanderName={pool.commander.name}
                   strategy={selectedStrategy}
                   theme={theme}
                   onSaved={refreshSaved}
+                  initialSelected={editSeed?.selected}
+                  deckId={editSeed?.deckId}
+                  deckName={editSeed?.deckName}
                 />
               )}
             </>

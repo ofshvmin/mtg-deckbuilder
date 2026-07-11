@@ -23,10 +23,14 @@ const SLOTS: { key: string; label: string; dot: string }[] = [
 export default function DeckCardList({
   cards,
   onRemove,
+  locked,
+  onToggleLock,
   columnsClassName = "columns-1 sm:columns-2",
 }: {
   cards: DeckCard[];
   onRemove?: (oracleId: string) => void;
+  locked?: Set<string>;
+  onToggleLock?: (oracleId: string) => void;
   columnsClassName?: string;
 }) {
   const [modal, setModal] = useState<CardModalData | null>(null);
@@ -55,6 +59,8 @@ export default function DeckCardList({
                     key={c.oracle_id}
                     card={c}
                     onRemove={onRemove}
+                    locked={locked?.has(c.oracle_id)}
+                    onToggleLock={onToggleLock}
                     onClick={() => setModal(deckCardToModal(c))}
                     onHoverEnter={onEnter}
                     onHoverLeave={onLeave}
@@ -97,12 +103,16 @@ function deckCardToModal(c: DeckCard): CardModalData {
 function DeckRow({
   card,
   onRemove,
+  locked,
+  onToggleLock,
   onClick,
   onHoverEnter,
   onHoverLeave,
 }: {
   card: DeckCard;
   onRemove?: (oracleId: string) => void;
+  locked?: boolean;
+  onToggleLock?: (oracleId: string) => void;
   onClick: () => void;
   onHoverEnter: (e: React.MouseEvent, name: string, printing?: import("@mtg/shared").Printing) => void;
   onHoverLeave: () => void;
@@ -138,6 +148,18 @@ function DeckRow({
       </span>
       <span className="flex shrink-0 items-center gap-2">
         <ManaCost cost={card.mana_cost} className="text-xs" />
+        {onToggleLock && (
+          <button
+            onClick={() => onToggleLock(card.oracle_id)}
+            className={
+              "text-xs transition " +
+              (locked ? "text-amber-400" : "text-slate-600 hover:text-amber-400")
+            }
+            title={locked ? "Locked — kept when regenerating" : "Lock this card"}
+          >
+            {locked ? "📌" : "📍"}
+          </button>
+        )}
         {onRemove && (
           <button
             onClick={() => onRemove(card.oracle_id)}
