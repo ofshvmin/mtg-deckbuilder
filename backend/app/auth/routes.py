@@ -10,6 +10,8 @@ from ..models.user import (
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
+    UpdatePreferencesRequest,
+    UserPreferences,
     UserResponse,
 )
 from ..repositories import users as users_repo
@@ -27,7 +29,12 @@ def _tokens_for(user_id: str) -> TokenResponse:
 
 
 def _public(user: dict) -> UserResponse:
-    return UserResponse(id=user["_id"], email=user["email"], created_at=user["created_at"])
+    return UserResponse(
+        id=user["_id"],
+        email=user["email"],
+        created_at=user["created_at"],
+        preferences=UserPreferences(**(user.get("preferences") or {})),
+    )
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -73,3 +80,13 @@ async def refresh(body: RefreshRequest):
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: dict = Depends(get_current_user)):
     return _public(current_user)
+
+
+@router.patch("/preferences", response_model=UserResponse)
+async def update_preferences(
+    body: UpdatePreferencesRequest, current_user: dict = Depends(get_current_user)
+):
+    updated = await users_repo.update_preferences(
+        db.get_db(), current_user["_id"], body.model_dump()
+    )
+    return _public(updated or current_user)

@@ -75,7 +75,17 @@ export default function Layout() {
                 {summary.total_cards.toLocaleString()} cards
               </span>
             )}
-            <span className="text-slate-500">{user?.email}</span>
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                "rounded-lg px-2 py-1.5 transition " +
+                (isActive ? "text-slate-100" : "text-slate-400 hover:text-slate-200")
+              }
+              title="Settings"
+            >
+              ⚙ Settings
+            </NavLink>
+            <span className="hidden text-slate-500 sm:inline">{user?.email}</span>
             <button
               onClick={() => logout()}
               className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-200 transition hover:bg-slate-800"

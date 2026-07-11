@@ -15,10 +15,16 @@ export interface AuthTokens {
   token_type: string; // "bearer"
 }
 
+export interface UserPreferences {
+  /** Max $ to pay for a recommended card you don't own. null = no cap. */
+  max_card_price: number | null;
+}
+
 export interface User {
   id: string;
   email: string;
   created_at: string;
+  preferences: UserPreferences;
 }
 
 // --- Card / deck domain ---

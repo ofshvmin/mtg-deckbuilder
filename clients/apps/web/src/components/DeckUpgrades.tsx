@@ -23,9 +23,11 @@ function fmtPrice(usd: number | null | undefined): string {
 export default function DeckUpgrades({
   commanderName,
   deckCardIds = [],
+  maxPrice = null,
 }: {
   commanderName: string;
   deckCardIds?: string[];
+  maxPrice?: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -68,8 +70,10 @@ export default function DeckUpgrades({
 
   const visible = suggestions
     .filter((s) => {
-      if (budget == null) return true;
       const usd = prices.get(s.oracle_id)?.usd;
+      // Profile-level hard cap (from Settings): hide anything above it.
+      if (maxPrice != null && (usd == null || usd > maxPrice)) return false;
+      if (budget == null) return true;
       return usd != null && usd <= budget;
     })
     .sort((a, b) => {

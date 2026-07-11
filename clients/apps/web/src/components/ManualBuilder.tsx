@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DeckCard, GeneratedDeck, PoolCard, PoolResponse } from "@mtg/shared";
 import { api } from "../lib/api";
+import { useAuth } from "../auth/AuthContext";
 import BracketBadge from "./BracketBadge";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
@@ -42,6 +43,8 @@ export default function ManualBuilder({
   deckId?: string;                    // when set, Save updates this saved deck in place
   deckName?: string;
 }) {
+  const { user } = useAuth();
+  const maxPrice = user?.preferences?.max_card_price ?? null;
   const [selected, setSelected] = useState<string[]>(initialSelected ?? []);
   const [deck, setDeck] = useState<GeneratedDeck | null>(null);
   const [composing, setComposing] = useState(false);
@@ -333,6 +336,7 @@ export default function ManualBuilder({
                 commanderName={commanderName}
                 deckCardIds={selected}
                 defaultOpen
+                maxPrice={maxPrice}
                 onAdd={(id) => setSelected((prev) => (prev.includes(id) ? prev : [...prev, id]))}
               />
             </>

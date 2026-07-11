@@ -27,7 +27,17 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class UserPreferences(BaseModel):
+    # Max $ the user will pay for a recommended card they don't own. None = no cap.
+    max_card_price: float | None = Field(default=None, ge=0)
+
+
+class UpdatePreferencesRequest(BaseModel):
+    max_card_price: float | None = Field(default=None, ge=0)
+
+
 class UserResponse(BaseModel):
     id: str
     email: str
     created_at: str
+    preferences: UserPreferences = UserPreferences()

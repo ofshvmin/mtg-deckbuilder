@@ -86,6 +86,11 @@ export class ApiClient {
     return this.request<User>("GET", "/auth/me");
   }
 
+  /** Update user preferences (e.g. max price for recommended cards). */
+  updatePreferences(prefs: { max_card_price: number | null }): Promise<User> {
+    return this.request<User>("PATCH", "/auth/preferences", { body: prefs });
+  }
+
   async logout(): Promise<void> {
     await this.tokens.clear();
   }

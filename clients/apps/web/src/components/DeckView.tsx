@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Combo, GeneratedDeck } from "@mtg/shared";
 import { api } from "../lib/api";
+import { useAuth } from "../auth/AuthContext";
 import { formatColorIdentity } from "../lib/format";
 import BracketBadge from "./BracketBadge";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";
@@ -37,6 +38,8 @@ export default function DeckView({
   onSaved?: () => void;
   onEdit?: (deck: GeneratedDeck) => void;
 }) {
+  const { user } = useAuth();
+  const maxPrice = user?.preferences?.max_card_price ?? null;
   // The deck is held in local state so "Regenerate unlocked" can replace it.
   const [deck, setDeck] = useState<GeneratedDeck>(initialDeck);
   const [name, setName] = useState(deckName ?? `${initialDeck.commander.name} Deck`);
@@ -291,12 +294,14 @@ export default function DeckView({
       <DeckComboFinishers
         commanderName={deck.commander.name}
         deckCardIds={deck.cards.map((c) => c.oracle_id)}
+        maxPrice={maxPrice}
       />
 
       {/* Budget upgrades — cards you don't own that EDHREC recommends */}
       <DeckUpgrades
         commanderName={deck.commander.name}
         deckCardIds={deck.cards.map((c) => c.oracle_id)}
+        maxPrice={maxPrice}
       />
 
       {/* How this was built — de-emphasized footer */}

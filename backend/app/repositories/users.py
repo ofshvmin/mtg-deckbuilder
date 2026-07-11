@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from pymongo import ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
 
 
@@ -29,6 +30,15 @@ async def create_local_user(db: AsyncDatabase, email: str, password_hash: str) -
     }
     await db.users.insert_one(doc)
     return doc
+
+
+async def update_preferences(db: AsyncDatabase, user_id: str, prefs: dict) -> dict | None:
+    """Merge a preferences patch onto the user and return the updated doc."""
+    return await db.users.find_one_and_update(
+        {"_id": user_id},
+        {"$set": {f"preferences.{k}": v for k, v in prefs.items()}},
+        return_document=ReturnDocument.AFTER,
+    )
 
 
 def local_identity(user: dict) -> dict | None:

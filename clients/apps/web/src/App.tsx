@@ -7,6 +7,7 @@ import Layout from "./components/Layout";
 import CollectionPage from "./pages/CollectionPage";
 import BuildPage from "./pages/BuildPage";
 import DecksPage from "./pages/DecksPage";
+import SettingsPage from "./pages/SettingsPage";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
               <Route path="/" element={<CollectionPage />} />
               <Route path="/build" element={<BuildPage />} />
               <Route path="/decks" element={<DecksPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
