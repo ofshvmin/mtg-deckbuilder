@@ -18,10 +18,13 @@ from ..models.responses import (
     SavedDeckResponse,
     SavedDeckSummary,
     UpdateDeckRequest,
+    UpgradeSuggestion,
 )
+from ..repositories import collection as collection_repo
 from ..repositories import decks as decks_repo
 from ..services import csv_formats, edhrec, generator
 from ..services import pool as pool_service
+from ..services import roles as roles_service
 from ..services import spellbook, strategies, themes
 from ..util import normalize_name
 
@@ -48,6 +51,110 @@ async def _basics_by_color(database) -> dict[str, dict]:
 @router.get("/strategies")
 async def list_strategies():
     return strategies.list_strategies()
+
+
+_ROLE_LABELS = {
+    "ramp": "Ramp",
+    "card_draw": "Card draw",
+    "removal": "Removal",
+    "board_wipe": "Board wipe",
+    "counterspell": "Counterspell",
+    "protection": "Protection",
+    "tutor": "Tutor",
+}
+
+
+def _upgrade_reason(synergy: float, roles: list[str]) -> str:
+    """Short human explanation of why a card is suggested."""
+    if synergy >= 0.3:
+        base = "High synergy with this commander"
+    elif synergy > 0:
+        base = "Often played with this commander"
+    else:
+        base = "Popular staple"
+    label = next((_ROLE_LABELS[r] for r in roles if r in _ROLE_LABELS), None)
+    return f"{base} · {label}" if label else base
+
+
+def _build_upgrades(
+    scored: list[dict],
+    docs: list[dict],
+    owned_ids: set[str],
+    identity: set[str],
+    limit: int,
+) -> list[UpgradeSuggestion]:
+    """Pure ranking step (no DB): EDHREC recs the user lacks, in-identity, top N.
+
+    ``scored`` is edhrec.get_scored_cards output; ``docs`` are the matching card
+    documents looked up by normalized name.
+    """
+    by_name = {c["n"]: c for c in scored}
+    out: list[UpgradeSuggestion] = []
+    for doc in docs:
+        oid = doc["_id"]
+        if oid in owned_ids or doc.get("is_basic_land"):
+            continue
+        if not set(doc.get("color_identity", [])) <= identity:
+            continue
+        entry = by_name.get(doc["name_normalized"])
+        if entry is None:
+            continue
+        roles = sorted(roles_service.tag_roles(doc))
+        synergy = float(entry.get("syn", 0.0))
+        out.append(
+            UpgradeSuggestion(
+                oracle_id=oid,
+                name=doc["name"],
+                mana_cost=doc.get("mana_cost", ""),
+                cmc=doc.get("cmc", 0.0),
+                type_line=doc.get("type_line", ""),
+                color_identity=doc.get("color_identity", []),
+                roles=roles,
+                synergy=synergy,
+                score=float(entry.get("s", 0.0)),
+                reason=_upgrade_reason(synergy, roles),
+            )
+        )
+    out.sort(key=lambda s: s.score, reverse=True)
+    return out[:limit]
+
+
+@router.get("/upgrades", response_model=list[UpgradeSuggestion])
+async def deck_upgrades(
+    commander: str = Query(...),
+    limit: int = Query(40, ge=1, le=100),
+    current_user: dict = Depends(get_current_user),
+):
+    """Cards the user doesn't own that EDHREC recommends for this commander.
+
+    Powers budget-upgrade suggestions. Excludes owned cards and the commander,
+    keeps only cards inside the commander's color identity, and ranks by EDHREC
+    quality score. Prices/images are fetched client-side.
+    """
+    database = db.get_db()
+    try:
+        result = await pool_service.get_pool(database, current_user["_id"], commander)
+    except pool_service.CommanderNotFound as e:
+        detail = f"No card found matching '{e.name}'."
+        if e.suggestions:
+            detail += " Did you mean: " + ", ".join(e.suggestions[:5])
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+
+    scored = await edhrec.get_scored_cards(database, result.commander)
+    if not scored:
+        return []
+
+    owned = await collection_repo.owned_counts(database, current_user["_id"])
+    owned_ids = set(owned) | {result.commander["_id"]}
+    identity = set(result.color_identity)
+
+    names = [c["n"] for c in scored]
+    docs: list[dict] = []
+    cursor = database.cards.find({"name_normalized": {"$in": names}})
+    async for doc in cursor:
+        docs.append(doc)
+
+    return _build_upgrades(scored, docs, owned_ids, identity, limit)
 
 
 @router.post("/generate", response_model=GeneratedDeckResponse)

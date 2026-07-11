@@ -115,6 +115,24 @@ class GeneratedDeckResponse(BaseModel):
     theme_count: int = 0
 
 
+class UpgradeSuggestion(BaseModel):
+    """A card the user does NOT own that EDHREC recommends for the commander.
+
+    Ranked by EDHREC quality score; prices are fetched client-side per the
+    owned-now/catalog-later model, so none are included here.
+    """
+    oracle_id: str
+    name: str
+    mana_cost: str = ""
+    cmc: float = 0.0
+    type_line: str = ""
+    color_identity: list[str] = []
+    roles: list[str] = []
+    synergy: float = 0.0        # raw EDHREC synergy (commander-specific fit)
+    score: float = 0.0          # blended popularity + synergy quality score
+    reason: str = ""
+
+
 class CollectionItemOut(BaseModel):
     oracle_id: str | None
     name: str

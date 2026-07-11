@@ -73,11 +73,12 @@ async def _fetch(slug: str) -> list[dict] | None:
     return list(seen.values())
 
 
-async def get_score_map(db: AsyncDatabase, commander: dict) -> dict[str, float]:
-    """Return {name_normalized: quality_score} for a commander, cached in Mongo.
+async def get_scored_cards(db: AsyncDatabase, commander: dict) -> list[dict]:
+    """Return the commander's EDHREC cards as ``[{n, s, inc, syn}, ...]``, cached.
 
-    Uses a fresh cache if < CACHE_TTL old; otherwise refetches. On fetch failure
-    falls back to a stale cache if present, else an empty map.
+    Each entry: ``n`` = name_normalized, ``s`` = quality score, ``inc`` = inclusion
+    count, ``syn`` = raw synergy. Uses a fresh cache if < CACHE_TTL old; otherwise
+    refetches. On fetch failure falls back to a stale cache, else an empty list.
     """
     slug = slugify(commander["name"])
     now = datetime.now(timezone.utc)
@@ -90,11 +91,11 @@ async def get_score_map(db: AsyncDatabase, commander: dict) -> dict[str, float]:
         except (KeyError, ValueError):
             fresh = False
     if fresh:
-        return {c["n"]: c["s"] for c in cached["cards"]}
+        return cached["cards"]
 
     cards = await _fetch(slug)
     if cards is None:
-        return {c["n"]: c["s"] for c in cached["cards"]} if cached else {}
+        return cached["cards"] if cached else []
 
     await db.edhrec_cache.replace_one(
         {"_id": slug},
@@ -106,4 +107,9 @@ async def get_score_map(db: AsyncDatabase, commander: dict) -> dict[str, float]:
         },
         upsert=True,
     )
-    return {c["n"]: c["s"] for c in cards}
+    return cards
+
+
+async def get_score_map(db: AsyncDatabase, commander: dict) -> dict[str, float]:
+    """Return {name_normalized: quality_score} for a commander (see get_scored_cards)."""
+    return {c["n"]: c["s"] for c in await get_scored_cards(db, commander)}

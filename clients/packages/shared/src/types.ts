@@ -177,6 +177,20 @@ export interface StrategyOption {
   description: string;
 }
 
+/** A card the user doesn't own that EDHREC recommends for a commander. */
+export interface UpgradeSuggestion {
+  oracle_id: string;
+  name: string;
+  mana_cost: string;
+  cmc: number;
+  type_line: string;
+  color_identity: string[];
+  roles: string[];
+  synergy: number;
+  score: number;
+  reason: string;
+}
+
 export interface SavedDeck {
   id: string;
   name: string;

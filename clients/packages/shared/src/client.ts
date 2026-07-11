@@ -20,6 +20,7 @@ import type {
   SavedDeck,
   SavedDeckSummary,
   StrategyOption,
+  UpgradeSuggestion,
   User,
 } from "./types";
 
@@ -177,6 +178,12 @@ export class ApiClient {
 
   listStrategies(): Promise<StrategyOption[]> {
     return this.request<StrategyOption[]>("GET", "/decks/strategies");
+  }
+
+  /** EDHREC-recommended cards the user doesn't own for a commander (budget upgrades). */
+  getUpgrades(commanderName: string, limit = 40): Promise<UpgradeSuggestion[]> {
+    const qs = `?commander=${encodeURIComponent(commanderName)}&limit=${limit}`;
+    return this.request<UpgradeSuggestion[]>("GET", `/decks/upgrades${qs}`);
   }
 
   generateDeck(

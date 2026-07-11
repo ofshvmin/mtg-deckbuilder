@@ -7,6 +7,7 @@ import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import CommanderArt from "./CommanderArt";
 import DeckCardList from "./DeckCardList";
+import DeckUpgrades from "./DeckUpgrades";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
 
@@ -186,6 +187,12 @@ export default function DeckView({
           </aside>
         )}
       </div>
+
+      {/* Budget upgrades — cards you don't own that EDHREC recommends */}
+      <DeckUpgrades
+        commanderName={deck.commander.name}
+        deckCardIds={deck.cards.map((c) => c.oracle_id)}
+      />
 
       {/* How this was built — de-emphasized footer */}
       <div className="rounded-lg border border-slate-800/60 bg-slate-900/30 p-3 text-xs leading-relaxed text-slate-500">
