@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from .. import db
 from ..auth.deps import get_current_user
 from ..models.responses import (
+    BracketOut,
+    BracketSignal,
     CardSummary,
     ComboFinisher,
     ComboOut,
@@ -23,7 +25,7 @@ from ..models.responses import (
 )
 from ..repositories import collection as collection_repo
 from ..repositories import decks as decks_repo
-from ..services import csv_formats, edhrec, generator
+from ..services import brackets, csv_formats, edhrec, generator
 from ..services import pool as pool_service
 from ..services import roles as roles_service
 from ..services import spellbook, strategies, themes
@@ -223,8 +225,12 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
     deck_ids = {dc.oracle_id for dc in deck.cards} | {result.commander["_id"]}
     deck_combos = [c for c in pool_full if set(c["cards"]) <= deck_ids]
 
+    pool_by_id = {card["_id"]: card for card in result.pool}
+    bracket = await _estimate_bracket(database, result.commander, deck, deck_combos, pool_by_id)
+
     return _deck_response(
-        result.commander, result.color_identity, deck, edhrec_available, deck_combos, pool_near
+        result.commander, result.color_identity, deck, edhrec_available,
+        deck_combos, pool_near, bracket,
     )
 
 
@@ -262,8 +268,11 @@ async def compose_deck(body: ComposeRequest, current_user: dict = Depends(get_cu
     deck_ids = {dc.oracle_id for dc in deck.cards} | {result.commander["_id"]}
     deck_combos, near_combos = await spellbook.detect(database, deck_ids, result.color_identity)
 
+    bracket = await _estimate_bracket(database, result.commander, deck, deck_combos, pool_by_id)
+
     return _deck_response(
-        result.commander, result.color_identity, deck, edhrec_available, deck_combos, near_combos
+        result.commander, result.color_identity, deck, edhrec_available,
+        deck_combos, near_combos, bracket,
     )
 
 
@@ -347,6 +356,26 @@ async def combo_finishers(body: ComboFinishRequest, current_user: dict = Depends
     return _build_finishers(finishers, docs_by_id, set(owned), result.commander["_id"], limit=30)
 
 
+async def _estimate_bracket(
+    database, commander: dict, deck, deck_combos: list[dict], pool_by_id: dict[str, dict]
+) -> BracketOut:
+    """Estimate the WOTC bracket from the deck's full card docs + its combos."""
+    deck_docs = [pool_by_id[dc.oracle_id] for dc in deck.cards if dc.oracle_id in pool_by_id]
+    deck_docs.append(commander)
+    gc_ids = await brackets.game_changer_ids(database)
+    res = brackets.estimate(deck_docs, deck_combos, gc_ids)
+    return BracketOut(
+        bracket=res.bracket,
+        label=res.label,
+        explanation=res.explanation,
+        signals=[
+            BracketSignal(key=s.key, label=s.label, count=s.count, cards=s.cards)
+            for s in res.signals
+        ],
+        caveat=res.caveat,
+    )
+
+
 def _deck_response(
     commander: dict,
     identity: list[str],
@@ -354,6 +383,7 @@ def _deck_response(
     edhrec_available: bool,
     deck_combos: list[dict],
     near_combos: list[dict],
+    bracket: BracketOut | None = None,
 ) -> GeneratedDeckResponse:
     """Assemble a GeneratedDeckResponse from a computed deck (shared by generate + compose)."""
     combo_card_ids = {oid for combo in deck_combos for oid in combo["cards"]}
@@ -382,6 +412,7 @@ def _deck_response(
         strategy=deck.strategy,
         theme=deck.theme,
         theme_count=deck.theme_count,
+        bracket=bracket,
         cards=[
             DeckCardOut(
                 oracle_id=dc.oracle_id,
@@ -453,18 +484,23 @@ async def save_deck(body: SaveDeckRequest, current_user: dict = Depends(get_curr
 async def list_saved_decks(current_user: dict = Depends(get_current_user)):
     database = db.get_db()
     docs = await decks_repo.list_decks(database, current_user["_id"])
-    return [
-        SavedDeckSummary(
-            id=doc["_id"],
-            name=doc["name"],
-            commander_name=doc["deck"].get("commander", {}).get("name", "Unknown"),
-            color_identity=doc["deck"].get("color_identity", []),
-            total=doc["deck"].get("total", 0),
-            created_at=doc["created_at"],
-            updated_at=doc["updated_at"],
+    summaries = []
+    for doc in docs:
+        b = doc["deck"].get("bracket") or {}
+        summaries.append(
+            SavedDeckSummary(
+                id=doc["_id"],
+                name=doc["name"],
+                commander_name=doc["deck"].get("commander", {}).get("name", "Unknown"),
+                color_identity=doc["deck"].get("color_identity", []),
+                total=doc["deck"].get("total", 0),
+                created_at=doc["created_at"],
+                updated_at=doc["updated_at"],
+                bracket=b.get("bracket"),
+                bracket_label=b.get("label"),
+            )
         )
-        for doc in docs
-    ]
+    return summaries
 
 
 @router.get("/saved/{deck_id}", response_model=SavedDeckResponse)

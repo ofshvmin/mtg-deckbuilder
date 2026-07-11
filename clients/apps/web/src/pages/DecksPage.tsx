@@ -4,6 +4,7 @@ import type { GeneratedDeck, SavedDeckSummary } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
+import BracketBadge from "../components/BracketBadge";
 import CommanderArt from "../components/CommanderArt";
 import DeckView from "../components/DeckView";
 
@@ -124,6 +125,14 @@ export default function DecksPage() {
               >
                 <CommanderArt name={d.commander_name} className="h-28">
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+                  {d.bracket != null && (
+                    <div className="absolute right-2 top-2">
+                      <BracketBadge
+                        compact
+                        bracket={{ bracket: d.bracket, label: d.bracket_label ?? "", explanation: "", signals: [] }}
+                      />
+                    </div>
+                  )}
                   <div className="absolute inset-x-0 bottom-0 p-3">
                     <h3 className="truncate text-sm font-semibold text-white drop-shadow transition group-hover:text-emerald-300">
                       {d.name}

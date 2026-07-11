@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DeckCard, GeneratedDeck, PoolCard, PoolResponse } from "@mtg/shared";
 import { api } from "../lib/api";
+import BracketBadge from "./BracketBadge";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import DeckCardList from "./DeckCardList";
@@ -313,6 +314,11 @@ export default function ManualBuilder({
                   value={deck ? `${deck.stats.p_2plus_lands_opening}%` : "..."}
                 />
               </div>
+              {deck?.bracket && (
+                <div>
+                  <BracketBadge bracket={deck.bracket} />
+                </div>
+              )}
               {deck && <ManaCurve curve={deck.curve} />}
               {deck && deck.warnings.length > 0 && (
                 <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-3 text-xs text-amber-300">

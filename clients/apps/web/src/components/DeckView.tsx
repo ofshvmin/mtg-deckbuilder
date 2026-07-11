@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { Combo, GeneratedDeck } from "@mtg/shared";
 import { api } from "../lib/api";
 import { formatColorIdentity } from "../lib/format";
+import BracketBadge from "./BracketBadge";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import CommanderArt from "./CommanderArt";
@@ -201,6 +202,13 @@ export default function DeckView({
         <p className="text-sm text-emerald-400">Deck saved as "{savedAs}"</p>
       )}
       {saveError && <p className="text-sm text-rose-400">{saveError}</p>}
+
+      {/* Estimated power bracket */}
+      {deck.bracket && (
+        <div>
+          <BracketBadge bracket={deck.bracket} />
+        </div>
+      )}
 
       {/* Top-level stats */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

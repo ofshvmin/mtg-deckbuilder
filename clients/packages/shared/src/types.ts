@@ -170,6 +170,23 @@ export interface GeneratedDeck {
   strategy?: string | null;
   theme?: string | null;
   theme_count?: number;
+  bracket?: BracketOut | null;
+}
+
+export interface BracketSignal {
+  key: string;
+  label: string;
+  count: number;
+  cards: string[];
+}
+
+/** Estimated WOTC Commander bracket (1-5) with the signals behind it. */
+export interface BracketOut {
+  bracket: number;
+  label: string;
+  explanation: string;
+  signals: BracketSignal[];
+  caveat?: string | null;
 }
 
 export interface StrategyOption {
@@ -222,4 +239,6 @@ export interface SavedDeckSummary {
   total: number;
   created_at: string;
   updated_at: string;
+  bracket?: number | null;
+  bracket_label?: string | null;
 }

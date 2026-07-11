@@ -95,6 +95,22 @@ class ComboOut(BaseModel):
     missing_name: str | None = None   # set only for "near" combos (one card away)
 
 
+class BracketSignal(BaseModel):
+    key: str              # game_changers | infinite_combo | land_denial | extra_turns | tutors
+    label: str
+    count: int
+    cards: list[str] = []
+
+
+class BracketOut(BaseModel):
+    """Estimated WOTC Commander bracket (1-5) with the signals behind it."""
+    bracket: int
+    label: str
+    explanation: str
+    signals: list[BracketSignal] = []
+    caveat: str | None = None
+
+
 class GeneratedDeckResponse(BaseModel):
     commander: CardSummary
     color_identity: list[str]
@@ -113,6 +129,7 @@ class GeneratedDeckResponse(BaseModel):
     strategy: str | None = None
     theme: str | None = None
     theme_count: int = 0
+    bracket: BracketOut | None = None
 
 
 class ComboFinisher(BaseModel):
@@ -209,3 +226,5 @@ class SavedDeckSummary(BaseModel):
     total: int
     created_at: str
     updated_at: str
+    bracket: int | None = None
+    bracket_label: str | None = None
