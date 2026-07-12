@@ -11,6 +11,7 @@ import CommanderFeature from "./CommanderFeature";
 import DeckCardList from "./DeckCardList";
 import DeckComboFinishers from "./DeckComboFinishers";
 import DeckUpgrades from "./DeckUpgrades";
+import { cheapestPrint, fetchCardDetail } from "../lib/scryfallPrints";
 import PlaytestModal from "./PlaytestModal";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
@@ -53,6 +54,8 @@ export default function DeckView({
   const [regenerating, setRegenerating] = useState(false);
   const [locked, setLocked] = useState<Set<string>>(new Set());
   const [playtesting, setPlaytesting] = useState(false);
+  // Cheapest price per "one card away" missing card, for the max-price filter.
+  const [nearPrices, setNearPrices] = useState<Map<string, number | null>>(new Map());
 
   // Sync when the parent hands us a different deck (e.g. opening another saved deck).
   useEffect(() => {
@@ -60,6 +63,26 @@ export default function DeckView({
     setLocked(new Set());
     setDirty(false);
   }, [initialDeck]);
+
+  // With a max-price cap set, fetch the cheapest price of each "one card away"
+  // missing card so we can hide combos whose finisher is over budget.
+  useEffect(() => {
+    if (maxPrice == null) return;
+    const names = Array.from(
+      new Set(deck.near_combos.map((c) => c.missing_name).filter(Boolean) as string[]),
+    );
+    if (names.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      names.map(async (n) => {
+        const d = await fetchCardDetail({ name: n });
+        return [n, cheapestPrint(d.prints)?.priceUsd ?? null] as const;
+      }),
+    ).then((entries) => {
+      if (!cancelled) setNearPrices(new Map(entries));
+    });
+    return () => { cancelled = true; };
+  }, [maxPrice, deck.near_combos]);
 
   function toggleLock(oracleId: string) {
     setLocked((prev) => {
@@ -125,7 +148,15 @@ export default function DeckView({
 
   const nameChanged = savedAs !== null && name.trim() !== savedAs;
   const isUnsaved = savedAs === null;
-  const hasCombos = deck.combos.length > 0 || deck.near_combos.length > 0;
+  // Hide "one card away" combos whose missing card is over the max-price cap.
+  const visibleNear =
+    maxPrice == null
+      ? deck.near_combos
+      : deck.near_combos.filter((c) => {
+          const price = c.missing_name ? nearPrices.get(c.missing_name) : undefined;
+          return price == null || price <= maxPrice; // keep if unknown/loading or affordable
+        });
+  const hasCombos = deck.combos.length > 0 || visibleNear.length > 0;
   const title = savedAs ?? deckName ?? `${deck.commander.name} Deck`;
 
   return (
@@ -294,8 +325,8 @@ export default function DeckView({
                 accent="fuchsia"
               />
             )}
-            {deck.near_combos.length > 0 && (
-              <ComboSection title="One card away" combos={deck.near_combos} accent="amber" near />
+            {visibleNear.length > 0 && (
+              <ComboSection title="One card away" combos={visibleNear} accent="amber" near />
             )}
           </aside>
         )}
