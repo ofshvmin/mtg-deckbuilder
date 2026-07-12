@@ -1,24 +1,31 @@
 # Handoff — MTG Deck Builder
 
-Updated 2026-07-10 (handoff-prep pass). Self-contained onboarding for a fresh clone — the project's
-machine-local memory and per-feature design plans (kept under `~/.claude/`, not in git) have been
-folded into this document.
+Updated 2026-07-12. Self-contained onboarding for a fresh clone — the project's machine-local
+memory and per-feature design plans (kept under `~/.claude/`, not in git) have been folded into
+this document.
 
 ---
 
 ## Current state
 
-Everything is **deployed and working**:
+The app is named **Grimoire** (an MTG Commander deck builder). Everything is **deployed and working**:
 - **Backend:** FastAPI on Fly.io at `https://mtg-deckbuilder-api.fly.dev`
 - **Frontend:** React SPA on Vercel at `https://mtg-deckbuilder-bice.vercel.app`
 - **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K+ oracle cards, 96K+ combos
-- **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`, latest ~`e3fc424`, clean
-- **Backend tests:** 57 passing (`pytest`)
+- **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`, latest ~`b57e6ae`, clean
+- **Backend tests:** **134 passing** (`pytest`)
 
-The app: a Commander (EDH) deck builder over your card collection. Import your collection,
-pick a commander, and either auto-generate a tuned 99-card deck (role quotas + mana curve, ranked
-by EDHREC synergy, with Commander Spellbook combo detection) or build one by hand from your legal
-pool. Browse your collection as an image-rich inventory, save/export decks.
+The app: import your card collection, pick a commander, and build a legal, mana-curved, synergy/
+combo-tuned 99-card Commander deck in one of **four ways** — auto-build, build by hand, **lock &
+regenerate**, or **describe it in natural language and let Claude pick the core** (AI deck brief).
+Every deck gets an estimated WOTC power bracket (1–5), combo detection, budget-upgrade and combo-
+finisher suggestions (respecting a per-user max-price cap), a goldfish playtest sim, and text/
+stacks/grid card views. Browse the collection as an image-rich inventory; save/export decks.
+
+> ⚠️ **New required secret:** the AI deck brief needs an **`CLAUDE_API`** env var (Anthropic API
+> key). It's already set as a **Fly secret** (prod) and must be added to **`backend/.env`** for
+> local dev — see *Local dev* below. Without it, the AI-brief feature returns a friendly 503 and
+> everything else works.
 
 ---
 
@@ -54,6 +61,32 @@ and a per-deck-card `selected_printing_key` — the seams for future value/image
   color identity everywhere. Deck list is a height-balanced CSS-columns masonry.
 - **Manual deck builder:** Build page Auto/Manual toggle. Manual mode = pool picker + a live
   working deck that recomputes categories + stats as you add/remove cards, via `POST /decks/compose`.
+
+**Shipped 2026-07-10 → 07-12 (this wave — all live):**
+- **Import fixes:** Dragon Shield quoted-`sep=`/delimiter handling; **Android "Failed to fetch"**
+  (read the picked file to memory with `arrayBuffer()` before upload — Android's picker hands a
+  lazy `content://` ref `fetch` can't read). Add-card printing picker.
+- **Deck strategy & theme** (`/decks/strategies`, `strategy`+`theme` on generate; `services/
+  strategies.py`, `themes.py`).
+- **Deck editing in place + lock & regenerate:** `generator.generate(locked_ids=…)` seeds pinned
+  cards and builds around them; `POST /decks/generate` takes `locked`. Manual editor can open/update
+  an existing deck; DeckView has pin toggles + "Regenerate".
+- **Budget upgrades** (`GET /decks/upgrades`) — EDHREC recs you don't own, priced client-side.
+- **Combo finishers** (`POST /decks/combo-finishers`) — cards that complete a deck combo, owned-first.
+- **Commander bracket estimation** (`services/brackets.py`, `app/data/game_changers.json`) — WOTC
+  1–5 from Game Changers + 2-card infinite combos + mass land denial + extra turns + tutors.
+- **Max-price preference + Settings page** (`preferences.max_card_price`, `PATCH /auth/preferences`)
+  — caps unowned suggestions across upgrades, combo finishers, and "one card away" combos.
+- **Playtest (goldfish) sim** (client-side), **Text/Stacks/Grid** card view toggle.
+- **Rebrand to Grimoire:** new nav (logo → home, avatar dropdown), **Home dashboard** at `/`,
+  Collection moved to `/collection`; "The Open Tome" inline-SVG logo + favicon.
+- **Uniform card detail:** every `CardDetailModal` shows a market price + oracle text; unowned cards
+  resolve the cheapest printing. **CommanderFeature** panel (full card + details + price) on Build
+  and deck views.
+- **AI DECK BRIEF** (`POST /decks/brief`, `services/ai_brief.py`) — natural-language request →
+  Claude (Anthropic API via httpx, forced tool-use) picks **core cards from the owned pool** + build
+  knobs → validated → `generate(locked_ids=core, strategy, theme, quotas, avoid_combos, land_count)`.
+  Build page "✨ Describe" mode; `AiPlanPanel` shows Claude's rationale + core cards. Needs `CLAUDE_API`.
 
 ---
 
@@ -206,8 +239,17 @@ python -m pytest tests/ -q
 # Frontend
 cd clients && npm install && npm run dev  # :5173  (defaults API base to http://localhost:8000)
 ```
-`backend/.env` must supply `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET` (not in git). The Atlas
-connection string + a generated JWT secret live only on the dev machine's `.env`.
+`backend/.env` (gitignored — set it up on each machine) must supply:
+- `MONGODB_URI`, `MONGODB_DB` — the Atlas connection string + db name (`mtg_deckbuilder`).
+- `JWT_SECRET` — any generated secret (must match whatever prod uses if you want prod tokens to work,
+  but for local dev any value is fine).
+- `CLAUDE_API` — **Anthropic API key** for the AI deck brief (from console.anthropic.com; separate
+  from a claude.ai Pro subscription, billed as prepaid API credits). Optional — the AI-brief feature
+  returns a 503 without it and everything else runs. Optional `CLAUDE_MODEL` (default `claude-sonnet-5`).
+
+These are already **Fly secrets** in prod (`flyctl secrets list`): `MONGODB_URI`, `MONGODB_DB`,
+`JWT_SECRET`, `CORS_ORIGIN_REGEX`, `CLAUDE_API`. On a new machine, copy the values from Atlas /
+Anthropic consoles into a fresh local `.env` (they aren't retrievable from Fly).
 
 **Visual verification recipe** (used throughout): register a throwaway user via the API, import
 `backend/../app/data/collection.csv` (the seed collection, real set codes + collector numbers),
@@ -251,13 +293,19 @@ delete the throwaway user's `users` + `collection_items` + `decks` docs.
 
 ## What to work on next
 
-- **Deck editing in place** — swap/lock individual cards on an auto-built deck, regenerate around
-  locked cards (manual *building* from scratch is already done via the Build page).
-- **Server-side printing catalog** — ingest Scryfall printings (sets/prices/images) to unlock market
-  value, richer images, acquisition suggestions.
-- **Inventory allocation** — track which physical copies are committed to which decks (the fleet model).
-- **Playtest simulator**, **power-level / bracket estimation**, **budget upgrade suggestions**.
-- **Pagination/virtualization** for large collections; **CI/CD** (GitHub Actions → tests + Fly deploy).
+The **original 6-phase plan is complete**, plus a large second wave (see *Shipped 2026-07-10 →
+07-12* above). Remaining, all optional:
+
+- **AI deck brief — Phase 2:** conversational refinement ("lower the curve / cut the combos / more
+  draw" adjusts the spec and rebuilds), unowned "acquire" suggestions from the brief (max-price
+  capped), streaming the rationale, tool-use grounding (`search_owned_pool`), a *hard* combo-avoid.
+- **Server-side printing catalog** — ingest Scryfall prices/images so market value, deck totals, and
+  card images don't depend on per-client Scryfall calls.
+- **Inventory allocation** — which physical copies are committed to which decks (the fleet model).
+- **Collection performance** — pagination/virtualization (grid caps at 400 rows today).
+- **CI/CD** for the Fly backend (deploys are manual `flyctl deploy`).
+- **Game Changers list refresh** — `app/data/game_changers.json` is the official WOTC list (from
+  Scryfall `is:gamechanger`); re-pull periodically when WOTC revises it (query + update the JSON).
 
 ---
 
