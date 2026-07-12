@@ -11,6 +11,7 @@ import CommanderArt from "./CommanderArt";
 import DeckCardList from "./DeckCardList";
 import DeckComboFinishers from "./DeckComboFinishers";
 import DeckUpgrades from "./DeckUpgrades";
+import PlaytestModal from "./PlaytestModal";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
 
@@ -51,6 +52,7 @@ export default function DeckView({
   const [dirty, setDirty] = useState(false);            // unsaved regenerate changes
   const [regenerating, setRegenerating] = useState(false);
   const [locked, setLocked] = useState<Set<string>>(new Set());
+  const [playtesting, setPlaytesting] = useState(false);
 
   // Sync when the parent hands us a different deck (e.g. opening another saved deck).
   useEffect(() => {
@@ -180,6 +182,12 @@ export default function DeckView({
             Edit cards
           </button>
         )}
+        <button
+          onClick={() => setPlaytesting(true)}
+          className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
+        >
+          🎴 Playtest
+        </button>
         {deckId && (
           <>
             <select
@@ -303,6 +311,8 @@ export default function DeckView({
         deckCardIds={deck.cards.map((c) => c.oracle_id)}
         maxPrice={maxPrice}
       />
+
+      {playtesting && <PlaytestModal deck={deck} onClose={() => setPlaytesting(false)} />}
 
       {/* How this was built — de-emphasized footer */}
       <div className="rounded-lg border border-slate-800/60 bg-slate-900/30 p-3 text-xs leading-relaxed text-slate-500">

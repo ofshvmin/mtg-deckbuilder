@@ -1,15 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import type { DeckCard } from "@mtg/shared";
+import type { DeckCard, Printing } from "@mtg/shared";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
+import CardImage from "./CardImage";
 import ManaCost from "./ManaCost";
 import PrintingChips from "./PrintingChips";
 
-// Deck cards grouped into role categories, laid out as a height-balanced
-// masonry so short sections don't leave gaps. Shared by the read-only DeckView
-// and the interactive manual builder (which passes onRemove to add a x per row).
-// Every card name shows a hover image preview and opens a detail modal on click.
+// Deck cards grouped into role categories. Three views (Moxfield-style):
+//   text   — height-balanced masonry of text rows (default)
+//   stacks — overlapping card images per column, titles visible
+//   grid   — full card images in a grid
+// Shared by the read-only DeckView and the interactive manual builder.
 
 const SLOTS: { key: string; label: string; dot: string }[] = [
   { key: "land", label: "Lands", dot: "bg-amber-500" },
@@ -19,6 +21,33 @@ const SLOTS: { key: string; label: string; dot: string }[] = [
   { key: "board_wipe", label: "Board Wipes", dot: "bg-red-600" },
   { key: "game_plan", label: "Game Plan", dot: "bg-fuchsia-500" },
 ];
+
+type View = "text" | "stacks" | "grid";
+const VIEW_KEY = "mtg.deckView";
+
+// Fixed card geometry for the stacks view (magic ratio 1040/745 ≈ 1.396).
+const STACK_W = 190;
+const STACK_H = Math.round(STACK_W * 1.396);
+const STACK_TITLE = 34; // px of the card's title bar left visible when overlapped
+
+function displayPrinting(c: DeckCard): Printing | undefined {
+  return (
+    c.printings?.find((p) => p.printing_key === c.selected_printing_key) ??
+    c.printings?.[0]
+  );
+}
+
+function deckCardToModal(c: DeckCard): CardModalData {
+  return {
+    oracle_id: c.oracle_id,
+    name: c.name,
+    mana_cost: c.mana_cost,
+    cmc: c.cmc,
+    type_line: c.type_line,
+    color_identity: c.color_identity,
+    printings: c.printings,
+  };
+}
 
 export default function DeckCardList({
   cards,
@@ -35,23 +64,62 @@ export default function DeckCardList({
 }) {
   const [modal, setModal] = useState<CardModalData | null>(null);
   const { hover, onEnter, onLeave } = useCardHover();
+  const [view, setView] = useState<View>(() => {
+    const v = typeof localStorage !== "undefined" ? localStorage.getItem(VIEW_KEY) : null;
+    return v === "stacks" || v === "grid" ? v : "text";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_KEY, view);
+    } catch {
+      /* ignore */
+    }
+  }, [view]);
 
-  const bySlot = (slot: string) => cards.filter((c) => c.slot === slot);
+  const groups = SLOTS.map((s) => ({ ...s, cards: cards.filter((c) => c.slot === s.key) })).filter(
+    (g) => g.cards.length > 0,
+  );
+
+  const groupHeader = (label: string, dot: string, count: number) => (
+    <div className="mb-1.5 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-300">
+      <span className={`h-2 w-2 rounded-full ${dot}`} />
+      {label}
+      <span className="text-slate-500">{count}</span>
+    </div>
+  );
+
   return (
     <>
-      <div className={`gap-4 [column-fill:balance] ${columnsClassName}`}>
-        {SLOTS.map(({ key, label, dot }) => {
-          const slotCards = bySlot(key);
-          if (slotCards.length === 0) return null;
-          const total = slotCards.reduce((s, c) => s + c.count, 0);
-          return (
+      {/* View toggle */}
+      <div className="mb-3 flex justify-end">
+        <div className="inline-flex rounded-lg border border-slate-700 p-0.5 text-xs">
+          {(["text", "stacks", "grid"] as View[]).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={
+                "rounded-md px-2.5 py-1 capitalize transition " +
+                (view === v ? "bg-slate-800 text-slate-100" : "text-slate-400 hover:text-slate-200")
+              }
+            >
+              {v === "text" ? "☰ Text" : v === "stacks" ? "▦ Stacks" : "▤ Grid"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {view === "text" && (
+        <div className={`gap-4 [column-fill:balance] ${columnsClassName}`}>
+          {groups.map(({ key, label, dot, cards: slotCards }) => (
             <div key={key} className="mb-4 break-inside-avoid rounded-xl border border-slate-800 bg-slate-900/60">
               <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2">
                 <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-300">
                   <span className={`h-2 w-2 rounded-full ${dot}`} />
                   {label}
                 </span>
-                <span className="text-xs tabular-nums text-slate-500">{total}</span>
+                <span className="text-xs tabular-nums text-slate-500">
+                  {slotCards.reduce((s, c) => s + c.count, 0)}
+                </span>
               </div>
               <ul className="divide-y divide-slate-800/60">
                 {slotCards.map((c) => (
@@ -68,36 +136,132 @@ export default function DeckCardList({
                 ))}
               </ul>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {view === "grid" && (
+        <div className="space-y-6">
+          {groups.map(({ key, label, dot, cards: slotCards }) => (
+            <div key={key}>
+              {groupHeader(label, dot, slotCards.reduce((s, c) => s + c.count, 0))}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                {slotCards.map((c) => (
+                  <ImageCell
+                    key={c.oracle_id}
+                    card={c}
+                    onClick={() => setModal(deckCardToModal(c))}
+                    onRemove={onRemove}
+                    locked={locked?.has(c.oracle_id)}
+                    onToggleLock={onToggleLock}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {view === "stacks" && (
+        <div className="flex flex-wrap gap-x-6 gap-y-4">
+          {groups.map(({ key, label, dot, cards: slotCards }) => (
+            <div key={key}>
+              {groupHeader(label, dot, slotCards.reduce((s, c) => s + c.count, 0))}
+              <div className="flex flex-col" style={{ width: STACK_W }}>
+                {slotCards.map((c, i) => (
+                  <div
+                    key={c.oracle_id}
+                    className="relative transition-transform hover:z-40"
+                    style={{ marginTop: i === 0 ? 0 : -(STACK_H - STACK_TITLE), zIndex: i }}
+                  >
+                    <ImageCell
+                      card={c}
+                      onClick={() => setModal(deckCardToModal(c))}
+                      onRemove={onRemove}
+                      locked={locked?.has(c.oracle_id)}
+                      onToggleLock={onToggleLock}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {hover && createPortal(
-        <CardHoverPreview
-          name={hover.name}
-          printing={hover.printing}
-          anchorRect={hover.rect}
-        />,
+        <CardHoverPreview name={hover.name} printing={hover.printing} anchorRect={hover.rect} />,
         document.body,
       )}
-
-      {modal && (
-        <CardDetailModal card={modal} onClose={() => setModal(null)} />
-      )}
+      {modal && <CardDetailModal card={modal} onClose={() => setModal(null)} />}
     </>
   );
 }
 
-function deckCardToModal(c: DeckCard): CardModalData {
-  return {
-    oracle_id: c.oracle_id,
-    name: c.name,
-    mana_cost: c.mana_cost,
-    cmc: c.cmc,
-    type_line: c.type_line,
-    color_identity: c.color_identity,
-    printings: c.printings,
-  };
+// A card image with count badge + combo/synergy markers, and (when provided)
+// remove / lock controls that appear on hover. Used by grid and stacks views.
+function ImageCell({
+  card,
+  onClick,
+  onRemove,
+  locked,
+  onToggleLock,
+}: {
+  card: DeckCard;
+  onClick: () => void;
+  onRemove?: (oracleId: string) => void;
+  locked?: boolean;
+  onToggleLock?: (oracleId: string) => void;
+}) {
+  const printing = displayPrinting(card);
+  const highSynergy = card.quality >= 0.3;
+  return (
+    <div className="group relative">
+      <button onClick={onClick} className="block w-full" title={card.name}>
+        <CardImage
+          printing={printing}
+          name={card.name}
+          typeLine={card.type_line}
+          manaCost={card.mana_cost}
+          isFoil={printing?.finish === "foil"}
+          className="aspect-[745/1040] w-full shadow-md ring-1 ring-black/40 transition group-hover:ring-emerald-500/60"
+        />
+      </button>
+
+      {/* Corner markers */}
+      <div className="pointer-events-none absolute left-1 top-1 flex gap-1">
+        {card.count > 1 && (
+          <span className="rounded bg-black/80 px-1.5 text-xs font-medium text-white">{card.count}×</span>
+        )}
+        {card.in_combo && <span className="rounded bg-black/70 px-1 text-xs text-fuchsia-300">⚡</span>}
+        {highSynergy && <span className="rounded bg-black/70 px-1 text-xs text-emerald-300">◆</span>}
+      </div>
+
+      {/* Hover controls */}
+      {(onToggleLock || onRemove) && (
+        <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition group-hover:opacity-100">
+          {onToggleLock && (
+            <button
+              onClick={() => onToggleLock(card.oracle_id)}
+              className={"rounded bg-black/80 px-1 text-xs " + (locked ? "text-amber-400" : "text-slate-300 hover:text-amber-400")}
+              title={locked ? "Locked — kept when regenerating" : "Lock this card"}
+            >
+              {locked ? "📌" : "📍"}
+            </button>
+          )}
+          {onRemove && (
+            <button
+              onClick={() => onRemove(card.oracle_id)}
+              className="rounded bg-black/80 px-1 text-xs text-slate-300 hover:text-rose-400"
+              title="Remove from deck"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DeckRow({
@@ -114,7 +278,7 @@ function DeckRow({
   locked?: boolean;
   onToggleLock?: (oracleId: string) => void;
   onClick: () => void;
-  onHoverEnter: (e: React.MouseEvent, name: string, printing?: import("@mtg/shared").Printing) => void;
+  onHoverEnter: (e: React.MouseEvent, name: string, printing?: Printing) => void;
   onHoverLeave: () => void;
 }) {
   const highSynergy = card.quality >= 0.3;
