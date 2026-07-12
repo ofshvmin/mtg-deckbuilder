@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     cors_origin_regex: str = ""
 
+    # Anthropic API (for the AI deck-brief feature). Empty => feature disabled.
+    claude_api: str = ""
+    claude_model: str = "claude-sonnet-5"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

@@ -8,6 +8,7 @@
 
 import type {
   AuthTokens,
+  BriefDeckResponse,
   CardSearchResult,
   ComboFinisher,
   CollectionCard,
@@ -204,6 +205,13 @@ export class ApiClient {
   ): Promise<GeneratedDeck> {
     return this.request<GeneratedDeck>("POST", "/decks/generate", {
       body: { commander: commanderName, ...opts },
+    });
+  }
+
+  /** Interpret a natural-language deck request with Claude, then build the deck. */
+  briefDeck(commanderName: string, brief: string): Promise<BriefDeckResponse> {
+    return this.request<BriefDeckResponse>("POST", "/decks/brief", {
+      body: { commander: commanderName, brief },
     });
   }
 

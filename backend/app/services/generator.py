@@ -136,13 +136,20 @@ def generate(
     strategy: Strategy | None = None,
     theme_matches: set[str] | None = None,
     locked_ids: set[str] | None = None,
+    avoid_combos: bool = False,
 ) -> GeneratedDeck:
     strat = strategy or get_strategy(None)
     # Explicit params override strategy defaults
     effective_land_count = land_count if land_count is not None else strat.land_count
     effective_quotas = {**strat.quotas, **(quotas or {})}
     effective_curve = strat.curve_weights
-    effective_combo_weight = strat.combo_weight_override if strat.combo_weight_override is not None else COMBO_WEIGHT
+    effective_combo_weight = (
+        0.0
+        if avoid_combos
+        else strat.combo_weight_override
+        if strat.combo_weight_override is not None
+        else COMBO_WEIGHT
+    )
     quality = quality or {}
     combo_pieces = combo_pieces or set()
     theme_matches = theme_matches or set()

@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import type { CommanderOption, GeneratedDeck, PoolResponse, StrategyOption } from "@mtg/shared";
+import type { BriefDeckResponse, CommanderOption, GeneratedDeck, PoolResponse, StrategyOption } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
+import AiPlanPanel from "../components/AiPlanPanel";
 import CommanderFeature from "../components/CommanderFeature";
 import CommanderPicker from "../components/CommanderPicker";
 import DeckView from "../components/DeckView";
@@ -12,7 +13,7 @@ import ManualBuilder from "../components/ManualBuilder";
 import PoolTable from "../components/PoolTable";
 import StatTile from "../components/StatTile";
 
-type Mode = "auto" | "manual";
+type Mode = "auto" | "manual" | "brief";
 
 type EditSeed = { selected: string[]; deckId?: string; deckName?: string };
 
@@ -31,6 +32,10 @@ export default function BuildPage() {
   const [theme, setTheme] = useState("");
   const [editSeed, setEditSeed] = useState<EditSeed | null>(null);
   const editApplied = useRef(false);
+  const [briefText, setBriefText] = useState("");
+  const [briefResult, setBriefResult] = useState<BriefDeckResponse | null>(null);
+  const [briefing, setBriefing] = useState(false);
+  const [briefError, setBriefError] = useState<string | null>(null);
 
   useEffect(() => {
     api.listStrategies().then(setStrategies).catch(() => {});
@@ -71,6 +76,8 @@ export default function BuildPage() {
     setDeck(null);
     setMode("auto");
     setEditSeed(null);
+    setBriefResult(null);
+    setBriefText("");
     try {
       setPool(await api.getPool(c.name));
     } catch (e) {
@@ -97,6 +104,7 @@ export default function BuildPage() {
     if (!pool) return;
     setBuildingDeck(true);
     setDeckError(null);
+    setBriefResult(null);
     try {
       const opts: { strategy?: string; theme?: string } = {};
       if (selectedStrategy && selectedStrategy !== "Balanced") opts.strategy = selectedStrategy;
@@ -106,6 +114,21 @@ export default function BuildPage() {
       setDeckError(e instanceof Error ? e.message : "Could not build deck");
     } finally {
       setBuildingDeck(false);
+    }
+  }
+
+  async function submitBrief() {
+    if (!pool || !briefText.trim()) return;
+    setBriefing(true);
+    setBriefError(null);
+    try {
+      const res = await api.briefDeck(pool.commander.name, briefText.trim());
+      setBriefResult(res);
+      setDeck(res.deck);
+    } catch (e) {
+      setBriefError(e instanceof Error ? e.message : "Couldn't build from your description.");
+    } finally {
+      setBriefing(false);
     }
   }
 
@@ -158,12 +181,13 @@ export default function BuildPage() {
           {deck ? (
             <>
               {deckError && <p className="text-rose-400">{deckError}</p>}
+              {briefResult && <AiPlanPanel result={briefResult} />}
               <DeckView deck={deck} onSaved={refreshSaved} onEdit={(d) => editDeck(d)} />
             </>
           ) : (
             <>
-              {/* Strategy picker — shared by both modes */}
-              {strategies.length > 0 && (
+              {/* Strategy + theme — not shown for the AI-brief mode (Claude sets them) */}
+              {mode !== "brief" && strategies.length > 0 && (
                 <div className="space-y-2">
                   <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Strategy</label>
                   <div className="flex flex-wrap gap-2">
@@ -191,22 +215,24 @@ export default function BuildPage() {
                 </div>
               )}
 
-              {/* Theme input — shared by both modes */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Theme (optional)</label>
-                <input
-                  type="text"
-                  value={theme}
-                  onChange={(e) => setTheme(e.target.value)}
-                  placeholder="e.g. cats, landfall, zombies, Urza, tokens..."
-                  className="max-w-sm rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
-                />
-                <p className="text-xs text-slate-500">
-                  Matches card names, creature types, and oracle text. Try a tribe, mechanic, or keyword.
-                </p>
-              </div>
+              {/* Theme input — not shown for the AI-brief mode */}
+              {mode !== "brief" && (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Theme (optional)</label>
+                  <input
+                    type="text"
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value)}
+                    placeholder="e.g. cats, landfall, zombies, Urza, tokens..."
+                    className="max-w-sm rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Matches card names, creature types, and oracle text. Try a tribe, mechanic, or keyword.
+                  </p>
+                </div>
+              )}
 
-              {/* Auto / Manual mode toggle */}
+              {/* Build mode toggle */}
               <div className="flex flex-wrap items-center gap-3">
                 <div className="inline-flex rounded-lg border border-slate-700 p-0.5">
                   <button onClick={() => setMode("auto")} className={toggleClass(mode === "auto")}>
@@ -214,6 +240,9 @@ export default function BuildPage() {
                   </button>
                   <button onClick={() => setMode("manual")} className={toggleClass(mode === "manual")}>
                     Build manually
+                  </button>
+                  <button onClick={() => setMode("brief")} className={toggleClass(mode === "brief")}>
+                    ✨ Describe
                   </button>
                 </div>
                 {mode === "auto" && (
@@ -229,7 +258,37 @@ export default function BuildPage() {
 
               {deckError && <p className="text-rose-400">{deckError}</p>}
 
-              {mode === "auto" ? (
+              {mode === "brief" ? (
+                <div className="max-w-2xl space-y-3">
+                  <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                    Describe the deck you want
+                  </label>
+                  <textarea
+                    value={briefText}
+                    onChange={(e) => setBriefText(e.target.value)}
+                    rows={4}
+                    placeholder="e.g. A grindy treasure-sacrifice deck focused on card advantage — no infinite combos, keep it around bracket 3."
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
+                  />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      onClick={submitBrief}
+                      disabled={briefing || !briefText.trim()}
+                      className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
+                    >
+                      {briefing ? "Consulting Claude…" : "✨ Build from description"}
+                    </button>
+                    <span className="text-xs text-slate-500">
+                      Claude picks the core cards from your collection; the engine builds the rest.
+                    </span>
+                  </div>
+                  {briefError && <p className="text-sm text-rose-400">{briefError}</p>}
+                  <p className="text-xs text-slate-500">
+                    Try: “aggressive goblins, low curve”, “spellslinger with lots of card draw, no combos”,
+                    or “aristocrats value engine that grinds the game out”.
+                  </p>
+                </div>
+              ) : mode === "auto" ? (
                 <>
                   <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                     <StatTile label="Legal pool" value={pool.pool_size.toLocaleString()} />

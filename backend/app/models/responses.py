@@ -169,6 +169,23 @@ class UpgradeSuggestion(BaseModel):
     reason: str = ""
 
 
+class BriefSpecOut(BaseModel):
+    """The build knobs Claude derived from the request (for display/refinement)."""
+    strategy: str | None = None
+    theme: str | None = None
+    avoid_combos: bool = False
+    land_count: int | None = None
+    quota_overrides: dict[str, int] = {}
+
+
+class BriefDeckResponse(BaseModel):
+    """An AI-brief build: the deck, Claude's rationale, and the core it anchored on."""
+    deck: GeneratedDeckResponse
+    rationale: str
+    core_cards: list[CardSummary]     # resolved core cards that made the deck
+    spec: BriefSpecOut
+
+
 class CollectionItemOut(BaseModel):
     oracle_id: str | None
     name: str

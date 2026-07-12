@@ -200,6 +200,22 @@ export interface StrategyOption {
   description: string;
 }
 
+export interface BriefSpec {
+  strategy: string | null;
+  theme: string | null;
+  avoid_combos: boolean;
+  land_count: number | null;
+  quota_overrides: Record<string, number>;
+}
+
+/** Result of an AI deck brief: the built deck + Claude's rationale and core. */
+export interface BriefDeckResponse {
+  deck: GeneratedDeck;
+  rationale: string;
+  core_cards: CardSummary[];
+  spec: BriefSpec;
+}
+
 /** A card that would complete one or more combos with the current deck. */
 export interface ComboFinisher {
   oracle_id: string;

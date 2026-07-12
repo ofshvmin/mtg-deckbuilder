@@ -7,9 +7,12 @@ from pydantic import BaseModel
 
 from .. import db
 from ..auth.deps import get_current_user
+from ..config import get_settings
 from ..models.responses import (
     BracketOut,
     BracketSignal,
+    BriefDeckResponse,
+    BriefSpecOut,
     CardSummary,
     ComboFinisher,
     ComboOut,
@@ -25,7 +28,7 @@ from ..models.responses import (
 )
 from ..repositories import collection as collection_repo
 from ..repositories import decks as decks_repo
-from ..services import brackets, csv_formats, edhrec, generator
+from ..services import ai_brief, brackets, csv_formats, edhrec, generator
 from ..services import pool as pool_service
 from ..services import roles as roles_service
 from ..services import spellbook, strategies, themes
@@ -231,6 +234,126 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
     return _deck_response(
         result.commander, result.color_identity, deck, edhrec_available,
         deck_combos, pool_near, bracket,
+    )
+
+
+class BriefRequest(BaseModel):
+    commander: str
+    brief: str
+
+
+@router.post("/brief", response_model=BriefDeckResponse)
+async def brief_deck(body: BriefRequest, current_user: dict = Depends(get_current_user)):
+    """Interpret a natural-language deck request with Claude, then build the deck.
+
+    Claude selects core cards from the owned pool + build knobs; the generator
+    builds a legal, curved, synergy/combo-layered deck around that core.
+    """
+    if not get_settings().claude_api:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "AI deck brief isn't configured on this server yet.",
+        )
+    brief = body.brief.strip()
+    if not brief:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Describe the deck you want to build.")
+
+    database = db.get_db()
+    try:
+        result = await pool_service.get_pool(database, current_user["_id"], body.commander)
+    except pool_service.CommanderNotFound as e:
+        detail = f"No card found matching '{e.name}'."
+        if e.suggestions:
+            detail += " Did you mean: " + ", ".join(e.suggestions[:5])
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+
+    basics = await _basics_by_color(database)
+    score_map = await edhrec.get_score_map(database, result.commander)
+    quality = {c["_id"]: score_map.get(c["name_normalized"], 0.0) for c in result.pool}
+    edhrec_available = any(v > 0 for v in quality.values())
+
+    pool_ids = {c["_id"] for c in result.pool} | {result.commander["_id"]}
+    pool_full, pool_near = await spellbook.detect(database, pool_ids, result.color_identity)
+    combo_pieces = {oid for combo in pool_full for oid in combo["cards"]}
+
+    # Ask Claude for a build spec, then sanitize it.
+    shortlist = ai_brief.build_shortlist(result.pool, quality, combo_pieces)
+    strat_names = [s["name"] for s in strategies.list_strategies()]
+    try:
+        raw_spec = await ai_brief.interpret_brief(result.commander, brief, shortlist, strat_names)
+    except ai_brief.BriefUnavailable as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
+    except ai_brief.BriefError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI deck brief failed: {e}")
+
+    spec = ai_brief.validate_spec(
+        raw_spec, {c["name"] for c in result.pool}, set(strat_names)
+    )
+
+    # Resolve core card names to owned oracle_ids.
+    name_to_id = {normalize_name(c["name"]): c["_id"] for c in result.pool}
+    core_ids = {
+        name_to_id[normalize_name(n)] for n in spec["core_cards"] if normalize_name(n) in name_to_id
+    }
+
+    strat = strategies.get_strategy(spec["strategy"]) if spec["strategy"] else None
+    theme_matches = themes.compute_theme_matches(result.pool, spec["theme"])
+
+    deck = generator.generate(
+        result.commander,
+        result.pool,
+        result.color_identity,
+        basics,
+        land_count=spec["land_count"],
+        quotas=spec["quota_overrides"] or None,
+        quality=quality,
+        combo_pieces=set() if spec["avoid_combos"] else combo_pieces,
+        printings=result.printings,
+        strategy=strat if spec["strategy"] else None,
+        theme_matches=theme_matches,
+        locked_ids=core_ids,
+        avoid_combos=spec["avoid_combos"],
+    )
+    deck.theme = spec["theme"]
+    if not edhrec_available:
+        deck.warnings.append(
+            "EDHREC data unavailable for this commander — ranked by curve and role fit only."
+        )
+
+    deck_ids = {dc.oracle_id for dc in deck.cards} | {result.commander["_id"]}
+    deck_combos = [c for c in pool_full if set(c["cards"]) <= deck_ids]
+    pool_by_id = {c["_id"]: c for c in result.pool}
+    bracket = await _estimate_bracket(database, result.commander, deck, deck_combos, pool_by_id)
+    deck_resp = _deck_response(
+        result.commander, result.color_identity, deck, edhrec_available,
+        deck_combos, pool_near, bracket,
+    )
+
+    core_summaries = [
+        CardSummary(
+            oracle_id=pool_by_id[oid]["_id"],
+            name=pool_by_id[oid]["name"],
+            mana_cost=pool_by_id[oid].get("mana_cost", ""),
+            cmc=pool_by_id[oid].get("cmc", 0.0),
+            type_line=pool_by_id[oid].get("type_line", ""),
+            color_identity=pool_by_id[oid].get("color_identity", []),
+            oracle_text=pool_by_id[oid].get("oracle_text", ""),
+        )
+        for oid in core_ids
+        if oid in deck_ids and oid in pool_by_id
+    ]
+
+    return BriefDeckResponse(
+        deck=deck_resp,
+        rationale=spec["rationale"],
+        core_cards=core_summaries,
+        spec=BriefSpecOut(
+            strategy=spec["strategy"],
+            theme=spec["theme"],
+            avoid_combos=spec["avoid_combos"],
+            land_count=spec["land_count"],
+            quota_overrides=spec["quota_overrides"],
+        ),
     )
 
 
