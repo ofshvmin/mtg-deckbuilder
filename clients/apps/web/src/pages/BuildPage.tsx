@@ -4,6 +4,7 @@ import type { CommanderOption, GeneratedDeck, PoolResponse, StrategyOption } fro
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
+import CommanderFeature from "../components/CommanderFeature";
 import CommanderPicker from "../components/CommanderPicker";
 import DeckView from "../components/DeckView";
 import ManaCurve from "../components/ManaCurve";
@@ -134,22 +135,25 @@ export default function BuildPage() {
 
       {pool && (
         <div className="space-y-6">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-semibold">{pool.commander.name}</h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Color identity {formatColorIdentity(pool.color_identity)} · {pool.commander.type_line}
-              </p>
-            </div>
-            {deck && (
+          {deck ? (
+            <div className="flex justify-end">
               <button
                 onClick={() => setDeck(null)}
                 className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
               >
                 ← Back to build
               </button>
-            )}
-          </div>
+            </div>
+          ) : (
+            <CommanderFeature
+              name={pool.commander.name}
+              oracleId={pool.commander.oracle_id}
+              colorIdentity={pool.color_identity}
+              typeLine={pool.commander.type_line}
+              manaCost={pool.commander.mana_cost}
+              oracleText={pool.commander.oracle_text}
+            />
+          )}
 
           {deck ? (
             <>

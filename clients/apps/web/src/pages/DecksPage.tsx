@@ -85,14 +85,7 @@ export default function DecksPage() {
   if (openDeck) {
     return (
       <div className="space-y-6">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold">{openDeck.name}</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              {openDeck.deck.commander.name} · Color identity{" "}
-              {formatColorIdentity(openDeck.deck.color_identity)}
-            </p>
-          </div>
+        <div className="flex justify-end">
           <button
             onClick={() => setOpenDeck(null)}
             className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-800"

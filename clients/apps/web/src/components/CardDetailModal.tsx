@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CollectionCard, Printing, Color } from "@mtg/shared";
 import { api } from "../lib/api";
+import { cheapestPrint, fetchCardDetail, type CardDetail } from "../lib/scryfallPrints";
 import { lookupSet, useScryfallSets } from "../lib/scryfallSets";
 import CardImage from "./CardImage";
 import ColorPips from "./ColorPips";
@@ -39,9 +40,20 @@ export default function CardDetailModal({
   onRemoved?: () => void;
 }) {
   const [card, setCard] = useState<CardModalData>(initialCard);
+  const [detail, setDetail] = useState<CardDetail | null>(null);
   const [index, setIndex] = useState(0);
   const [removing, setRemoving] = useState(false);
   const touchStartX = useRef<number | null>(null);
+
+  // Always fetch Scryfall market data (prices + oracle text + every printing) so
+  // every card detail view is uniform — market price shows whether owned or not.
+  useEffect(() => {
+    let cancelled = false;
+    fetchCardDetail({ oracleId: card.oracle_id, name: card.name }).then((d) => {
+      if (!cancelled) setDetail(d);
+    });
+    return () => { cancelled = true; };
+  }, [card.oracle_id, card.name]);
 
   // If opened with incomplete data (no oracle_text or no printings), fetch the
   // full card from the collection API so every modal looks the same.
@@ -68,10 +80,42 @@ export default function CardDetailModal({
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const printings = card.printings?.length ? card.printings : [];
+  const owned = card.printings?.length ? card.printings : [];
+  const isOwned = owned.length > 0;
+  const cheapest = detail ? cheapestPrint(detail.prints) : undefined;
+
+  // Owned cards show their owned printings; unowned cards show the cheapest printing.
+  const printings: Printing[] = isOwned
+    ? owned
+    : cheapest
+      ? [{
+          printing_key: `market:${cheapest.set}:${cheapest.collectorNumber}`,
+          edition: cheapest.set,
+          collector_number: cheapest.collectorNumber,
+          finish: "nonfoil",
+          condition: null,
+          language: null,
+          count: 0,
+        }]
+      : [];
 
   const count = printings.length;
   const current: Printing | undefined = printings[index];
+
+  // Market (Scryfall) price for the focused printing — matched by set + collector.
+  const marketUsd: number | null = (() => {
+    if (!detail || !current) return null;
+    const hit = detail.prints.find(
+      (p) => p.set.toLowerCase() === (current.edition ?? "").toLowerCase() &&
+             p.collectorNumber === current.collector_number,
+    );
+    const usd = hit ? (current.finish === "foil" ? hit.priceUsdFoil ?? hit.priceUsd : hit.priceUsd) : null;
+    return usd ?? cheapest?.priceUsd ?? null;
+  })();
+
+  const oracleText = card.oracle_text || detail?.oracleText;
+  const typeLine = card.type_line || detail?.typeLine;
+  const manaCost = card.mana_cost || detail?.manaCost;
 
   const sets = useScryfallSets();
   const setInfo = lookupSet(sets, current?.edition);
@@ -138,8 +182,8 @@ export default function CardDetailModal({
           <div className="min-w-0">
             <h2 className="truncate text-xl font-semibold text-slate-100">{card.name}</h2>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-400">
-              {card.type_line && <span>{card.type_line}</span>}
-              {card.mana_cost && <ManaCost cost={card.mana_cost} className="text-sm" />}
+              {typeLine && <span>{typeLine}</span>}
+              {manaCost && <ManaCost cost={manaCost} className="text-sm" />}
               {card.color_identity && <ColorPips colors={card.color_identity} />}
             </div>
           </div>
@@ -233,41 +277,48 @@ export default function CardDetailModal({
             </div>
           </div>
 
-          {/* Detail panel for the focused printing */}
+          {/* Detail panel — uniform across owned and unowned cards */}
           <div className="space-y-4">
-            {count > 0 && (
-              <div>
-                <h3 className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                  This copy
-                </h3>
-                <dl className="mt-2 divide-y divide-slate-800/60 rounded-xl border border-slate-800 bg-slate-900/40 text-sm">
-                  <DetailRow label="Owned" value={current ? `${current.count}` : undefined} />
+            <div>
+              <h3 className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                {isOwned ? "Your copy" : "Details"}
+              </h3>
+              <dl className="mt-2 divide-y divide-slate-800/60 rounded-xl border border-slate-800 bg-slate-900/40 text-sm">
+                {/* Market price — the headline field, shown on every card */}
+                <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+                  <dt className="text-slate-400">Market price{current?.finish === "foil" ? " (foil)" : ""}</dt>
+                  <dd className="text-right text-base font-semibold tabular-nums text-emerald-300">
+                    {marketUsd != null ? `$${marketUsd.toFixed(2)}` : detail ? "—" : "…"}
+                  </dd>
+                </div>
+                {isOwned && <DetailRow label="Owned" value={current ? `${current.count}` : undefined} />}
+                {isOwned && (
                   <DetailRow
-                    label="Purchase price"
-                    value={
-                      current?.purchase_price != null
-                        ? `$${current.purchase_price.toFixed(2)}`
-                        : undefined
-                    }
+                    label="You paid"
+                    value={current?.purchase_price != null ? `$${current.purchase_price.toFixed(2)}` : undefined}
                   />
-                  <DetailRow label="Finish" value={current?.finish === "foil" ? "Foil" : "Nonfoil"} />
-                  <DetailRow label="Condition" value={current?.condition} />
-                </dl>
-                {card.total_count != null && (
-                  <p className="mt-2 text-xs text-slate-500">
-                    Total owned across all printings: {card.total_count}
-                  </p>
                 )}
-              </div>
-            )}
+                <DetailRow label="Finish" value={current?.finish === "foil" ? "Foil" : "Nonfoil"} />
+                {isOwned && <DetailRow label="Condition" value={current?.condition} />}
+              </dl>
+              {isOwned && card.total_count != null ? (
+                <p className="mt-2 text-xs text-slate-500">
+                  Total owned across all printings: {card.total_count}
+                </p>
+              ) : !isOwned ? (
+                <p className="mt-2 text-xs text-slate-500">
+                  Not in your collection — showing the cheapest printing.
+                </p>
+              ) : null}
+            </div>
 
-            {card.oracle_text && (
+            {oracleText && (
               <div>
                 <h3 className="text-xs font-medium uppercase tracking-wider text-slate-500">
                   Oracle text
                 </h3>
                 <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-300">
-                  {card.oracle_text}
+                  {oracleText}
                 </p>
               </div>
             )}

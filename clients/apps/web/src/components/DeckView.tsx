@@ -7,7 +7,7 @@ import { formatColorIdentity } from "../lib/format";
 import BracketBadge from "./BracketBadge";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
-import CommanderArt from "./CommanderArt";
+import CommanderFeature from "./CommanderFeature";
 import DeckCardList from "./DeckCardList";
 import DeckComboFinishers from "./DeckComboFinishers";
 import DeckUpgrades from "./DeckUpgrades";
@@ -130,27 +130,30 @@ export default function DeckView({
 
   return (
     <div className="space-y-6">
-      {/* Hero banner: commander art + deck identity */}
-      <div className="overflow-hidden rounded-2xl border border-slate-800">
-        <CommanderArt name={deck.commander.name} className="h-48 sm:h-56">
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-5">
-            <div className="min-w-0">
-              <h2 className="truncate text-2xl font-bold text-white drop-shadow sm:text-3xl">
-                {title}
-              </h2>
-              <p className="mt-1 text-sm text-slate-300">
-                {deck.commander.name} · {formatColorIdentity(deck.color_identity)} ·{" "}
-                {deck.commander.type_line}
-              </p>
-            </div>
-            <div className="hidden shrink-0 rounded-lg bg-black/40 px-3 py-1.5 text-right backdrop-blur sm:block">
-              <div className="text-2xl font-bold tabular-nums text-white">{deck.total}</div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-300">+ commander</div>
-            </div>
-          </div>
-        </CommanderArt>
+      {/* Deck identity header */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-bold sm:text-3xl">{title}</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            {deck.commander.name} · {formatColorIdentity(deck.color_identity)} ·{" "}
+            {deck.commander.type_line}
+          </p>
+        </div>
+        <div className="shrink-0 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-1.5 text-right">
+          <div className="text-2xl font-bold tabular-nums text-white">{deck.total}</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-400">+ commander</div>
+        </div>
       </div>
+
+      {/* Featured commander — full card + details */}
+      <CommanderFeature
+        name={deck.commander.name}
+        oracleId={deck.commander.oracle_id}
+        colorIdentity={deck.color_identity}
+        typeLine={deck.commander.type_line}
+        manaCost={deck.commander.mana_cost}
+        oracleText={deck.commander.oracle_text}
+      />
 
       {/* Controls: name + save + export */}
       <div className="flex flex-wrap items-center gap-3">

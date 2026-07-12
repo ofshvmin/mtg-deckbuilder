@@ -20,8 +20,72 @@ interface ScryfallCard {
   released_at: string;
   finishes?: string[];
   image_uris?: { normal?: string; small?: string };
-  card_faces?: Array<{ image_uris?: { normal?: string; small?: string } }>;
+  card_faces?: Array<{ image_uris?: { normal?: string; small?: string }; oracle_text?: string }>;
   prices?: { usd?: string | null; usd_foil?: string | null };
+  oracle_text?: string;
+  type_line?: string;
+  mana_cost?: string;
+}
+
+export interface CardDetail {
+  oracleText?: string;
+  typeLine?: string;
+  manaCost?: string;
+  prints: PrintOption[];
+}
+
+const detailCache = new Map<string, Promise<CardDetail>>();
+
+function oracleTextOf(c: ScryfallCard): string | undefined {
+  if (c.oracle_text) return c.oracle_text;
+  const faces = (c as { card_faces?: Array<{ oracle_text?: string }> }).card_faces;
+  if (faces?.length) return faces.map((f) => f.oracle_text).filter(Boolean).join("\n//\n");
+  return undefined;
+}
+
+/** Cheapest printing (by USD non-foil); falls back to the first if none priced. */
+export function cheapestPrint(prints: PrintOption[]): PrintOption | undefined {
+  const priced = prints.filter((p) => p.priceUsd != null);
+  if (priced.length === 0) return prints[0];
+  return priced.reduce((a, b) => ((a.priceUsd ?? Infinity) <= (b.priceUsd ?? Infinity) ? a : b));
+}
+
+/** Fetch a card's oracle text + every printing with prices, by oracle_id or exact name. */
+export function fetchCardDetail(opts: { oracleId?: string; name: string }): Promise<CardDetail> {
+  const key = opts.oracleId ? `id:${opts.oracleId}` : `name:${opts.name.toLowerCase()}`;
+  const hit = detailCache.get(key);
+  if (hit) return hit;
+
+  const q = opts.oracleId
+    ? `oracleid:${opts.oracleId}`
+    : `!"${opts.name.replace(/"/g, "")}"`;
+
+  const run = (async (): Promise<CardDetail> => {
+    const out: PrintOption[] = [];
+    let oracleText: string | undefined;
+    let typeLine: string | undefined;
+    let manaCost: string | undefined;
+    let url: string | null =
+      `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}` +
+      `&unique=prints&order=released&dir=desc`;
+    for (let page = 0; url && page < MAX_PAGES; page++) {
+      const res: Response = await fetch(url);
+      if (!res.ok) break;
+      const body: { data?: ScryfallCard[]; has_more?: boolean; next_page?: string } = await res.json();
+      for (const c of body.data ?? []) {
+        if (oracleText === undefined) { oracleText = oracleTextOf(c); typeLine = c.type_line; manaCost = c.mana_cost; }
+        out.push(toOption(c));
+      }
+      url = body.has_more && body.next_page ? body.next_page : null;
+    }
+    return { oracleText, typeLine, manaCost, prints: out };
+  })().catch(() => {
+    detailCache.delete(key);
+    return { prints: [] };
+  });
+
+  detailCache.set(key, run);
+  return run;
 }
 
 const cache = new Map<string, Promise<PrintOption[]>>();
