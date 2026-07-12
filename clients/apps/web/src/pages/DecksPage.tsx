@@ -134,7 +134,7 @@ export default function DecksPage() {
                 className="block w-full text-left"
                 title={`Open ${d.name}`}
               >
-                <CommanderArt name={d.commander_name} className="h-28">
+                <CommanderArt name={d.commander_name} className="h-40">
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
                   {d.bracket != null && (
                     <div className="absolute right-2 top-2">

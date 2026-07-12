@@ -9,10 +9,13 @@ export default function CommanderArt({
   name,
   className = "",
   children,
+  position = "top",
 }: {
   name: string;
   className?: string;
   children?: ReactNode;
+  // Card art usually has the character up top, so bias the crop there by default.
+  position?: "top" | "center";
 }) {
   const [src, setSrc] = useState(() => scryfallNamedImageUrl(name, "art_crop"));
   const [failed, setFailed] = useState(false);
@@ -36,7 +39,8 @@ export default function CommanderArt({
           onLoad={() => setLoaded(true)}
           onError={() => setFailed(true)}
           className={
-            "absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-500 " +
+            "absolute inset-0 h-full w-full object-cover transition-opacity duration-500 " +
+            (position === "top" ? "object-top " : "object-center ") +
             (loaded ? "opacity-100" : "opacity-0")
           }
         />
