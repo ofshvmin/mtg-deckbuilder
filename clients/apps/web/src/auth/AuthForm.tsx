@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
+import Logo from "../components/Logo";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const { login, register } = useAuth();
@@ -30,8 +31,11 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-100 p-6">
       <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-xl">
-        <h1 className="text-2xl font-semibold tracking-tight">MTG Deck Builder</h1>
-        <p className="mt-1 text-sm text-slate-400">
+        <div className="flex items-center gap-2.5">
+          <Logo className="h-8 w-8 text-[#d8b25c]" />
+          <h1 className="font-serif text-2xl font-semibold tracking-tight">Grimoire</h1>
+        </div>
+        <p className="mt-2 text-sm text-slate-400">
           {isRegister ? "Create your account" : "Sign in to your account"}
         </p>
 

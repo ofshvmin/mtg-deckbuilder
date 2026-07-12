@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import type { GeneratedDeck, SavedDeckSummary } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
@@ -11,6 +11,8 @@ import DeckView from "../components/DeckView";
 export default function DecksPage() {
   const { refreshSaved } = useLayout();
   const navigate = useNavigate();
+  const location = useLocation();
+  const deepOpened = useRef(false);
   const [decks, setDecks] = useState<SavedDeckSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [openDeck, setOpenDeck] = useState<{ id: string; name: string; deck: GeneratedDeck } | null>(
@@ -27,6 +29,15 @@ export default function DecksPage() {
       .finally(() => setLoading(false));
   }, []);
   useEffect(loadDecks, [loadDecks]);
+
+  // Open a specific deck when navigated here from Home (recent-deck tile).
+  useEffect(() => {
+    const st = location.state as { openDeckId?: string } | null;
+    if (st?.openDeckId && !deepOpened.current) {
+      deepOpened.current = true;
+      open(st.openDeckId);
+    }
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function open(id: string) {
     setOpening(true);

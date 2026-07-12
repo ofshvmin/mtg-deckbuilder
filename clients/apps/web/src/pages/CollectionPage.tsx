@@ -46,6 +46,15 @@ export default function CollectionPage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Collection</h1>
+        {summary && (
+          <span className="text-sm text-slate-400">
+            {summary.unique_cards.toLocaleString()} unique · {summary.total_cards.toLocaleString()} cards
+          </span>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-center gap-3">
         {PANELS.map(({ key, label }) => (
           <button

@@ -4,6 +4,7 @@ import ProtectedRoute from "./auth/ProtectedRoute";
 import LoginPage from "./auth/LoginPage";
 import RegisterPage from "./auth/RegisterPage";
 import Layout from "./components/Layout";
+import HomePage from "./pages/HomePage";
 import CollectionPage from "./pages/CollectionPage";
 import BuildPage from "./pages/BuildPage";
 import DecksPage from "./pages/DecksPage";
@@ -18,7 +19,8 @@ export default function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
-              <Route path="/" element={<CollectionPage />} />
+              <Route path="/" element={<HomePage />} />
+              <Route path="/collection" element={<CollectionPage />} />
               <Route path="/build" element={<BuildPage />} />
               <Route path="/decks" element={<DecksPage />} />
               <Route path="/settings" element={<SettingsPage />} />
