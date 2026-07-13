@@ -3,7 +3,7 @@ import type { GeneratedDeck } from "@mtg/shared";
 import { buildLibrary, sampleOpenerStats, shuffle, type LibCard, type OpenerStats } from "../lib/playtest";
 import { scryfallNamedImageUrl } from "../lib/scryfall";
 
-type Phase = "mulligan" | "bottoming" | "play" | "discard";
+type Phase = "mulligan" | "bottoming" | "play";
 
 interface BfCard extends LibCard {
   tapped: boolean;
@@ -21,52 +21,28 @@ interface Game {
   turn: number;
   mulligans: number;
   phase: Phase;
-  landPlayedThisTurn: boolean;
   manaPool: number;
-  noMaxHandSize: boolean; // true if a "no max hand size" card is in play
-}
-
-const MAX_HAND = 7;
-
-// Detect cards that grant no maximum hand size
-function grantsNoMaxHandSize(card: LibCard): boolean {
-  const t = card.type_line.toLowerCase();
-  const n = card.name.toLowerCase();
-  // Well-known cards + heuristic for oracle text (not available here, so use names)
-  return n === "reliquary tower" || n === "thought vessel" || n === "spellbook"
-    || n === "library of leng" || n === "venser's journal" || n === "kruphix, god of horizons"
-    || n === "nezahal, primal tide" || n === "the immortal sun" || n === "alhammaret's archive"
-    || n === "anvil of bogardan" || n === "sea gate restoration";
 }
 
 function freshGame(lib: LibCard[]): Game {
   const shuffled = shuffle(lib);
   return {
-    library: shuffled.slice(7),
-    hand: shuffled.slice(0, 7),
-    battlefield: [],
-    graveyard: [],
-    exile: [],
-    commandZone: true,
-    turn: 0,
-    mulligans: 0,
-    phase: "mulligan",
-    landPlayedThisTurn: false,
-    manaPool: 0,
-    noMaxHandSize: false,
+    library: shuffled.slice(7), hand: shuffled.slice(0, 7),
+    battlefield: [], graveyard: [], exile: [],
+    commandZone: true, turn: 0, mulligans: 0, phase: "mulligan", manaPool: 0,
   };
 }
 
-function cardImg(name: string): string {
-  return scryfallNamedImageUrl(name, "normal");
-}
+function cardImg(name: string): string { return scryfallNamedImageUrl(name, "normal"); }
+
+// Selected card + its zone, for the action popup
+type Selection = { uid: string; zone: "hand" | "battlefield" | "command" } | null;
 
 function PlayCard({
-  card, tapped, sick, selected, label, onClick, onRightClick, onHover, onLeave, tall = false,
+  card, tapped, sick, highlight, onClick, onHover, onLeave, tall = false,
 }: {
-  card: LibCard; tapped?: boolean; sick?: boolean; selected?: boolean; label?: string;
-  onClick?: () => void; onRightClick?: () => void; onHover?: () => void; onLeave?: () => void;
-  tall?: boolean;
+  card: LibCard; tapped?: boolean; sick?: boolean; highlight?: boolean;
+  onClick?: () => void; onHover?: () => void; onLeave?: () => void; tall?: boolean;
 }) {
   const imgClass = tall ? "h-[180px] w-[129px]" : "h-[100px] w-[72px]";
   let transform = "";
@@ -78,19 +54,16 @@ function PlayCard({
     <div
       className={
         "relative shrink-0 cursor-pointer select-none transition-all duration-150 " + transform + " " +
-        (selected ? "ring-2 ring-rose-500 ring-offset-2 ring-offset-slate-950 rounded-lg " : "") +
-        (onClick && !tapped ? "hover:-translate-y-1 " : "")
+        (highlight ? "ring-2 ring-sky-400 ring-offset-2 ring-offset-slate-950 rounded-lg " : "") +
+        (onClick ? "hover:-translate-y-1 " : "")
       }
-      onClick={onClick}
-      onContextMenu={(e) => { if (onRightClick) { e.preventDefault(); onRightClick(); } }}
-      onMouseEnter={onHover} onMouseLeave={onLeave}
+      onClick={onClick} onMouseEnter={onHover} onMouseLeave={onLeave}
     >
       <img src={cardImg(card.name)} alt={card.name} loading="lazy"
         className={`${imgClass} rounded-lg border border-slate-600 object-contain bg-slate-900`} />
-      {label && (
-        <div className={"absolute left-0 right-0 bg-black/80 px-1 py-0.5 text-center text-[9px] font-medium text-white " +
-          (sick && !tapped ? "top-0 rounded-t-lg" : "bottom-0 rounded-b-lg")}>
-          {label}
+      {sick && (
+        <div className="absolute top-0 left-0 right-0 rounded-t-lg bg-black/80 px-1 py-0.5 text-center text-[9px] font-medium text-amber-400">
+          Sick
         </div>
       )}
     </div>
@@ -103,12 +76,10 @@ function ZonePile({ cards, label, onClick, faceDown }: {
   const empty = cards.length === 0;
   return (
     <div className="flex flex-col items-center gap-1 cursor-pointer" onClick={onClick}
-      title={`${label}: ${cards.length} cards`}>
+      title={`${label}: ${cards.length}`}>
       <div className="relative">
         {empty ? (
-          <div className="flex h-[80px] w-[57px] items-center justify-center rounded-lg border border-dashed border-slate-700 text-[9px] text-slate-700">
-            {label}
-          </div>
+          <div className="flex h-[80px] w-[57px] items-center justify-center rounded-lg border border-dashed border-slate-700 text-[9px] text-slate-700">{label}</div>
         ) : faceDown ? (
           <div className="flex h-[80px] w-[57px] items-center justify-center rounded-lg border border-slate-600 bg-gradient-to-br from-slate-700 to-slate-800">
             <span className="text-lg font-bold text-slate-500">{cards.length}</span>
@@ -128,20 +99,23 @@ function ZonePile({ cards, label, onClick, faceDown }: {
   );
 }
 
-// Sidebar to browse a zone (library, graveyard) with actions
-function ZoneBrowser({ title, cards, onClose, actions, onHover, onLeave }: {
-  title: string;
-  cards: LibCard[];
-  onClose: () => void;
+function ZoneBrowser({ title, cards, onClose, actions, onHover, onLeave, extraButton }: {
+  title: string; cards: LibCard[]; onClose: () => void;
   actions: (card: LibCard, idx: number) => { label: string; onClick: () => void }[];
-  onHover: (name: string) => void;
-  onLeave: () => void;
+  onHover: (name: string) => void; onLeave: () => void;
+  extraButton?: { label: string; onClick: () => void };
 }) {
   return (
     <div className="absolute bottom-0 right-20 top-10 z-10 w-72 overflow-auto border-l border-slate-700 bg-slate-950 p-3 shadow-xl">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-slate-300">{title} ({cards.length})</span>
-        <button onClick={onClose} className="text-xs text-slate-500 hover:text-slate-300">✕</button>
+        <div className="flex items-center gap-2">
+          {extraButton && (
+            <button onClick={extraButton.onClick}
+              className="rounded border border-slate-700 px-2 py-0.5 text-[10px] text-slate-300 hover:bg-slate-700">{extraButton.label}</button>
+          )}
+          <button onClick={onClose} className="text-xs text-slate-500 hover:text-slate-300">✕</button>
+        </div>
       </div>
       <div className="space-y-1">
         {cards.map((c, i) => (
@@ -153,9 +127,7 @@ function ZoneBrowser({ title, cards, onClose, actions, onHover, onLeave }: {
               <div className="mt-1 flex flex-wrap gap-1">
                 {actions(c, i).map((a) => (
                   <button key={a.label} onClick={a.onClick}
-                    className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300 hover:bg-slate-700">
-                    {a.label}
-                  </button>
+                    className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300 hover:bg-slate-700">{a.label}</button>
                 ))}
               </div>
             </div>
@@ -166,8 +138,30 @@ function ZoneBrowser({ title, cards, onClose, actions, onHover, onLeave }: {
   );
 }
 
-type Sidebar = "library" | "graveyard" | "exile" | null;
+// Action popup: shows when a card is selected
+function ActionPopup({ actions, onClose }: {
+  actions: { label: string; color: string; onClick: () => void }[];
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-40" onClick={onClose}>
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex gap-2 rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}>
+        {actions.map((a) => (
+          <button key={a.label} onClick={() => { a.onClick(); onClose(); }}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition hover:opacity-80 ${a.color}`}>
+            {a.label}
+          </button>
+        ))}
+        <button onClick={onClose} className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-400 hover:bg-slate-800">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
 
+type Sidebar = "library" | "graveyard" | "exile" | null;
 const MAX_UNDO = 50;
 
 export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; onClose: () => void }) {
@@ -179,22 +173,20 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
   const [showStats, setShowStats] = useState(true);
   const [sidebar, setSidebar] = useState<Sidebar>(null);
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Selection>(null);
 
-  // Wrap setGame to push current state onto undo stack
   function setGame(updater: Game | ((g: Game) => Game)) {
     setGameRaw((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      if (next === prev) return prev; // no change, don't push history
+      if (next === prev) return prev;
       setHistory((h) => [...h.slice(-(MAX_UNDO - 1)), prev]);
       return next;
     });
   }
-
   function undo() {
     setHistory((h) => {
       if (h.length === 0) return h;
-      const prev = h[h.length - 1];
-      setGameRaw(prev);
+      setGameRaw(h[h.length - 1]);
       return h.slice(0, -1);
     });
   }
@@ -205,45 +197,18 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
   const availableMana = game.manaPool + untappedLands;
   const mulliganHandSize = game.mulligans <= 0 ? 7 : Math.max(1, 8 - game.mulligans);
   const cardsToBottom = 7 - mulliganHandSize;
-  const effectiveMaxHand = game.noMaxHandSize ? Infinity : MAX_HAND;
-  const mustDiscard = game.phase === "discard" ? game.hand.length - effectiveMaxHand : 0;
 
-  // End turn: if hand > max, enter discard phase; otherwise go to next turn
+  // --- Actions (no restrictions — user manages rules) ---
+
   function endTurn() {
     setGame((g) => {
-      const maxH = g.noMaxHandSize ? Infinity : MAX_HAND;
-      if (g.hand.length > maxH) {
-        return { ...g, phase: "discard" as Phase };
-      }
-      // Proceed to next turn
       const bf = g.battlefield.map((c) => ({ ...c, tapped: false, summoningSick: false }));
       const newTurn = g.turn + 1;
-      if (g.library.length === 0) return { ...g, battlefield: bf, turn: newTurn, landPlayedThisTurn: false, manaPool: 0 };
+      if (g.library.length === 0) return { ...g, battlefield: bf, turn: newTurn, manaPool: 0 };
       const [drawn, ...rest] = g.library;
-      return { ...g, hand: [...g.hand, drawn], library: rest, battlefield: bf, turn: newTurn, landPlayedThisTurn: false, manaPool: 0 };
+      return { ...g, hand: [...g.hand, drawn], library: rest, battlefield: bf, turn: newTurn, manaPool: 0 };
     });
   }
-
-  function discardCard(uid: string) {
-    setGame((g) => {
-      const card = g.hand.find((c) => c.uid === uid);
-      if (!card) return g;
-      const newHand = g.hand.filter((c) => c.uid !== uid);
-      const newGy = [...g.graveyard, card];
-      const maxH = g.noMaxHandSize ? Infinity : MAX_HAND;
-      if (newHand.length <= maxH) {
-        // Done discarding — proceed to next turn
-        const bf = g.battlefield.map((c) => ({ ...c, tapped: false, summoningSick: false }));
-        const newTurn = g.turn + 1;
-        if (g.library.length === 0) return { ...g, hand: newHand, graveyard: newGy, battlefield: bf, turn: newTurn, landPlayedThisTurn: false, manaPool: 0, phase: "play" as Phase };
-        const [drawn, ...rest] = g.library;
-        return { ...g, hand: [...newHand, drawn], library: rest, graveyard: newGy, battlefield: bf, turn: newTurn, landPlayedThisTurn: false, manaPool: 0, phase: "play" as Phase };
-      }
-      return { ...g, hand: newHand, graveyard: newGy };
-    });
-  }
-
-  const nextTurn = useCallback(() => { endTurn(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const untapAll = useCallback(() => {
     setGame((g) => ({ ...g, battlefield: g.battlefield.map((c) => ({ ...c, tapped: false })), manaPool: 0 }));
@@ -254,45 +219,37 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
     setSidebar(null);
   }
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") { if (sidebar) setSidebar(null); else onClose(); }
-      if (e.key === "d" && (game.phase === "play")) endTurn();
-      if (e.key === "u" && game.phase === "play") untapAll();
-      if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); undo(); }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, game.phase, untapAll, sidebar]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function newGame() { setGameRaw(freshGame(library0)); setHistory([]); setToBottom(new Set()); setSidebar(null); }
-  function mulligan() {
+  // Move card from hand to battlefield (cast/play)
+  function handToBattlefield(uid: string) {
     setGame((g) => {
-      const s = shuffle(library0);
-      return { ...freshGame(library0), library: s.slice(7), hand: s.slice(0, 7), mulligans: g.mulligans + 1 };
-    });
-    setToBottom(new Set());
-  }
-  function keep() {
-    setGame((g) => cardsToBottom > 0 ? { ...g, phase: "bottoming" } : { ...g, phase: "play", turn: 1 });
-  }
-  function toggleBottom(uid: string) {
-    setToBottom((prev) => {
-      const next = new Set(prev);
-      if (next.has(uid)) next.delete(uid); else if (next.size < cardsToBottom) next.add(uid);
-      return next;
+      const card = g.hand.find((c) => c.uid === uid);
+      if (!card) return g;
+      return {
+        ...g, hand: g.hand.filter((c) => c.uid !== uid),
+        battlefield: [...g.battlefield, {
+          ...card, tapped: false,
+          summoningSick: card.isCreature,
+          enteredTurn: g.turn,
+        }],
+      };
     });
   }
-  function confirmBottom() {
-    setGame((g) => ({
-      ...g,
-      hand: g.hand.filter((c) => !toBottom.has(c.uid)),
-      library: [...g.library, ...g.hand.filter((c) => toBottom.has(c.uid))],
-      phase: "play", turn: 1,
-    }));
-    setToBottom(new Set());
+  function handToGraveyard(uid: string) {
+    setGame((g) => {
+      const card = g.hand.find((c) => c.uid === uid);
+      if (!card) return g;
+      return { ...g, hand: g.hand.filter((c) => c.uid !== uid), graveyard: [...g.graveyard, card] };
+    });
   }
-  function tapToggle(uid: string) {
+  function handToExile(uid: string) {
+    setGame((g) => {
+      const card = g.hand.find((c) => c.uid === uid);
+      if (!card) return g;
+      return { ...g, hand: g.hand.filter((c) => c.uid !== uid), exile: [...g.exile, card] };
+    });
+  }
+
+  function bfTapToggle(uid: string) {
     setGame((g) => {
       const card = g.battlefield.find((c) => c.uid === uid);
       if (!card) return g;
@@ -303,85 +260,44 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
       return { ...g, battlefield: g.battlefield.map((c) => c.uid === uid ? { ...c, tapped: !c.tapped } : c) };
     });
   }
-  function autoTapLands(cost: number): (g: Game) => Game {
-    return (g) => {
-      let remaining = cost;
-      let pool = g.manaPool;
-      const spend = Math.min(pool, remaining); pool -= spend; remaining -= spend;
-      const bf = g.battlefield.map((c) => {
-        if (remaining <= 0 || !c.isLand || c.tapped) return c;
-        remaining--; return { ...c, tapped: true };
-      });
-      return { ...g, battlefield: bf, manaPool: pool };
-    };
-  }
-  function playCard(uid: string) {
+  function bfToGraveyard(uid: string) {
+    if (uid === "commander") { setGame((g) => ({ ...g, battlefield: g.battlefield.filter((c) => c.uid !== uid), commandZone: true })); return; }
     setGame((g) => {
-      const card = g.hand.find((c) => c.uid === uid);
+      const card = g.battlefield.find((c) => c.uid === uid);
       if (!card) return g;
-      if (card.isLand) {
-        if (g.landPlayedThisTurn) return g;
-        const noMax = g.noMaxHandSize || grantsNoMaxHandSize(card);
-        return { ...g, hand: g.hand.filter((c) => c.uid !== uid),
-          battlefield: [...g.battlefield, { ...card, tapped: card.etbTapped, summoningSick: false, enteredTurn: g.turn }],
-          landPlayedThisTurn: true, noMaxHandSize: noMax };
-      }
-      const cost = Math.ceil(card.cmc);
-      const am = g.manaPool + g.battlefield.filter((c) => c.isLand && !c.tapped).length;
-      if (cost > am) return g;
-      const after = autoTapLands(cost)(g);
-      const noMax = after.noMaxHandSize || grantsNoMaxHandSize(card);
-      return { ...after, hand: after.hand.filter((c) => c.uid !== uid),
-        battlefield: [...after.battlefield, { ...card, tapped: false, summoningSick: card.isCreature, enteredTurn: g.turn }],
-        noMaxHandSize: noMax };
+      return { ...g, battlefield: g.battlefield.filter((c) => c.uid !== uid), graveyard: [...g.graveyard, card] };
     });
   }
+  function bfToExile(uid: string) {
+    if (uid === "commander") { setGame((g) => ({ ...g, battlefield: g.battlefield.filter((c) => c.uid !== uid), commandZone: true })); return; }
+    setGame((g) => {
+      const card = g.battlefield.find((c) => c.uid === uid);
+      if (!card) return g;
+      return { ...g, battlefield: g.battlefield.filter((c) => c.uid !== uid), exile: [...g.exile, card] };
+    });
+  }
+  function bfToHand(uid: string) {
+    if (uid === "commander") { setGame((g) => ({ ...g, battlefield: g.battlefield.filter((c) => c.uid !== uid), commandZone: true })); return; }
+    setGame((g) => {
+      const card = g.battlefield.find((c) => c.uid === uid);
+      if (!card) return g;
+      return { ...g, battlefield: g.battlefield.filter((c) => c.uid !== uid), hand: [...g.hand, card] };
+    });
+  }
+
   function castCommander() {
     if (!game.commandZone) return;
-    const cost = Math.ceil(deck.commander.cmc);
-    if (cost > availableMana) return;
     setGame((g) => {
-      const after = autoTapLands(cost)(g);
+      const isCre = /\bCreature\b/i.test(deck.commander.type_line);
       const cmd: BfCard = {
-        uid: "commander",
-        oracle_id: deck.commander.oracle_id,
-        name: deck.commander.name,
-        mana_cost: deck.commander.mana_cost,
-        cmc: deck.commander.cmc,
-        type_line: deck.commander.type_line,
-        isLand: false,
-        isCreature: /\bCreature\b/i.test(deck.commander.type_line),
-        etbTapped: false,
-        tapped: false,
-        summoningSick: /\bCreature\b/i.test(deck.commander.type_line),
-        enteredTurn: g.turn,
+        uid: "commander", oracle_id: deck.commander.oracle_id, name: deck.commander.name,
+        mana_cost: deck.commander.mana_cost, cmc: deck.commander.cmc, type_line: deck.commander.type_line,
+        isLand: false, isCreature: isCre, etbTapped: false, tapped: false, summoningSick: isCre, enteredTurn: g.turn,
       };
-      return { ...after, battlefield: [...after.battlefield, cmd], commandZone: false };
+      return { ...g, battlefield: [...g.battlefield, cmd], commandZone: false };
     });
   }
-  function returnCommanderToZone() {
-    setGame((g) => ({
-      ...g,
-      battlefield: g.battlefield.filter((c) => c.uid !== "commander"),
-      commandZone: true,
-    }));
-  }
-  function toGraveyard(uid: string, from: "battlefield" | "hand") {
-    if (uid === "commander") { returnCommanderToZone(); return; }
-    setGame((g) => {
-      const src = from === "battlefield" ? g.battlefield : g.hand;
-      const card = src.find((c) => c.uid === uid);
-      if (!card) return g;
-      return { ...g, [from]: src.filter((c) => c.uid !== uid), graveyard: [...g.graveyard, card] };
-    });
-  }
-  function toExile(uid: string, from: "graveyard" | "exile") {
-    setGame((g) => {
-      const card = g[from].find((c) => c.uid === uid);
-      if (!card) return g;
-      return { ...g, [from]: g[from].filter((c) => c.uid !== uid), exile: [...g.exile, card] };
-    });
-  }
+
   function zoneToHand(uid: string, from: "graveyard" | "library") {
     setGame((g) => {
       const card = g[from].find((c) => c.uid === uid);
@@ -389,13 +305,26 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
       return { ...g, [from]: g[from].filter((c) => c.uid !== uid), hand: [...g.hand, card] };
     });
   }
+  function zoneToBattlefield(uid: string, from: "graveyard" | "library" | "exile") {
+    setGame((g) => {
+      const card = g[from].find((c) => c.uid === uid);
+      if (!card) return g;
+      return { ...g, [from]: g[from].filter((c) => c.uid !== uid),
+        battlefield: [...g.battlefield, { ...card, tapped: false, summoningSick: card.isCreature, enteredTurn: g.turn }] };
+    });
+  }
+  function gyToExile(uid: string) {
+    setGame((g) => {
+      const card = g.graveyard.find((c) => c.uid === uid);
+      if (!card) return g;
+      return { ...g, graveyard: g.graveyard.filter((c) => c.uid !== uid), exile: [...g.exile, card] };
+    });
+  }
   function libToTop(uid: string) {
     setGame((g) => {
-      const idx = g.library.findIndex((c) => c.uid === uid);
-      if (idx < 0) return g;
-      const card = g.library[idx];
-      const rest = g.library.filter((c) => c.uid !== uid);
-      return { ...g, library: [card, ...rest] };
+      const card = g.library.find((c) => c.uid === uid);
+      if (!card) return g;
+      return { ...g, library: [card, ...g.library.filter((c) => c.uid !== uid)] };
     });
   }
   function libToBottom(uid: string) {
@@ -406,7 +335,55 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
     });
   }
 
+  // --- Mulligan ---
+  function newGame() { setGameRaw(freshGame(library0)); setHistory([]); setToBottom(new Set()); setSidebar(null); setSelected(null); }
+  function mulligan() {
+    setGame((g) => { const s = shuffle(library0); return { ...freshGame(library0), library: s.slice(7), hand: s.slice(0, 7), mulligans: g.mulligans + 1 }; });
+    setToBottom(new Set());
+  }
+  function keep() { setGame((g) => cardsToBottom > 0 ? { ...g, phase: "bottoming" } : { ...g, phase: "play", turn: 1 }); }
+  function toggleBottom(uid: string) {
+    setToBottom((prev) => { const n = new Set(prev); if (n.has(uid)) n.delete(uid); else if (n.size < cardsToBottom) n.add(uid); return n; });
+  }
+  function confirmBottom() {
+    setGame((g) => ({ ...g, hand: g.hand.filter((c) => !toBottom.has(c.uid)), library: [...g.library, ...g.hand.filter((c) => toBottom.has(c.uid))], phase: "play", turn: 1 }));
+    setToBottom(new Set());
+  }
+
+  // --- Keyboard ---
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { if (selected) setSelected(null); else if (sidebar) setSidebar(null); else onClose(); }
+      if (e.key === "d" && game.phase === "play") endTurn();
+      if (e.key === "u" && game.phase === "play") untapAll();
+      if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); undo(); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, game.phase, untapAll, sidebar, selected]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggleSidebar = (s: Sidebar) => setSidebar((prev) => prev === s ? null : s);
+
+  // Build action popup for selected card
+  function selectedActions(): { label: string; color: string; onClick: () => void }[] {
+    if (!selected) return [];
+    const { uid, zone } = selected;
+    if (zone === "hand") return [
+      { label: "Play / Cast", color: "bg-emerald-600 text-white", onClick: () => handToBattlefield(uid) },
+      { label: "Discard", color: "bg-rose-600 text-white", onClick: () => handToGraveyard(uid) },
+      { label: "Exile", color: "bg-violet-600 text-white", onClick: () => handToExile(uid) },
+    ];
+    if (zone === "battlefield") return [
+      { label: "Tap / Untap", color: "bg-sky-600 text-white", onClick: () => bfTapToggle(uid) },
+      { label: "Sacrifice", color: "bg-rose-600 text-white", onClick: () => bfToGraveyard(uid) },
+      { label: "Exile", color: "bg-violet-600 text-white", onClick: () => bfToExile(uid) },
+      { label: "Return to hand", color: "bg-slate-700 text-white", onClick: () => bfToHand(uid) },
+    ];
+    if (zone === "command") return [
+      { label: "Cast commander", color: "bg-amber-600 text-white", onClick: () => castCommander() },
+    ];
+    return [];
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex h-[100dvh] flex-col bg-slate-950">
@@ -445,19 +422,12 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
               <button onClick={untapAll} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">Untap (U)</button>
             </>
           )}
-          {game.phase === "discard" && (
-            <span className="text-xs text-rose-400">Discard to {MAX_HAND} — click {mustDiscard} card{mustDiscard > 1 ? "s" : ""}</span>
-          )}
           <button onClick={undo} disabled={history.length === 0}
-            className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-30"
-            title="Undo (Ctrl+Z)">Undo</button>
-          <button onClick={shuffleLibrary} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800"
-            title="Shuffle library">Shuffle</button>
+            className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-30" title="Ctrl+Z">Undo</button>
+          <button onClick={shuffleLibrary} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">Shuffle</button>
           <button onClick={newGame} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">New</button>
           <button onClick={() => setShowStats((s) => !s)}
-            className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">
-            {showStats ? "Hide stats" : "Stats"}
-          </button>
+            className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">{showStats ? "Hide stats" : "Stats"}</button>
           <button onClick={onClose} className="ml-1 text-slate-500 hover:text-slate-200" title="Esc">✕</button>
         </div>
       </div>
@@ -481,7 +451,6 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
 
       {/* Main area */}
       <div className="flex min-h-0 flex-1">
-        {/* Battlefield */}
         <div className="flex flex-1 flex-col overflow-auto p-3">
           <div className="flex-1">
             {nonlandsInPlay.length > 0 && (
@@ -490,9 +459,8 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
                 <div className="flex flex-wrap items-start gap-3">
                   {nonlandsInPlay.map((c) => (
                     <PlayCard key={c.uid} card={c} tapped={c.tapped} sick={c.summoningSick} tall
-                      label={c.summoningSick ? "Sick" : undefined}
-                      onClick={() => tapToggle(c.uid)}
-                      onRightClick={() => toGraveyard(c.uid, "battlefield")}
+                      highlight={selected?.uid === c.uid}
+                      onClick={() => setSelected(selected?.uid === c.uid ? null : { uid: c.uid, zone: "battlefield" })}
                       onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} />
                   ))}
                 </div>
@@ -500,7 +468,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
             )}
             {game.phase === "play" && game.battlefield.length === 0 && (
               <div className="flex h-full items-center justify-center text-sm text-slate-700">
-                Click cards in your hand to play them
+                Click a card to see actions: Play, Sacrifice, Exile
               </div>
             )}
           </div>
@@ -510,8 +478,8 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
               <div className="flex flex-wrap items-start gap-1.5">
                 {landsInPlay.map((c) => (
                   <PlayCard key={c.uid} card={c} tapped={c.tapped}
-                    onClick={() => tapToggle(c.uid)}
-                    onRightClick={() => toGraveyard(c.uid, "battlefield")}
+                    highlight={selected?.uid === c.uid}
+                    onClick={() => setSelected(selected?.uid === c.uid ? null : { uid: c.uid, zone: "battlefield" })}
                     onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} />
                 ))}
               </div>
@@ -521,33 +489,20 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
 
         {/* Side zones */}
         <div className="flex w-20 shrink-0 flex-col items-center gap-2 border-l border-slate-800 bg-slate-900/30 p-2 pt-3">
-          {/* Command zone */}
           <div className="flex flex-col items-center gap-1">
             <div className={"relative cursor-pointer " + (!game.commandZone ? "opacity-40" : "")}
-              onClick={() => { if (game.commandZone && game.phase === "play") castCommander(); }}
-              onMouseEnter={() => setHoveredCard(deck.commander.name)}
-              onMouseLeave={() => setHoveredCard(null)}
-              title={game.commandZone ? `Cast commander (${Math.ceil(deck.commander.cmc)})` : "On battlefield"}>
+              onClick={() => { if (game.commandZone) setSelected(selected?.zone === "command" ? null : { uid: "commander", zone: "command" }); }}
+              onMouseEnter={() => setHoveredCard(deck.commander.name)} onMouseLeave={() => setHoveredCard(null)}>
               <img src={cardImg(deck.commander.name)} alt={deck.commander.name} loading="lazy"
-                className="h-[80px] w-[57px] rounded-lg border border-amber-700 object-contain bg-slate-900" />
-              {game.commandZone && game.phase === "play" && availableMana >= Math.ceil(deck.commander.cmc) && (
-                <div className="absolute bottom-0 left-0 right-0 rounded-b-lg bg-amber-600/90 text-center text-[8px] font-bold text-white">
-                  Cast ({Math.ceil(deck.commander.cmc)})
-                </div>
-              )}
+                className={"h-[80px] w-[57px] rounded-lg border object-contain bg-slate-900 " +
+                  (selected?.zone === "command" ? "border-sky-400" : "border-amber-700")} />
             </div>
             <span className="text-[10px] text-amber-500">Commander</span>
           </div>
-
           <div className="my-1 w-full border-t border-slate-800" />
-
           <ZonePile cards={game.library} label="Library" faceDown onClick={() => toggleSidebar("library")} />
           <ZonePile cards={game.graveyard} label="Graveyard" onClick={() => toggleSidebar("graveyard")} />
           <ZonePile cards={game.exile} label="Exile" onClick={() => toggleSidebar("exile")} />
-
-          <div className="mt-auto text-center text-[8px] leading-relaxed text-slate-700">
-            Click: tap<br />Right-click: GY
-          </div>
         </div>
       </div>
 
@@ -555,26 +510,17 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
       <div className="shrink-0 border-t border-slate-800 bg-slate-900/60 px-3 py-2">
         <div className="mb-1 flex items-center gap-3">
           <span className="text-[10px] uppercase tracking-wider text-slate-500">Hand ({game.hand.length})</span>
-          {game.phase === "play" && game.landPlayedThisTurn && <span className="text-[10px] text-slate-600">Land played</span>}
           {game.phase === "bottoming" && <span className="text-[10px] text-amber-400">Select {cardsToBottom} to bottom</span>}
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1">
           {game.hand.map((c) => {
-            const canPlay = game.phase === "play" && (c.isLand ? !game.landPlayedThisTurn : Math.ceil(c.cmc) <= availableMana);
-            const selected = toBottom.has(c.uid);
-            let label: string | undefined;
-            if (game.phase === "discard") label = "Discard";
-            else if (game.phase === "play" && c.isLand && !game.landPlayedThisTurn) label = "Play land";
-            else if (game.phase === "play" && !c.isLand && canPlay) label = `Cast (${Math.ceil(c.cmc)})`;
-            else if (game.phase === "bottoming" && selected) label = "Bottom";
+            const sel = toBottom.has(c.uid);
             return (
-              <PlayCard key={c.uid} card={c} selected={selected} label={label} tall
+              <PlayCard key={c.uid} card={c} highlight={selected?.uid === c.uid || sel} tall
                 onClick={() => {
-                  if (game.phase === "discard") discardCard(c.uid);
-                  else if (game.phase === "bottoming") toggleBottom(c.uid);
-                  else if (canPlay) playCard(c.uid);
+                  if (game.phase === "bottoming") toggleBottom(c.uid);
+                  else setSelected(selected?.uid === c.uid ? null : { uid: c.uid, zone: "hand" });
                 }}
-                onRightClick={game.phase === "play" ? () => toGraveyard(c.uid, "hand") : undefined}
                 onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} />
             );
           })}
@@ -582,12 +528,19 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
         </div>
       </div>
 
-      {/* Zone browser sidebars */}
+      {/* Action popup */}
+      {selected && game.phase === "play" && (
+        <ActionPopup actions={selectedActions()} onClose={() => setSelected(null)} />
+      )}
+
+      {/* Zone browsers */}
       {sidebar === "library" && (
         <ZoneBrowser title="Library" cards={game.library} onClose={() => setSidebar(null)}
           onHover={setHoveredCard} onLeave={() => setHoveredCard(null)}
+          extraButton={{ label: "Shuffle", onClick: shuffleLibrary }}
           actions={(c) => [
             { label: "Hand", onClick: () => zoneToHand(c.uid, "library") },
+            { label: "Play", onClick: () => zoneToBattlefield(c.uid, "library") },
             { label: "Top", onClick: () => libToTop(c.uid) },
             { label: "Bottom", onClick: () => libToBottom(c.uid) },
           ]} />
@@ -597,18 +550,22 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
           onHover={setHoveredCard} onLeave={() => setHoveredCard(null)}
           actions={(c) => [
             { label: "Hand", onClick: () => zoneToHand(c.uid, "graveyard") },
-            { label: "Exile", onClick: () => toExile(c.uid, "graveyard") },
+            { label: "Play", onClick: () => zoneToBattlefield(c.uid, "graveyard") },
+            { label: "Exile", onClick: () => gyToExile(c.uid) },
           ]} />
       )}
       {sidebar === "exile" && (
         <ZoneBrowser title="Exile" cards={game.exile} onClose={() => setSidebar(null)}
           onHover={setHoveredCard} onLeave={() => setHoveredCard(null)}
-          actions={() => []} />
+          actions={(c) => [
+            { label: "Hand", onClick: () => { setGame((g) => { const card = g.exile.find((x) => x.uid === c.uid); if (!card) return g; return { ...g, exile: g.exile.filter((x) => x.uid !== c.uid), hand: [...g.hand, card] }; }); } },
+            { label: "Play", onClick: () => zoneToBattlefield(c.uid, "exile") },
+          ]} />
       )}
 
       {/* Hover zoom */}
-      {hoveredCard && !sidebar && (
-        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
+      {hoveredCard && !sidebar && !selected && (
+        <div className="pointer-events-none fixed inset-0 z-30 flex items-center justify-center">
           <img src={scryfallNamedImageUrl(hoveredCard, "large")} alt={hoveredCard}
             className="h-[480px] w-[344px] rounded-2xl border-2 border-slate-600 object-contain shadow-2xl shadow-black/80" />
         </div>
