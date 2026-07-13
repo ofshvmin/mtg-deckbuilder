@@ -1,8 +1,15 @@
 @import "tailwindcss";
 
-/* Prevent overscroll bounce showing white background on iOS/mobile */
-html, body {
+/* Prevent overscroll bounce showing white background on iOS/mobile.
+   overflow-x on html is the only reliable way to prevent horizontal
+   scroll on iOS Safari — overflow on inner divs is not respected. */
+html {
+  overflow-x: hidden;
   background-color: #020617; /* slate-950 */
+  overscroll-behavior: none;
+}
+body {
+  background-color: #020617;
   overscroll-behavior: none;
 }
 

@@ -175,7 +175,7 @@ export default function DeckView({
   const title = savedAs ?? deckName ?? `${deck.commander.name} Deck`;
 
   return (
-    <div className="space-y-6 overflow-hidden">
+    <div className="space-y-6">
       {/* Deck identity header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
