@@ -136,7 +136,7 @@ function ZoneBrowser({ title, cards, onClose, actions, onHover, onLeave, extraBu
   extraButton?: { label: string; onClick: () => void };
 }) {
   return (
-    <div className="absolute bottom-0 right-20 top-10 z-10 w-72 overflow-auto border-l border-slate-700 bg-slate-950 p-3 shadow-xl">
+    <div className="absolute inset-0 z-10 overflow-auto bg-slate-950 p-3 shadow-xl sm:inset-auto sm:bottom-0 sm:right-20 sm:top-10 sm:w-72 sm:border-l sm:border-slate-700">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-slate-300">{title} ({cards.length})</span>
         <div className="flex items-center gap-2">
@@ -459,19 +459,16 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
   return (
     <div className="fixed inset-0 z-50 flex h-[100dvh] flex-col bg-slate-950">
       {/* Top bar */}
-      <div className="flex shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950 px-4 py-2">
-        <div className="flex items-center gap-4">
-          <h2 className="text-sm font-semibold text-slate-100">{deck.commander.name}</h2>
-          <div className="flex items-center gap-3 text-xs text-slate-400">
-            <span>Turn <b className="text-slate-200">{game.phase === "play" ? game.turn : "—"}</b></span>
-            <span>Library <b className="text-slate-300">{game.library.length}</b></span>
-            <span>Mana <b className="text-emerald-400">{availableMana}</b>
-              {game.manaPool > 0 && <span className="text-amber-400"> ({game.manaPool} pool)</span>}
-            </span>
-            {game.mulligans > 0 && <span className="text-amber-400">Mull {game.mulligans}x</span>}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-950 px-3 py-2 sm:px-4">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <h2 className="text-xs font-semibold text-slate-100 sm:text-sm">{deck.commander.name}</h2>
+          <div className="flex items-center gap-2 text-[10px] text-slate-400 sm:gap-3 sm:text-xs">
+            <span>T<b className="text-slate-200">{game.phase === "play" ? game.turn : "—"}</b></span>
+            <span>Lib <b className="text-slate-300">{game.library.length}</b></span>
+            <span>Mana <b className="text-emerald-400">{availableMana}</b></span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {game.phase === "mulligan" && (
             <>
               <button onClick={keep} className="rounded bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500">Keep</button>

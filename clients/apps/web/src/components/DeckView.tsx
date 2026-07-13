@@ -201,66 +201,47 @@ export default function DeckView({
         oracleText={deck.commander.oracle_text}
       />
 
-      {/* Controls: name + save + export */}
-      <div className="flex flex-wrap items-center gap-3">
+      {/* Controls: name + save */}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Deck name"
-          className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
+          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
         />
         <button
           onClick={handleSave}
           disabled={saving || !name.trim() || (!isUnsaved && !nameChanged && !dirty)}
-          className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
+          className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50 sm:px-4"
         >
-          {saving
-            ? "Saving…"
-            : isUnsaved
-              ? "Save deck"
-              : nameChanged || dirty
-                ? "Update deck"
-                : "Saved"}
+          {saving ? "Saving…" : isUnsaved ? "Save" : nameChanged || dirty ? "Update" : "Saved"}
         </button>
+        <button onClick={() => setPlaytesting(true)}
+          className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800">
+          Playtest
+        </button>
+      </div>
+      {/* Secondary actions */}
+      <div className="flex flex-wrap items-center gap-2">
         {onEdit && (
-          <button
-            onClick={() => onEdit(deck)}
-            className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
-          >
+          <button onClick={() => onEdit(deck)}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800 sm:text-sm sm:py-2">
             Edit cards
           </button>
         )}
-        <button
-          onClick={() => setPlaytesting(true)}
-          className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
-        >
-          🎴 Playtest
-        </button>
-        <button
-          onClick={handleScavenger}
-          disabled={scavenging}
-          className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800 disabled:opacity-50"
-          title="Download a physical pull-guide grouped by set and color"
-        >
-          {scavenging ? "Building…" : "🔎 Scavenger list"}
+        <button onClick={handleScavenger} disabled={scavenging}
+          className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800 disabled:opacity-50 sm:text-sm sm:py-2">
+          {scavenging ? "Building…" : "Pull list"}
         </button>
         {deckId && (
           <>
-            <select
-              value={exportFormat}
-              onChange={(e) => setExportFormat(e.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-800 px-2 py-2 text-sm text-slate-200"
-            >
-              {EXPORT_FORMATS.map((f) => (
-                <option key={f} value={f}>{f}</option>
-              ))}
+            <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value)}
+              className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200 sm:text-sm sm:py-2">
+              {EXPORT_FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
-            <button
-              onClick={handleExport}
-              disabled={exporting}
-              className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800 disabled:opacity-50"
-            >
+            <button onClick={handleExport} disabled={exporting}
+              className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800 disabled:opacity-50 sm:text-sm sm:py-2">
               {exporting ? "…" : "Export"}
             </button>
           </>

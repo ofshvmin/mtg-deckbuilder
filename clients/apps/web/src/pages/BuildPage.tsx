@@ -224,7 +224,7 @@ export default function BuildPage() {
                     value={theme}
                     onChange={(e) => setTheme(e.target.value)}
                     placeholder="e.g. cats, landfall, zombies, Urza, tokens..."
-                    className="max-w-sm rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
+                    className="w-full max-w-sm rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
                   />
                   <p className="text-xs text-slate-500">
                     Matches card names, creature types, and oracle text. Try a tribe, mechanic, or keyword.
