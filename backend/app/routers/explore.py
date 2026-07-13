@@ -23,12 +23,7 @@ from ..util import normalize_name, strip_diacritics
 router = APIRouter(prefix="/explore", tags=["explore"])
 
 
-class PreviewRequest(BaseModel):
-    """Deck hashes from the client-side EDHREC fetch."""
-    hashes: list[str]
-
-
-class PreviewSummary(BaseModel):
+class SearchSummary(BaseModel):
     external_id: str
     source: str
     name: str
@@ -41,61 +36,28 @@ class PreviewSummary(BaseModel):
     price: int | None = None
 
 
-@router.post("/previews", response_model=list[PreviewSummary])
-async def fetch_previews(
-    body: PreviewRequest,
+@router.get("/search", response_model=list[SearchSummary])
+async def search_decks(
+    commander: str = Query(..., min_length=1),
+    page_size: int = Query(20, ge=1, le=50),
     current_user: dict = Depends(get_current_user),
 ):
-    """Proxy EDHREC deckpreview calls for a batch of hashes.
+    """Search EDHREC for commander decklists, fully server-side.
 
-    The client fetches deck hashes from json.edhrec.com (has CORS), then
-    sends them here. We proxy the deckpreview calls (no CORS on edhrec.com/api).
+    Fetches hash table from json.edhrec.com, then batch-fetches previews
+    from edhrec.com/api/deckpreview to build summaries.
     """
-    if not body.hashes:
-        return []
-    hashes = body.hashes[:20]  # cap at 20
-
-    results: list[PreviewSummary] = []
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        for h in hashes:
-            try:
-                resp = await client.get(
-                    f"https://edhrec.com/api/deckpreview/{h}",
-                    headers=external_decks.HEADERS,
-                    timeout=10,
-                )
-                if resp.status_code != 200:
-                    continue
-                preview = resp.json()
-            except (httpx.HTTPError, ValueError):
-                continue
-
-            deck_lines = preview.get("deck") or []
-            commanders = preview.get("commanders") or []
-            cmd_name = commanders[0] if commanders else "Unknown"
-            colors = external_decks._normalize_colors(preview.get("coloridentity") or [])
-            source_url = preview.get("url") or ""
-
-            source = "edhrec"
-            if "archidekt.com" in source_url:
-                source = "archidekt"
-            elif "moxfield.com" in source_url:
-                source = "moxfield"
-
-            results.append(PreviewSummary(
-                external_id=h,
-                source=source,
-                name=preview.get("header") or f"{cmd_name} Deck",
-                owner=source if source != "edhrec" else "EDHREC",
-                card_count=len(deck_lines) if isinstance(deck_lines, list) else 0,
-                url=source_url or f"https://edhrec.com/deckpreview/{h}",
-                commander_name=cmd_name,
-                color_identity=colors,
-                bracket=preview.get("bracket"),
-                price=round(preview["price"]) if preview.get("price") else None,
-            ))
-
-    return results
+    try:
+        results = await external_decks.search_edhrec(commander, page_size)
+    except httpx.TimeoutException:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "External service timeout.")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return []
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"External service error ({e.response.status_code}).")
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "External service unavailable.")
+    return [SearchSummary(**r) for r in results]
 
 
 @router.get("/edhrec-deck")

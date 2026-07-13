@@ -4,7 +4,6 @@ import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
 import type { Color } from "@mtg/shared";
-import { fetchDeckHashes } from "../lib/edhrec";
 import CommanderArt from "../components/CommanderArt";
 import DeckView from "../components/DeckView";
 import ImportCardsModal from "../components/ImportCardsModal";
@@ -36,8 +35,6 @@ export default function ExplorePage() {
   const [saving, setSaving] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
-  // Step 1: Client fetches hash list from json.edhrec.com (has CORS)
-  // Step 2: Send hashes to our backend which proxies deckpreview calls
   const handleSearch = useCallback(async () => {
     const q = commander.trim();
     if (!q) return;
@@ -46,25 +43,9 @@ export default function ExplorePage() {
     setFetchedDeck(null);
     setSavedId(null);
     try {
-      // Client-side: fetch hash list from EDHREC (has CORS)
-      const hashes = await fetchDeckHashes(q, 20);
-      if (hashes.length === 0) {
-        setSearchError("No decks found for that commander on EDHREC.");
-        setResults([]);
-        return;
-      }
-      // Server-side: proxy deckpreview calls (no CORS on edhrec.com/api)
-      const hashIds = hashes.map((h) => h.urlhash);
-      const previews = await api.fetchEdhrecPreviews(hashIds);
-      // Merge bracket/price from the original hash table
-      const hashMap = new Map(hashes.map((h) => [h.urlhash, h]));
-      const merged: SearchResult[] = previews.map((p) => ({
-        ...p,
-        bracket: p.bracket ?? hashMap.get(p.external_id)?.bracket ?? null,
-        price: p.price ?? (hashMap.get(p.external_id)?.price ? Math.round(hashMap.get(p.external_id)!.price!) : null),
-      }));
-      setResults(merged);
-      if (merged.length === 0) setSearchError("No decks could be loaded.");
+      const data = await api.searchExternalDecks(q);
+      setResults(data);
+      if (data.length === 0) setSearchError("No decks found for that commander on EDHREC.");
     } catch (e) {
       setSearchError(e instanceof Error ? e.message : "Search failed");
       setResults([]);
@@ -73,7 +54,6 @@ export default function ExplorePage() {
     }
   }, [commander]);
 
-  // Fetch Archidekt URL via our backend
   async function handleFetchByUrl() {
     const u = urlInput.trim();
     if (!u) return;
@@ -91,27 +71,24 @@ export default function ExplorePage() {
     }
   }
 
-  // Fetch full deck: proxy EDHREC preview via backend, then resolve cards
   async function handleFetchResult(result: SearchResult) {
     setFetching(true);
     setFetchError(null);
     setFetchedDeck(null);
     setSavedId(null);
     try {
-      // Fetch full preview via our backend proxy
       const preview = await api.fetchEdhrecDeck(result.external_id);
       if (!preview?.deck?.length) {
         setFetchError("Could not load deck from EDHREC.");
         return;
       }
-      // Parse card list and resolve via backend
       const commanders = new Set(preview.commanders ?? []);
       const cards = (preview.deck ?? [])
         .filter((line: string) => line?.trim())
         .map((line: string) => {
-          const parts = line.trim().split(" ", 2);
-          const qty = parseInt(parts[0], 10) || 1;
-          const name = line.trim().substring(parts[0].length).trim();
+          const first = line.trim().split(" ", 2);
+          const qty = parseInt(first[0], 10) || 1;
+          const name = line.trim().substring(first[0].length).trim();
           return { name, quantity: qty, is_commander: commanders.has(name) };
         })
         .filter((c: { name: string }) => c.name);
@@ -141,21 +118,16 @@ export default function ExplorePage() {
       });
       setSavedId(saved.id);
       refreshSaved();
-    } catch {
-      // silent
-    } finally {
-      setSaving(false);
-    }
+    } catch { /* silent */ }
+    finally { setSaving(false); }
   }
 
   if (fetchedDeck) {
     return (
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <button
-            onClick={() => { setFetchedDeck(null); setSavedId(null); }}
-            className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
-          >
+          <button onClick={() => { setFetchedDeck(null); setSavedId(null); }}
+            className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-800">
             ← Back to search
           </button>
           <div className="flex items-center gap-2">
@@ -184,29 +156,19 @@ export default function ExplorePage() {
           <span className="text-slate-600">|</span>
           <span className="text-emerald-400">{fetchedDeck.owned_count} owned</span>
           {fetchedDeck.unowned_count > 0 && (
-            <>
-              <span className="text-slate-600">|</span>
-              <span className="text-slate-500">{fetchedDeck.unowned_count} unowned</span>
-            </>
+            <><span className="text-slate-600">|</span>
+            <span className="text-slate-500">{fetchedDeck.unowned_count} unowned</span></>
           )}
           {savedId && <span className="ml-auto text-emerald-400">Saved</span>}
         </div>
 
-        <DeckView
-          deck={fetchedDeck.deck}
-          deckName={fetchedDeck.name}
-          deckId={savedId ?? undefined}
-          onSaved={() => refreshSaved()}
-          showOwnership
-        />
+        <DeckView deck={fetchedDeck.deck} deckName={fetchedDeck.name}
+          deckId={savedId ?? undefined} onSaved={() => refreshSaved()} showOwnership />
 
         {showImport && (
-          <ImportCardsModal
-            deck={fetchedDeck.deck}
-            unownedCount={fetchedDeck.unowned_count}
+          <ImportCardsModal deck={fetchedDeck.deck} unownedCount={fetchedDeck.unowned_count}
             onClose={() => setShowImport(false)}
-            onImported={() => { refreshSummary(); setShowImport(false); }}
-          />
+            onImported={() => { refreshSummary(); setShowImport(false); }} />
         )}
       </div>
     );
@@ -215,7 +177,6 @@ export default function ExplorePage() {
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Explore Decks</h2>
-
       <div className="space-y-3">
         <div className="flex gap-2">
           <input type="text" value={commander}
@@ -228,7 +189,6 @@ export default function ExplorePage() {
             {searching ? "Searching…" : "Search"}
           </button>
         </div>
-
         <div className="flex gap-2">
           <input type="text" value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
