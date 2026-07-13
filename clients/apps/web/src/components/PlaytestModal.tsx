@@ -40,9 +40,11 @@ type Selection = { uid: string; zone: "hand" | "battlefield" | "command" } | nul
 
 function PlayCard({
   card, tapped, sick, highlight, onClick, onHover, onLeave, tall = false,
+  dragData,
 }: {
   card: LibCard; tapped?: boolean; sick?: boolean; highlight?: boolean;
   onClick?: () => void; onHover?: () => void; onLeave?: () => void; tall?: boolean;
+  dragData?: string; // JSON-encoded {uid, zone} for drag transfer
 }) {
   const imgClass = tall ? "h-[180px] w-[129px]" : "h-[100px] w-[72px]";
   let transform = "";
@@ -57,15 +59,43 @@ function PlayCard({
         (highlight ? "ring-2 ring-sky-400 ring-offset-2 ring-offset-slate-950 rounded-lg " : "") +
         (onClick ? "hover:-translate-y-1 " : "")
       }
+      draggable={!!dragData}
+      onDragStart={(e) => { if (dragData) { e.dataTransfer.setData("text/plain", dragData); e.dataTransfer.effectAllowed = "move"; } }}
       onClick={onClick} onMouseEnter={onHover} onMouseLeave={onLeave}
     >
-      <img src={cardImg(card.name)} alt={card.name} loading="lazy"
+      <img src={cardImg(card.name)} alt={card.name} loading="lazy" draggable={false}
         className={`${imgClass} rounded-lg border border-slate-600 object-contain bg-slate-900`} />
       {sick && (
         <div className="absolute top-0 left-0 right-0 rounded-t-lg bg-black/80 px-1 py-0.5 text-center text-[9px] font-medium text-amber-400">
           Sick
         </div>
       )}
+    </div>
+  );
+}
+
+// Drop zone wrapper — highlights on drag over
+function DropZone({ zone, onDrop, children, className = "" }: {
+  zone: string;
+  onDrop: (uid: string, fromZone: string) => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const [over, setOver] = useState(false);
+  return (
+    <div
+      className={className + (over ? " ring-2 ring-sky-400/50 ring-inset rounded-lg" : "")}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setOver(true); }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault(); setOver(false);
+        try {
+          const { uid, zone: fromZone } = JSON.parse(e.dataTransfer.getData("text/plain"));
+          if (fromZone !== zone) onDrop(uid, fromZone);
+        } catch { /* ignore bad data */ }
+      }}
+    >
+      {children}
     </div>
   );
 }
@@ -138,24 +168,28 @@ function ZoneBrowser({ title, cards, onClose, actions, onHover, onLeave, extraBu
   );
 }
 
-// Action popup: shows when a card is selected
-function ActionPopup({ actions, onClose }: {
+// Card preview + action buttons: shows when a card is selected
+function CardActionOverlay({ cardName, actions, onClose }: {
+  cardName: string;
   actions: { label: string; color: string; onClick: () => void }[];
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-40" onClick={onClose}>
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex gap-2 rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}>
-        {actions.map((a) => (
-          <button key={a.label} onClick={() => { a.onClick(); onClose(); }}
-            className={`rounded-lg px-4 py-2 text-sm font-medium transition hover:opacity-80 ${a.color}`}>
-            {a.label}
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div className="flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
+        <img src={scryfallNamedImageUrl(cardName, "large")} alt={cardName}
+          className="h-[420px] w-[300px] rounded-2xl border-2 border-slate-600 object-contain shadow-2xl" />
+        <div className="flex flex-wrap justify-center gap-2">
+          {actions.map((a) => (
+            <button key={a.label} onClick={() => { a.onClick(); onClose(); }}
+              className={`rounded-lg px-5 py-2 text-sm font-medium shadow transition hover:opacity-80 ${a.color}`}>
+              {a.label}
+            </button>
+          ))}
+          <button onClick={onClose} className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm text-slate-300 shadow hover:bg-slate-700">
+            Cancel
           </button>
-        ))}
-        <button onClick={onClose} className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-400 hover:bg-slate-800">
-          Cancel
-        </button>
+        </div>
       </div>
     </div>
   );
@@ -362,9 +396,46 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, game.phase, untapAll, sidebar, selected]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Generic move: drag a card from any zone to any zone
+  function moveCard(uid: string, fromZone: string, toZone: string) {
+    if (fromZone === toZone) return;
+    if (uid === "commander") {
+      if (toZone === "battlefield") castCommander();
+      else if (toZone === "command") { /* already there or returning */ }
+      else setGame((g) => ({ ...g, battlefield: g.battlefield.filter((c) => c.uid !== uid), commandZone: true }));
+      return;
+    }
+    setGame((g) => {
+      const src = fromZone === "hand" ? g.hand : fromZone === "battlefield" ? g.battlefield : fromZone === "graveyard" ? g.graveyard : fromZone === "exile" ? g.exile : g.library;
+      const card = src.find((c) => c.uid === uid);
+      if (!card) return g;
+      const without = (arr: any[]) => arr.filter((c: any) => c.uid !== uid);
+      const next: any = { ...g };
+      // Remove from source
+      if (fromZone === "hand") next.hand = without(g.hand);
+      else if (fromZone === "battlefield") next.battlefield = without(g.battlefield);
+      else if (fromZone === "graveyard") next.graveyard = without(g.graveyard);
+      else if (fromZone === "exile") next.exile = without(g.exile);
+      else if (fromZone === "library") next.library = without(g.library);
+      // Add to destination
+      if (toZone === "hand") next.hand = [...(next.hand ?? g.hand), card];
+      else if (toZone === "battlefield") next.battlefield = [...(next.battlefield ?? g.battlefield), { ...card, tapped: false, summoningSick: card.isCreature, enteredTurn: g.turn }];
+      else if (toZone === "graveyard") next.graveyard = [...(next.graveyard ?? g.graveyard), card];
+      else if (toZone === "exile") next.exile = [...(next.exile ?? g.exile), card];
+      return next;
+    });
+  }
+
   const toggleSidebar = (s: Sidebar) => setSidebar((prev) => prev === s ? null : s);
 
-  // Build action popup for selected card
+  // Get selected card name for the overlay
+  function selectedCardName(): string | null {
+    if (!selected) return null;
+    if (selected.zone === "command") return deck.commander.name;
+    const zone = selected.zone === "hand" ? game.hand : game.battlefield;
+    return zone.find((c) => c.uid === selected.uid)?.name ?? null;
+  }
+
   function selectedActions(): { label: string; color: string; onClick: () => void }[] {
     if (!selected) return [];
     const { uid, zone } = selected;
@@ -451,7 +522,8 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
 
       {/* Main area */}
       <div className="flex min-h-0 flex-1">
-        <div className="flex flex-1 flex-col overflow-auto p-3">
+        <DropZone zone="battlefield" onDrop={(uid, from) => moveCard(uid, from, "battlefield")}
+          className="flex flex-1 flex-col overflow-auto p-3">
           <div className="flex-1">
             {nonlandsInPlay.length > 0 && (
               <div className="mb-3">
@@ -460,6 +532,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
                   {nonlandsInPlay.map((c) => (
                     <PlayCard key={c.uid} card={c} tapped={c.tapped} sick={c.summoningSick} tall
                       highlight={selected?.uid === c.uid}
+                      dragData={JSON.stringify({ uid: c.uid, zone: "battlefield" })}
                       onClick={() => setSelected(selected?.uid === c.uid ? null : { uid: c.uid, zone: "battlefield" })}
                       onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} />
                   ))}
@@ -468,7 +541,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
             )}
             {game.phase === "play" && game.battlefield.length === 0 && (
               <div className="flex h-full items-center justify-center text-sm text-slate-700">
-                Click a card to see actions: Play, Sacrifice, Exile
+                Click a card for actions, or drag it between zones
               </div>
             )}
           </div>
@@ -479,13 +552,14 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
                 {landsInPlay.map((c) => (
                   <PlayCard key={c.uid} card={c} tapped={c.tapped}
                     highlight={selected?.uid === c.uid}
+                    dragData={JSON.stringify({ uid: c.uid, zone: "battlefield" })}
                     onClick={() => setSelected(selected?.uid === c.uid ? null : { uid: c.uid, zone: "battlefield" })}
                     onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} />
                 ))}
               </div>
             </div>
           )}
-        </div>
+        </DropZone>
 
         {/* Side zones */}
         <div className="flex w-20 shrink-0 flex-col items-center gap-2 border-l border-slate-800 bg-slate-900/30 p-2 pt-3">
@@ -501,13 +575,18 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
           </div>
           <div className="my-1 w-full border-t border-slate-800" />
           <ZonePile cards={game.library} label="Library" faceDown onClick={() => toggleSidebar("library")} />
-          <ZonePile cards={game.graveyard} label="Graveyard" onClick={() => toggleSidebar("graveyard")} />
-          <ZonePile cards={game.exile} label="Exile" onClick={() => toggleSidebar("exile")} />
+          <DropZone zone="graveyard" onDrop={(uid, from) => moveCard(uid, from, "graveyard")}>
+            <ZonePile cards={game.graveyard} label="Graveyard" onClick={() => toggleSidebar("graveyard")} />
+          </DropZone>
+          <DropZone zone="exile" onDrop={(uid, from) => moveCard(uid, from, "exile")}>
+            <ZonePile cards={game.exile} label="Exile" onClick={() => toggleSidebar("exile")} />
+          </DropZone>
         </div>
       </div>
 
       {/* Hand */}
-      <div className="shrink-0 border-t border-slate-800 bg-slate-900/60 px-3 py-2">
+      <DropZone zone="hand" onDrop={(uid, from) => moveCard(uid, from, "hand")}
+        className="shrink-0 border-t border-slate-800 bg-slate-900/60 px-3 py-2">
         <div className="mb-1 flex items-center gap-3">
           <span className="text-[10px] uppercase tracking-wider text-slate-500">Hand ({game.hand.length})</span>
           {game.phase === "bottoming" && <span className="text-[10px] text-amber-400">Select {cardsToBottom} to bottom</span>}
@@ -517,6 +596,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
             const sel = toBottom.has(c.uid);
             return (
               <PlayCard key={c.uid} card={c} highlight={selected?.uid === c.uid || sel} tall
+                dragData={game.phase === "play" ? JSON.stringify({ uid: c.uid, zone: "hand" }) : undefined}
                 onClick={() => {
                   if (game.phase === "bottoming") toggleBottom(c.uid);
                   else setSelected(selected?.uid === c.uid ? null : { uid: c.uid, zone: "hand" });
@@ -526,11 +606,11 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
           })}
           {game.hand.length === 0 && game.phase === "play" && <span className="py-6 text-sm text-slate-600">Empty hand</span>}
         </div>
-      </div>
+      </DropZone>
 
-      {/* Action popup */}
-      {selected && game.phase === "play" && (
-        <ActionPopup actions={selectedActions()} onClose={() => setSelected(null)} />
+      {/* Card action overlay: large preview + buttons */}
+      {selected && game.phase === "play" && selectedCardName() && (
+        <CardActionOverlay cardName={selectedCardName()!} actions={selectedActions()} onClose={() => setSelected(null)} />
       )}
 
       {/* Zone browsers */}
@@ -563,7 +643,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
           ]} />
       )}
 
-      {/* Hover zoom */}
+      {/* Hover zoom — shows when hovering, hidden when action overlay or sidebar is open */}
       {hoveredCard && !sidebar && !selected && (
         <div className="pointer-events-none fixed inset-0 z-30 flex items-center justify-center">
           <img src={scryfallNamedImageUrl(hoveredCard, "large")} alt={hoveredCard}
