@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Prevent overscroll bounce showing white background on iOS/mobile */
+html, body {
+  background-color: #020617; /* slate-950 */
+  overscroll-behavior: none;
+}
+
 /* Foil shimmer overlay — a translucent rainbow gradient that animates across
    the card surface. Applied on top of the card image via an ::after pseudo. */
 .foil-shimmer {
