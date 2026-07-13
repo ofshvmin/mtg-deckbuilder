@@ -11,10 +11,22 @@ export interface LibCard {
   cmc: number;
   type_line: string;
   isLand: boolean;
+  isCreature: boolean;
+  etbTapped: boolean; // land enters tapped
 }
 
 function cardIsLand(c: DeckCard): boolean {
   return c.slot === "land" || /\bLand\b/.test(c.type_line);
+}
+
+function cardIsCreature(c: DeckCard): boolean {
+  return /\bCreature\b/i.test(c.type_line);
+}
+
+function cardEtbTapped(c: DeckCard): boolean {
+  // Heuristic: lands that say "enters the battlefield tapped" or "enters tapped"
+  const text = (c as any).oracle_text ?? "";
+  return /enters the battlefield tapped|enters tapped/i.test(text);
 }
 
 /** Expand a deck's cards into a flat library (one entry per physical copy). */
@@ -23,6 +35,8 @@ export function buildLibrary(cards: DeckCard[]): LibCard[] {
   for (const c of cards) {
     const n = c.count ?? 1;
     const isLand = cardIsLand(c);
+    const isCreature = cardIsCreature(c);
+    const etbTapped = isLand && cardEtbTapped(c);
     for (let i = 0; i < n; i++) {
       lib.push({
         uid: `${c.oracle_id}#${i}`,
@@ -32,6 +46,8 @@ export function buildLibrary(cards: DeckCard[]): LibCard[] {
         cmc: c.cmc,
         type_line: c.type_line,
         isLand,
+        isCreature,
+        etbTapped,
       });
     }
   }
