@@ -288,8 +288,16 @@ export async function downloadScavengerPdf(data: ScavData): Promise<void> {
     cy = MT;
   }
 
-  function freshPage() {
-    if (col !== 0 || cy !== MT) { doc.addPage(); col = 0; cy = MT; }
+  // Draw a section heading: resets to col 0, draws full-width title + rule.
+  // If there isn't room for at least the heading + a few items, advances page.
+  function sectionHeading(title: string) {
+    // If we're mid-column or too far down, start fresh columns from col 0
+    if (col > 0) { col = 0; cy = MT; }
+    // If less than ~100pt left for content below heading, start new page
+    if (cy + 60 > USABLE_BOTTOM) { doc.addPage(); col = 0; cy = MT; }
+    t(title.toUpperCase(), ML, cy + 11, 10, true, 40);
+    rule(cy + 15);
+    cy += 24;
   }
 
   // ---- page 1 header ----
@@ -304,13 +312,9 @@ export async function downloadScavengerPdf(data: ScavData): Promise<void> {
 
   // ---- RARES & MYTHICS (flat alphabetical per set) ----
   if (data.rareSets.length) {
-    t(RARES.toUpperCase(), ML, cy + 11, 10, true, 40);
-    rule(cy + 15);
-    cy += 24;
-
+    sectionHeading(RARES);
     for (const set of data.rareSets) {
-      const h = SET_H + set.cards.length * LINE;
-      need(Math.min(h, SET_H + 3 * LINE)); // keep heading + at least 3 cards
+      need(SET_H + Math.min(set.cards.length, 2) * LINE);
       t(`${set.name} (${set.code.toUpperCase()})`, colX(), cy + 10, 8, true, 50);
       cy += SET_H;
       for (const card of set.cards) {
@@ -326,16 +330,11 @@ export async function downloadScavengerPdf(data: ScavData): Promise<void> {
 
   // ---- COMMONS & UNCOMMONS (set → color → alphabetical) ----
   if (data.commonSets.length) {
-    freshPage();
-    t(COMMONS.toUpperCase(), ML, cy + 11, 10, true, 40);
-    rule(cy + 15);
-    cy += 24;
-
+    sectionHeading(COMMONS);
     for (const set of data.commonSets) {
-      need(SET_H + COLOR_H + LINE); // heading + at least one color + one card
+      need(SET_H + COLOR_H + LINE);
       t(`${set.name} (${set.code.toUpperCase()})`, colX(), cy + 10, 8, true, 50);
       cy += SET_H;
-
       for (const cg of set.colors) {
         need(COLOR_H + LINE);
         t(cg.color, colX() + 2, cy + 8, 7, true, 110);
@@ -354,18 +353,12 @@ export async function downloadScavengerPdf(data: ScavData): Promise<void> {
 
   // ---- MULTIPLES ----
   if (data.multiples.length) {
-    freshPage();
-    t("MULTIPLES — OWNED IN 2+ SETS", ML, cy + 11, 10, true, 40);
-    rule(cy + 15);
-    cy += 24;
-
+    sectionHeading("Multiples — owned in 2+ sets");
     for (const m of data.multiples) {
-      // Pre-measure: wrap the sets line to know exact height
       doc.setFont("helvetica", "normal"); doc.setFontSize(7);
       const setsStr = m.sets.join(", ");
       const wrapped = doc.splitTextToSize(setsStr, COL_W - CB - 6) as string[];
       const h = LINE + wrapped.length * 9 + 4;
-
       need(h);
       box(colX(), cy + 7);
       t(m.name, colX() + CB + 3, cy + 8, 8, true, 30);
