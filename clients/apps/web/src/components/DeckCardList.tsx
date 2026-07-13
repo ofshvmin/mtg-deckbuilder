@@ -109,9 +109,9 @@ export default function DeckCardList({
       </div>
 
       {view === "text" && (
-        <div className={`gap-4 overflow-hidden [column-fill:balance] ${columnsClassName}`}>
+        <div className={`gap-4 [column-fill:balance] ${columnsClassName}`}>
           {groups.map(({ key, label, dot, cards: slotCards }) => (
-            <div key={key} className="mb-4 break-inside-avoid overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60">
+            <div key={key} className="mb-4 break-inside-avoid rounded-xl border border-slate-800 bg-slate-900/60">
               <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2 sm:px-4">
                 <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-300">
                   <span className={`h-2 w-2 rounded-full ${dot}`} />
@@ -297,11 +297,11 @@ function DeckRow({
         {highSynergy && <span className="ml-1 text-emerald-400">◆</span>}
       </span>
       <span className="hidden sm:inline-flex"><PrintingChips printings={card.printings} /></span>
-      <ManaCost cost={card.mana_cost} className="shrink-0 text-xs" />
+      <span className="hidden shrink-0 sm:inline-flex"><ManaCost cost={card.mana_cost} className="text-xs" /></span>
       {onToggleLock && (
         <button
           onClick={() => onToggleLock(card.oracle_id)}
-          className={"shrink-0 px-1 text-xs transition " + (locked ? "text-amber-400" : "text-slate-600 hover:text-amber-400")}
+          className={"shrink-0 text-xs leading-none transition " + (locked ? "text-amber-400" : "text-slate-600 hover:text-amber-400")}
           title={locked ? "Locked" : "Lock"}
         >
           {locked ? "📌" : "📍"}
@@ -309,7 +309,7 @@ function DeckRow({
       )}
       {onRemove && (
         <button onClick={() => onRemove(card.oracle_id)}
-          className="shrink-0 px-1 text-xs text-slate-600 transition hover:text-rose-400" title="Remove">✕</button>
+          className="shrink-0 text-xs leading-none text-slate-600 transition hover:text-rose-400" title="Remove">✕</button>
       )}
     </li>
   );
