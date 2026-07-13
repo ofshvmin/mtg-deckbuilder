@@ -68,7 +68,14 @@ export default function CardHoverPreview({
   );
 }
 
+// Detect touch-primary device (no hover previews on mobile — they block the
+// card detail modal and look accidental on tap).
+function isTouchDevice(): boolean {
+  return window.matchMedia("(pointer: coarse)").matches;
+}
+
 // Hook: manages the hover state + delay for showing the preview.
+// Disabled entirely on touch devices.
 export function useCardHover() {
   const [hover, setHover] = useState<{
     name: string;
@@ -82,6 +89,7 @@ export function useCardHover() {
     name: string,
     printing?: Printing,
   ) {
+    if (isTouchDevice()) return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     timerRef.current = setTimeout(() => {
       setHover({ name, printing, rect });
