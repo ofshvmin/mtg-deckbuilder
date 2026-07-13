@@ -109,10 +109,10 @@ export default function DeckCardList({
       </div>
 
       {view === "text" && (
-        <div className={`gap-4 [column-fill:balance] ${columnsClassName}`}>
+        <div className={`gap-4 overflow-hidden [column-fill:balance] ${columnsClassName}`}>
           {groups.map(({ key, label, dot, cards: slotCards }) => (
-            <div key={key} className="mb-4 break-inside-avoid rounded-xl border border-slate-800 bg-slate-900/60">
-              <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2">
+            <div key={key} className="mb-4 break-inside-avoid overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60">
+              <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2 sm:px-4">
                 <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-300">
                   <span className={`h-2 w-2 rounded-full ${dot}`} />
                   {label}
