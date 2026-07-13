@@ -12,6 +12,7 @@ import DeckCardList from "./DeckCardList";
 import DeckComboFinishers from "./DeckComboFinishers";
 import DeckUpgrades from "./DeckUpgrades";
 import { cheapestPrint, fetchCardDetail } from "../lib/scryfallPrints";
+import { buildScavengerList } from "../lib/scavenger";
 import PlaytestModal from "./PlaytestModal";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
@@ -54,6 +55,7 @@ export default function DeckView({
   const [regenerating, setRegenerating] = useState(false);
   const [locked, setLocked] = useState<Set<string>>(new Set());
   const [playtesting, setPlaytesting] = useState(false);
+  const [scavenging, setScavenging] = useState(false);
   // Cheapest price per "one card away" missing card, for the max-price filter.
   const [nearPrices, setNearPrices] = useState<Map<string, number | null>>(new Map());
 
@@ -146,6 +148,19 @@ export default function DeckView({
     }
   }
 
+  async function handleScavenger() {
+    setScavenging(true);
+    try {
+      const title = savedAs || name || `${deck.commander.name} Deck`;
+      const md = await buildScavengerList(deck, title);
+      downloadBlob(new Blob([md], { type: "text/markdown" }), `${title.replace(/\s+/g, "-")}-scavenger.md`);
+    } catch {
+      // silent
+    } finally {
+      setScavenging(false);
+    }
+  }
+
   const nameChanged = savedAs !== null && name.trim() !== savedAs;
   const isUnsaved = savedAs === null;
   // Hide "one card away" combos whose missing card is over the max-price cap.
@@ -221,6 +236,14 @@ export default function DeckView({
           className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
         >
           🎴 Playtest
+        </button>
+        <button
+          onClick={handleScavenger}
+          disabled={scavenging}
+          className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800 disabled:opacity-50"
+          title="Download a physical pull-guide grouped by set and color"
+        >
+          {scavenging ? "Building…" : "🔎 Scavenger list"}
         </button>
         {deckId && (
           <>
