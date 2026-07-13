@@ -1,8 +1,9 @@
-"""Explore endpoints: search and fetch decks from external platforms."""
+"""Explore endpoints: resolve external deck card lists against our DB."""
 from __future__ import annotations
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
 from .. import db
 from ..auth.deps import get_current_user
@@ -11,7 +12,6 @@ from ..models.responses import (
     CurveBucket,
     DeckCardOut,
     ExternalDeckResponse,
-    ExternalDeckSummary,
     GeneratedDeckResponse,
     PrintingOut,
 )
@@ -23,46 +23,68 @@ from ..util import normalize_name, strip_diacritics
 router = APIRouter(prefix="/explore", tags=["explore"])
 
 
-@router.get("/search", response_model=list[ExternalDeckSummary])
-async def search_decks(
-    commander: str = Query(..., min_length=1),
-    page_size: int = Query(20, ge=1, le=50),
+class ResolveCardEntry(BaseModel):
+    name: str
+    quantity: int = 1
+    is_commander: bool = False
+
+
+class ResolveDeckRequest(BaseModel):
+    """Card list from a client-side EDHREC/external fetch, to resolve against our DB."""
+    cards: list[ResolveCardEntry]
+    source: str = "edhrec"
+    source_url: str = ""
+    name: str = "Untitled"
+    owner: str = "Unknown"
+
+
+@router.post("/resolve", response_model=ExternalDeckResponse)
+async def resolve_deck(
+    body: ResolveDeckRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """Search EDHREC for public Commander decklists by commander name."""
-    try:
-        results = await external_decks.search_edhrec(commander, page_size)
-    except httpx.TimeoutException:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY,
-            "External service temporarily unavailable (timeout).",
-        )
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            return []
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY,
-            f"External service error ({e.response.status_code}).",
-        )
-    except httpx.HTTPError:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY,
-            "External service temporarily unavailable.",
-        )
-    return [ExternalDeckSummary(**r) for r in results]
+    """Resolve a list of card names against our DB with ownership check.
+
+    The client fetches deck data from EDHREC (browser-side, avoids Cloudflare
+    blocking), then sends the card list here for resolution + ownership.
+    """
+    if not body.cards:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No cards provided.")
+
+    card_entries = [
+        {
+            "name": c.name,
+            "quantity": c.quantity,
+            "categories": ["Commander"] if c.is_commander else [],
+        }
+        for c in body.cards
+    ]
+
+    database = db.get_db()
+    deck_response, unowned_count, owned_count = await _resolve_external_deck(
+        database, current_user["_id"], card_entries,
+    )
+
+    return ExternalDeckResponse(
+        source=body.source,
+        source_url=body.source_url,
+        name=body.name,
+        owner=body.owner,
+        deck=deck_response,
+        unowned_count=unowned_count,
+        owned_count=owned_count,
+    )
 
 
 @router.get("/deck", response_model=ExternalDeckResponse)
 async def fetch_deck(
     url: str | None = Query(None),
     archidekt_id: str | None = Query(None),
-    edhrec_hash: str | None = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
-    """Fetch a full deck from an external platform and resolve against our DB.
+    """Fetch a full deck from Archidekt by URL or ID and resolve against our DB.
 
-    Provide either a deck URL (Archidekt or EDHREC preview link),
-    an archidekt_id, or an edhrec_hash.
+    For Archidekt URLs only — EDHREC search/preview is done client-side.
     """
     source: str | None = None
     source_id: str | None = None
@@ -81,39 +103,26 @@ async def fetch_deck(
         source = "archidekt"
         source_id = archidekt_id
         source_url = f"https://archidekt.com/decks/{archidekt_id}"
-    elif edhrec_hash:
-        source = "edhrec"
-        source_id = edhrec_hash
-        source_url = f"https://edhrec.com/deckpreview/{edhrec_hash}"
     else:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Provide 'url', 'archidekt_id', or 'edhrec_hash'.",
+            "Provide 'url' or 'archidekt_id'.",
         )
 
-    # Fetch raw deck from external platform
+    if source == "moxfield":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Moxfield direct import is not currently available. "
+            "Try searching by commander name instead.",
+        )
+
+    if source not in ("archidekt",):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unsupported source for direct fetch.")
+
     try:
-        if source == "archidekt":
-            raw = await external_decks.fetch_archidekt_deck(source_id)
-            card_entries = external_decks.extract_archidekt_cards(raw) if raw else []
-            metadata = external_decks.extract_deck_metadata(raw, "archidekt") if raw else {}
-        elif source == "edhrec":
-            raw = await external_decks.fetch_edhrec_preview(source_id)
-            card_entries = external_decks.extract_edhrec_cards(raw) if raw else []
-            # Use the original source URL from EDHREC if available
-            original_url = raw.get("url") or ""
-            if original_url:
-                source_url = original_url
-            metadata = external_decks.extract_deck_metadata(raw, "edhrec") if raw else {}
-        elif source == "moxfield":
-            # Moxfield direct API is Cloudflare-blocked; try EDHREC as fallback
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                "Moxfield direct import is not currently available. "
-                "Try searching by commander name to find the deck via EDHREC.",
-            )
-        else:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unsupported source.")
+        raw = await external_decks.fetch_archidekt_deck(source_id)
+        card_entries = external_decks.extract_archidekt_cards(raw) if raw else []
+        metadata = external_decks.extract_deck_metadata(raw, "archidekt") if raw else {}
     except httpx.TimeoutException:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
@@ -137,13 +146,9 @@ async def fetch_deck(
     if not card_entries:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck has no cards.")
 
-    if not metadata:
-        metadata = {"name": "Untitled", "owner": "Unknown"}
-
-    # Resolve card names against our cards collection
     database = db.get_db()
     deck_response, unowned_count, owned_count = await _resolve_external_deck(
-        database, current_user["_id"], card_entries, source,
+        database, current_user["_id"], card_entries,
     )
 
     return ExternalDeckResponse(
@@ -158,28 +163,21 @@ async def fetch_deck(
 
 
 async def _resolve_external_deck(
-    database, user_id: str, card_entries: list[dict], source: str,
+    database, user_id: str, card_entries: list[dict],
 ) -> tuple[GeneratedDeckResponse, int, int]:
-    """Resolve external card entries against our DB and build a GeneratedDeckResponse.
-
-    Returns (deck_response, unowned_count, owned_count).
-    """
-    # Collect all unique card names to look up
+    """Resolve external card entries against our DB and build a GeneratedDeckResponse."""
     name_set: set[str] = set()
     for entry in card_entries:
         name_set.add(normalize_name(entry["name"]))
-        # For DFC, also try the front face
         if " // " in entry["name"]:
             name_set.add(normalize_name(entry["name"].split(" // ")[0]))
 
-    # Batch lookup by normalized name
     docs_by_norm: dict[str, dict] = {}
     if name_set:
         cursor = database.cards.find({"name_normalized": {"$in": list(name_set)}})
         async for doc in cursor:
             docs_by_norm[doc["name_normalized"]] = doc
 
-    # Also try diacritics-stripped names for cards not found
     stripped_lookup: dict[str, str] = {}
     missing = name_set - set(docs_by_norm.keys())
     if missing:
@@ -196,10 +194,8 @@ async def _resolve_external_deck(
                 if original_norm:
                     docs_by_norm[original_norm] = doc
 
-    # Get user's owned printings for ownership check
     user_printings = await collection_repo.owned_printings(database, user_id)
 
-    # Build resolved card docs, tracking commander
     resolved_docs: list[dict] = []
     commander_doc: dict | None = None
     unresolved_count = 0
@@ -207,7 +203,6 @@ async def _resolve_external_deck(
     for entry in card_entries:
         norm = normalize_name(entry["name"])
         doc = docs_by_norm.get(norm)
-        # Try front face for DFC
         if doc is None and " // " in entry["name"]:
             doc = docs_by_norm.get(normalize_name(entry["name"].split(" // ")[0]))
         if doc is None:
@@ -222,7 +217,6 @@ async def _resolve_external_deck(
         for _ in range(entry.get("quantity", 1)):
             resolved_docs.append(doc)
 
-    # If no commander found, use the first legendary creature
     if commander_doc is None:
         for doc in resolved_docs:
             tl = doc.get("type_line", "")
@@ -231,32 +225,21 @@ async def _resolve_external_deck(
                 resolved_docs.remove(doc)
                 break
 
-    # Fallback commander — create a placeholder
     if commander_doc is None:
         commander_doc = {
-            "_id": "unknown",
-            "name": "Unknown Commander",
-            "name_normalized": "unknown commander",
-            "mana_cost": "",
-            "cmc": 0,
-            "type_line": "Legendary Creature",
-            "oracle_text": "",
-            "color_identity": [],
-            "colors": [],
-            "keywords": [],
+            "_id": "unknown", "name": "Unknown Commander",
+            "name_normalized": "unknown commander", "mana_cost": "", "cmc": 0,
+            "type_line": "Legendary Creature", "oracle_text": "",
+            "color_identity": [], "colors": [], "keywords": [],
         }
 
     identity = commander_doc.get("color_identity", [])
-
-    # Use compose to categorize cards into roles/slots
     deck = compose(resolved_docs, identity, printings=user_printings)
 
-    # Build the full response
     warnings: list[str] = []
     if unresolved_count > 0:
         warnings.append(f"{unresolved_count} card(s) could not be resolved against our database.")
 
-    # Count ownership
     owned_count = 0
     unowned_count = 0
     for dc in deck.cards:
@@ -285,26 +268,14 @@ async def _resolve_external_deck(
         stats=deck.stats,
         warnings=warnings,
         edhrec_available=False,
-        combos=[],
-        near_combos=[],
-        strategy=None,
-        theme=None,
-        theme_count=0,
-        bracket=None,
+        combos=[], near_combos=[],
+        strategy=None, theme=None, theme_count=0, bracket=None,
         cards=[
             DeckCardOut(
-                oracle_id=dc.oracle_id,
-                name=dc.name,
-                mana_cost=dc.mana_cost,
-                cmc=dc.cmc,
-                type_line=dc.type_line,
-                color_identity=dc.color_identity,
-                roles=dc.roles,
-                slot=dc.slot,
-                reason=dc.reason,
-                count=dc.count,
-                quality=dc.quality,
-                in_combo=False,
+                oracle_id=dc.oracle_id, name=dc.name, mana_cost=dc.mana_cost,
+                cmc=dc.cmc, type_line=dc.type_line, color_identity=dc.color_identity,
+                roles=dc.roles, slot=dc.slot, reason=dc.reason, count=dc.count,
+                quality=dc.quality, in_combo=False,
                 printings=[PrintingOut(**p) for p in dc.printings],
                 selected_printing_key=dc.selected_printing_key,
             )

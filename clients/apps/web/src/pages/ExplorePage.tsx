@@ -1,18 +1,32 @@
 import { useCallback, useState } from "react";
-import type { ExternalDeckResponse, ExternalDeckSummary, GeneratedDeck } from "@mtg/shared";
+import type { ExternalDeckResponse } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
 import type { Color } from "@mtg/shared";
+import { searchDecks, fetchPreview, type EdhrecPreview } from "../lib/edhrec";
 import CommanderArt from "../components/CommanderArt";
 import DeckView from "../components/DeckView";
 import ImportCardsModal from "../components/ImportCardsModal";
+
+interface SearchResult {
+  external_id: string;
+  source: string;
+  name: string;
+  owner: string;
+  card_count: number;
+  url: string;
+  commander_name: string;
+  color_identity: string[];
+  bracket: number | null;
+  price: number | null;
+}
 
 export default function ExplorePage() {
   const { refreshSummary, refreshSaved } = useLayout();
   const [commander, setCommander] = useState("");
   const [urlInput, setUrlInput] = useState("");
-  const [results, setResults] = useState<ExternalDeckSummary[]>([]);
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [fetchedDeck, setFetchedDeck] = useState<ExternalDeckResponse | null>(null);
@@ -22,6 +36,7 @@ export default function ExplorePage() {
   const [saving, setSaving] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
+  // Client-side search via EDHREC
   const handleSearch = useCallback(async () => {
     const q = commander.trim();
     if (!q) return;
@@ -30,9 +45,9 @@ export default function ExplorePage() {
     setFetchedDeck(null);
     setSavedId(null);
     try {
-      const data = await api.searchExternalDecks(q);
+      const data = await searchDecks(q);
       setResults(data);
-      if (data.length === 0) setSearchError("No decks found for that commander.");
+      if (data.length === 0) setSearchError("No decks found for that commander on EDHREC.");
     } catch (e) {
       setSearchError(e instanceof Error ? e.message : "Search failed");
       setResults([]);
@@ -41,6 +56,7 @@ export default function ExplorePage() {
     }
   }, [commander]);
 
+  // Fetch from URL (Archidekt) via our backend
   async function handleFetchByUrl() {
     const u = urlInput.trim();
     if (!u) return;
@@ -58,17 +74,29 @@ export default function ExplorePage() {
     }
   }
 
-  async function handleFetchResult(summary: ExternalDeckSummary) {
+  // Fetch EDHREC preview client-side, then resolve via our backend
+  async function handleFetchResult(result: SearchResult) {
     setFetching(true);
     setFetchError(null);
     setFetchedDeck(null);
     setSavedId(null);
     try {
-      // Search results come from EDHREC; use the hash to fetch the full deck
-      const opts = summary.source === "archidekt"
-        ? { archidektId: summary.external_id }
-        : { edhrecHash: summary.external_id };
-      const data = await api.fetchExternalDeck(opts);
+      // Step 1: fetch preview from EDHREC (client-side)
+      const preview = await fetchPreview(result.external_id);
+      if (!preview || !preview.deck?.length) {
+        setFetchError("Could not load deck from EDHREC.");
+        return;
+      }
+
+      // Step 2: parse card list and send to our backend for resolution
+      const cards = parseEdhrecDeck(preview);
+      const data = await api.resolveExternalDeck({
+        cards,
+        source: result.source,
+        source_url: result.url,
+        name: result.name,
+        owner: result.owner,
+      });
       setFetchedDeck(data);
     } catch (e) {
       setFetchError(e instanceof Error ? e.message : "Failed to fetch deck");
@@ -94,7 +122,7 @@ export default function ExplorePage() {
     }
   }
 
-  // If viewing a fetched deck, show it
+  // Viewing a fetched deck
   if (fetchedDeck) {
     return (
       <div className="space-y-6">
@@ -127,10 +155,12 @@ export default function ExplorePage() {
         </div>
 
         {/* Source attribution */}
-        <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-2 text-sm text-slate-400">
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-2 text-sm text-slate-400">
           <span>
-            From <span className="capitalize text-slate-200">{fetchedDeck.source}</span> by{" "}
-            <span className="text-slate-200">{fetchedDeck.owner}</span>
+            From <span className="capitalize text-slate-200">{fetchedDeck.source}</span>
+            {fetchedDeck.owner !== "Unknown" && (
+              <> by <span className="text-slate-200">{fetchedDeck.owner}</span></>
+            )}
           </span>
           <span className="text-slate-600">|</span>
           <span className="text-emerald-400">{fetchedDeck.owned_count} owned</span>
@@ -212,7 +242,7 @@ export default function ExplorePage() {
 
       {searchError && <p className="text-sm text-rose-400">{searchError}</p>}
       {fetchError && <p className="text-sm text-rose-400">{fetchError}</p>}
-      {fetching && <p className="text-sm text-slate-400">Fetching deck…</p>}
+      {fetching && <p className="text-sm text-slate-400">Loading deck…</p>}
 
       {/* Results grid */}
       {results.length > 0 && (
@@ -226,6 +256,11 @@ export default function ExplorePage() {
             >
               <CommanderArt name={d.commander_name || "Unknown"} className="h-36">
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+                {d.bracket != null && (
+                  <div className="absolute right-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-slate-200">
+                    B{d.bracket}
+                  </div>
+                )}
                 <div className="absolute inset-x-0 bottom-0 p-3">
                   <h3 className="truncate text-sm font-semibold text-white drop-shadow transition group-hover:text-emerald-300">
                     {d.name}
@@ -236,9 +271,9 @@ export default function ExplorePage() {
                 <p className="truncate text-xs text-slate-400">
                   {d.commander_name} · {formatColorIdentity(d.color_identity as Color[])} · {d.card_count} cards
                 </p>
-                <p className="mt-0.5 truncate text-xs text-slate-500">
-                  by {d.owner}
-                </p>
+                {d.price != null && (
+                  <p className="mt-0.5 text-xs text-slate-500">${Math.round(d.price)}</p>
+                )}
               </div>
             </button>
           ))}
@@ -246,4 +281,21 @@ export default function ExplorePage() {
       )}
     </div>
   );
+}
+
+/** Parse EDHREC preview deck lines into card entries for our resolve endpoint. */
+function parseEdhrecDeck(preview: EdhrecPreview) {
+  const commanders = new Set(preview.commanders ?? []);
+  const cards: { name: string; quantity: number; is_commander: boolean }[] = [];
+  for (const line of preview.deck ?? []) {
+    if (!line?.trim()) continue;
+    const parts = line.trim().split(" ", 2);
+    if (parts.length < 2) continue;
+    const qty = parseInt(parts[0], 10) || 1;
+    // name is everything after the first space (handle "1 Atraxa, Praetors' Voice")
+    const name = line.trim().substring(parts[0].length).trim();
+    if (!name) continue;
+    cards.push({ name, quantity: qty, is_commander: commanders.has(name) });
+  }
+  return cards;
 }

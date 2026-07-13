@@ -17,7 +17,6 @@ import type {
   CollectionSummary,
   CommanderOption,
   ExternalDeckResponse,
-  ExternalDeckSummary,
   GeneratedDeck,
   HealthStatus,
   ImportResult,
@@ -234,17 +233,22 @@ export class ApiClient {
 
   // ---- Explore (external decks) ----
 
-  searchExternalDecks(commander: string, pageSize = 20): Promise<ExternalDeckSummary[]> {
-    const qs = `?commander=${encodeURIComponent(commander)}&page_size=${pageSize}`;
-    return this.request<ExternalDeckSummary[]>("GET", `/explore/search${qs}`);
-  }
-
-  fetchExternalDeck(opts: { url?: string; archidektId?: string; edhrecHash?: string }): Promise<ExternalDeckResponse> {
+  fetchExternalDeck(opts: { url?: string; archidektId?: string }): Promise<ExternalDeckResponse> {
     const params = new URLSearchParams();
     if (opts.url) params.set("url", opts.url);
     if (opts.archidektId) params.set("archidekt_id", opts.archidektId);
-    if (opts.edhrecHash) params.set("edhrec_hash", opts.edhrecHash);
     return this.request<ExternalDeckResponse>("GET", `/explore/deck?${params.toString()}`);
+  }
+
+  /** Resolve a card list (from client-side EDHREC fetch) against our DB. */
+  resolveExternalDeck(body: {
+    cards: { name: string; quantity: number; is_commander: boolean }[];
+    source: string;
+    source_url: string;
+    name: string;
+    owner: string;
+  }): Promise<ExternalDeckResponse> {
+    return this.request<ExternalDeckResponse>("POST", "/explore/resolve", { body });
   }
 
   batchAddToCollection(
