@@ -90,6 +90,46 @@ and a per-deck-card `selected_printing_key` — the seams for future value/image
 
 ---
 
+## Feature detail: Playtest (goldfish) simulator
+
+A **🎴 Playtest** button on any deck view (built or saved) opens a goldfish simulator to feel a
+deck's opening consistency. It is **entirely client-side** — no backend, no API — operating on the
+deck's own card list.
+
+- **Files:** `clients/apps/web/src/lib/playtest.ts` (pure sim helpers, no React) and
+  `clients/apps/web/src/components/PlaytestModal.tsx` (the modal UI). Wired into `DeckView` via a
+  `playtesting` state + the Playtest button.
+- **Library construction (`buildLibrary(cards)`):** expands `deck.cards` into a flat array, one
+  entry per physical copy (respecting `count`, so basics appear N times). The **commander is not in
+  the library** (it lives in the command zone). A card is a land if `slot === "land"` or its
+  `type_line` contains "Land". Each `LibCard` carries `{ uid, oracle_id, name, mana_cost, cmc,
+  type_line, isLand }`.
+
+**Interactive mode** (`PlaytestModal`, a `Game` state machine with phases `mulligan → bottoming →
+play`):
+- Shuffle the 99-card library (Fisher-Yates, `shuffle()`), draw an opening 7.
+- **London mulligan:** "Mulligan (to N)" reshuffles everything and redraws 7, incrementing the
+  mulligan count. On **Keep** after M mulligans you enter *bottoming*: click M cards to put on the
+  bottom, then Confirm (they move to the end of the library). Zero mulligans → straight to play.
+- **Turn stepping:** "Draw for turn" draws 1 and increments the turn; you may **play one land per
+  turn** (click a land in hand → it moves to the battlefield). `landPlayedThisTurn` gates a second.
+- **Mana model (simplification):** mana available = **number of lands in play**; card **colors are
+  not simulated**. "Castable now" highlights nonland cards with `cmc ≤ lands` and shows a live count.
+- "New game" reshuffles from scratch.
+
+**Statistical mode (`sampleOpenerStats(cards, iterations = 1000)`):** a Monte-Carlo over the opening
+7 (partial Fisher-Yates per iteration, counts lands in the drawn 7). Returns `OpenerStats {
+iterations, avgLands, keepablePct (2–5 lands), screwPct (0–1), floodPct (6–7), landDist[0..7] }`,
+rendered as headline numbers + a land-count histogram. The "Sample 1,000 opening hands" button runs
+it on demand.
+
+**Caveats / by design:** it's a *feel/consistency* tool, not a rules engine — no colored-mana
+requirements, no card effects, no interaction. The rigorous complement is the hypergeometric
+opening-hand math already shown in the deck stats (`p_2plus_lands_opening`, etc., from the Phase-2
+`mana_math` engine). Colored-mana-aware simulation would be a future enhancement.
+
+---
+
 ## Architecture
 
 ### Backend (`backend/`)
