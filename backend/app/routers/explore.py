@@ -16,7 +16,7 @@ from ..models.responses import (
     PrintingOut,
 )
 from ..repositories import collection as collection_repo
-from ..services import external_decks, roles as roles_service
+from ..services import external_decks
 from ..services.generator import compose
 from ..util import normalize_name, strip_diacritics
 
@@ -29,9 +29,9 @@ async def search_decks(
     page_size: int = Query(20, ge=1, le=50),
     current_user: dict = Depends(get_current_user),
 ):
-    """Search Archidekt for public Commander decks by commander name."""
+    """Search EDHREC for public Commander decklists by commander name."""
     try:
-        results = await external_decks.search_archidekt(commander, page_size)
+        results = await external_decks.search_edhrec(commander, page_size)
     except httpx.TimeoutException:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
@@ -56,11 +56,13 @@ async def search_decks(
 async def fetch_deck(
     url: str | None = Query(None),
     archidekt_id: str | None = Query(None),
+    edhrec_hash: str | None = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     """Fetch a full deck from an external platform and resolve against our DB.
 
-    Provide either a deck URL (Archidekt or Moxfield) or an archidekt_id.
+    Provide either a deck URL (Archidekt or EDHREC preview link),
+    an archidekt_id, or an edhrec_hash.
     """
     source: str | None = None
     source_id: str | None = None
@@ -71,7 +73,7 @@ async def fetch_deck(
         if not parsed:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                "Unsupported URL. Supported: archidekt.com/decks/... and moxfield.com/decks/...",
+                "Unsupported URL. Supported: archidekt.com/decks/...",
             )
         source, source_id = parsed
         source_url = url
@@ -79,18 +81,37 @@ async def fetch_deck(
         source = "archidekt"
         source_id = archidekt_id
         source_url = f"https://archidekt.com/decks/{archidekt_id}"
+    elif edhrec_hash:
+        source = "edhrec"
+        source_id = edhrec_hash
+        source_url = f"https://edhrec.com/deckpreview/{edhrec_hash}"
     else:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Provide either 'url' or 'archidekt_id'.",
+            "Provide 'url', 'archidekt_id', or 'edhrec_hash'.",
         )
 
     # Fetch raw deck from external platform
     try:
         if source == "archidekt":
             raw = await external_decks.fetch_archidekt_deck(source_id)
+            card_entries = external_decks.extract_archidekt_cards(raw) if raw else []
+            metadata = external_decks.extract_deck_metadata(raw, "archidekt") if raw else {}
+        elif source == "edhrec":
+            raw = await external_decks.fetch_edhrec_preview(source_id)
+            card_entries = external_decks.extract_edhrec_cards(raw) if raw else []
+            # Use the original source URL from EDHREC if available
+            original_url = raw.get("url") or ""
+            if original_url:
+                source_url = original_url
+            metadata = external_decks.extract_deck_metadata(raw, "edhrec") if raw else {}
         elif source == "moxfield":
-            raw = await external_decks.fetch_moxfield_deck(source_id)
+            # Moxfield direct API is Cloudflare-blocked; try EDHREC as fallback
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Moxfield direct import is not currently available. "
+                "Try searching by commander name to find the deck via EDHREC.",
+            )
         else:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unsupported source.")
     except httpx.TimeoutException:
@@ -113,17 +134,11 @@ async def fetch_deck(
 
     if not raw:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found or is private.")
-
-    # Extract cards from the raw response
-    if source == "archidekt":
-        card_entries = external_decks.extract_archidekt_cards(raw)
-    else:
-        card_entries = external_decks.extract_moxfield_cards(raw)
-
-    metadata = external_decks.extract_deck_metadata(raw, source)
-
     if not card_entries:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck has no cards.")
+
+    if not metadata:
+        metadata = {"name": "Untitled", "owner": "Unknown"}
 
     # Resolve card names against our cards collection
     database = db.get_db()
@@ -134,8 +149,8 @@ async def fetch_deck(
     return ExternalDeckResponse(
         source=source,
         source_url=source_url,
-        name=metadata["name"],
-        owner=metadata["owner"],
+        name=metadata.get("name", "Untitled"),
+        owner=metadata.get("owner", "Unknown"),
         deck=deck_response,
         unowned_count=unowned_count,
         owned_count=owned_count,
@@ -250,7 +265,6 @@ async def _resolve_external_deck(
         else:
             unowned_count += dc.count
 
-    # Mark combo membership (empty for external decks — no spellbook analysis)
     deck_response = GeneratedDeckResponse(
         commander=CardSummary(
             oracle_id=commander_doc["_id"],

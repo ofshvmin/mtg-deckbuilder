@@ -1,4 +1,8 @@
-"""Fetch and convert decks from external platforms (Archidekt, Moxfield).
+"""Fetch and convert decks from external platforms.
+
+Search uses EDHREC (public JSON endpoints for commander decklists).
+Individual deck fetch uses either EDHREC deck preview (card list format)
+or Archidekt's individual deck API (still publicly accessible).
 
 Follows the httpx + descriptive User-Agent pattern from scryfall.py.
 """
@@ -10,11 +14,16 @@ import httpx
 
 USER_AGENT = "MTGDeckBuilder/0.1 (personal project; contact: daniel.g.mathews@gmail.com)"
 HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json"}
-TIMEOUT = 10
+TIMEOUT = 15
 
 # URL patterns for supported platforms.
 _ARCHIDEKT_URL_RE = re.compile(r"archidekt\.com/decks/(\d+)")
 _MOXFIELD_URL_RE = re.compile(r"moxfield\.com/decks/([\w-]+)")
+_EDHREC_HASH_RE = re.compile(r"edhrec\.com/deckpreview/([\w_-]+)")
+
+# EDHREC color letter map (they use full names in some endpoints).
+_COLOR_MAP = {"W": "W", "U": "U", "B": "B", "R": "R", "G": "G",
+              "White": "W", "Blue": "U", "Black": "B", "Red": "R", "Green": "G"}
 
 
 def parse_deck_url(url: str) -> tuple[str, str] | None:
@@ -25,65 +34,130 @@ def parse_deck_url(url: str) -> tuple[str, str] | None:
     m = _MOXFIELD_URL_RE.search(url)
     if m:
         return ("moxfield", m.group(1))
+    m = _EDHREC_HASH_RE.search(url)
+    if m:
+        return ("edhrec", m.group(1))
     return None
 
 
-async def search_archidekt(commander: str, page_size: int = 20) -> list[dict]:
-    """Search Archidekt for public Commander decks by commander name.
+def commander_to_slug(name: str) -> str:
+    """Convert a commander name to an EDHREC URL slug.
+
+    "Atraxa, Praetors' Voice" -> "atraxa-praetors-voice"
+    """
+    slug = name.lower()
+    slug = re.sub(r"[',.]", "", slug)
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    return slug.strip("-")
+
+
+async def search_edhrec(commander: str, page_size: int = 20) -> list[dict]:
+    """Search EDHREC for public Commander decklists by commander name.
+
+    Fetches the EDHREC decks page for the commander, takes the top N deck
+    hashes, then batch-fetches their previews for names/URLs/card counts.
 
     Returns a list of summary dicts with keys:
       external_id, source, name, owner, card_count, url, commander_name, color_identity
     """
-    params = {
-        "commanders": f'"{commander}"',
-        "formats": "3",  # Commander format
-        "pageSize": str(page_size),
-        "orderBy": "-viewCount",
-    }
-    async with httpx.AsyncClient() as client:
+    slug = commander_to_slug(commander)
+
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        # Step 1: Get deck hashes from EDHREC
         resp = await client.get(
-            "https://archidekt.com/api/decks/cards/",
-            params=params,
+            f"https://json.edhrec.com/pages/decks/{slug}.json",
             headers=HEADERS,
             timeout=TIMEOUT,
         )
+        if resp.status_code == 404:
+            return []
         resp.raise_for_status()
         data = resp.json()
 
-    results = data.get("results") or []
+    table = data.get("table") or []
+    if not table:
+        return []
+
+    # Take top N by position (EDHREC already sorts by relevance/date)
+    hashes = [entry["urlhash"] for entry in table[:page_size] if entry.get("urlhash")]
+
+    # Step 2: Fetch previews for each hash
     out: list[dict] = []
-    for deck in results:
-        commanders = deck.get("commanders") or []
-        cmd_name = commanders[0].get("name") if commanders else commander
-        colors = _extract_archidekt_colors(deck)
-        out.append({
-            "external_id": str(deck["id"]),
-            "source": "archidekt",
-            "name": deck.get("name", "Untitled"),
-            "owner": deck.get("owner", {}).get("username", "Unknown"),
-            "card_count": deck.get("cardCount") or 0,
-            "url": f"https://archidekt.com/decks/{deck['id']}",
-            "commander_name": cmd_name,
-            "color_identity": colors,
-        })
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        for h in hashes:
+            try:
+                resp = await client.get(
+                    f"https://edhrec.com/api/deckpreview/{h}",
+                    headers=HEADERS,
+                    timeout=TIMEOUT,
+                )
+                if resp.status_code != 200:
+                    continue
+                preview = resp.json()
+            except (httpx.HTTPError, ValueError):
+                continue
+
+            deck_lines = preview.get("deck") or []
+            card_count = len(deck_lines) if isinstance(deck_lines, list) else 0
+            commanders = preview.get("commanders") or []
+            cmd_name = commanders[0] if commanders else commander
+            colors = _normalize_colors(preview.get("coloridentity") or [])
+            source_url = preview.get("url") or ""
+
+            # Determine the source from the URL
+            source = "edhrec"
+            if "archidekt.com" in source_url:
+                source = "archidekt"
+            elif "moxfield.com" in source_url:
+                source = "moxfield"
+
+            out.append({
+                "external_id": h,
+                "source": source,
+                "name": preview.get("header") or f"{cmd_name} Deck",
+                "owner": _owner_from_url(source_url),
+                "card_count": card_count,
+                "url": source_url or f"https://edhrec.com/deckpreview/{h}",
+                "commander_name": cmd_name,
+                "color_identity": colors,
+            })
+
     return out
 
 
-def _extract_archidekt_colors(deck: dict) -> list[str]:
-    """Pull color identity from Archidekt deck data."""
-    colors = deck.get("colors") or deck.get("deckColors") or []
-    if isinstance(colors, list):
-        # Archidekt might return color objects or just strings
-        out = []
-        for c in colors:
-            if isinstance(c, str) and len(c) == 1:
-                out.append(c.upper())
-            elif isinstance(c, dict):
-                val = c.get("color") or c.get("name", "")
-                if len(val) == 1:
-                    out.append(val.upper())
-        return out
-    return []
+def _normalize_colors(colors: list) -> list[str]:
+    """Normalize EDHREC color identity to WUBRG letters."""
+    out = []
+    for c in colors:
+        mapped = _COLOR_MAP.get(c, c.upper() if isinstance(c, str) and len(c) == 1 else "")
+        if mapped and mapped not in out:
+            out.append(mapped)
+    return out
+
+
+def _owner_from_url(url: str) -> str:
+    """Try to extract an owner/username from a deck URL, or return a default."""
+    if not url:
+        return "Unknown"
+    # Archidekt URLs sometimes have the username in the path but not reliably
+    return "EDHREC"
+
+
+async def fetch_edhrec_preview(deck_hash: str) -> dict:
+    """Fetch a deck preview from EDHREC by hash.
+
+    Returns dict with keys: deck (list of "N CardName"), commanders, coloridentity, url, price, etc.
+    """
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        resp = await client.get(
+            f"https://edhrec.com/api/deckpreview/{deck_hash}",
+            headers=HEADERS,
+            timeout=TIMEOUT,
+        )
+        if resp.status_code == 404:
+            return {}
+        resp.raise_for_status()
+        return resp.json()
 
 
 async def fetch_archidekt_deck(deck_id: str) -> dict:
@@ -91,7 +165,7 @@ async def fetch_archidekt_deck(deck_id: str) -> dict:
 
     Returns the raw Archidekt API response dict.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
         resp = await client.get(
             f"https://archidekt.com/api/decks/{deck_id}/",
             headers=HEADERS,
@@ -103,21 +177,37 @@ async def fetch_archidekt_deck(deck_id: str) -> dict:
         return resp.json()
 
 
-async def fetch_moxfield_deck(public_id: str) -> dict:
-    """Fetch a full deck from Moxfield by public ID.
+def extract_edhrec_cards(preview: dict) -> list[dict]:
+    """Extract card entries from an EDHREC deck preview.
 
-    Returns the raw Moxfield API response dict.
+    The preview's 'deck' field is a list of strings like "1 Sol Ring".
+    Returns list of dicts: {name, quantity, categories}
     """
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"https://api2.moxfield.com/v3/decks/all/{public_id}",
-            headers={**HEADERS, "User-Agent": USER_AGENT},
-            timeout=TIMEOUT,
-        )
-        if resp.status_code == 404:
-            return {}
-        resp.raise_for_status()
-        return resp.json()
+    cards: list[dict] = []
+    commanders = set(preview.get("commanders") or [])
+
+    for line in preview.get("deck") or []:
+        if not isinstance(line, str) or not line.strip():
+            continue
+        parts = line.strip().split(" ", 1)
+        if len(parts) < 2:
+            continue
+        try:
+            qty = int(parts[0])
+        except ValueError:
+            qty = 1
+        name = parts[1].strip()
+        if not name:
+            continue
+        cats = ["Commander"] if name in commanders else []
+        cards.append({
+            "name": name,
+            "quantity": qty,
+            "categories": cats,
+            "set_code": "",
+            "collector_number": "",
+        })
+    return cards
 
 
 def extract_archidekt_cards(raw: dict) -> list[dict]:
@@ -184,5 +274,10 @@ def extract_deck_metadata(raw: dict, source: str) -> dict:
             "name": raw.get("name", "Untitled"),
             "owner": (raw.get("createdByUser") or {}).get("displayName")
             or (raw.get("createdByUser") or {}).get("userName", "Unknown"),
+        }
+    elif source == "edhrec":
+        return {
+            "name": raw.get("header") or "Untitled",
+            "owner": "EDHREC",
         }
     return {"name": "Untitled", "owner": "Unknown"}

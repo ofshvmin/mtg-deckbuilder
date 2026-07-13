@@ -1,9 +1,11 @@
-"""Tests for the external_decks service (URL parsing, card extraction)."""
+"""Tests for the external_decks service (URL parsing, card extraction, slug conversion)."""
 import pytest
 
 from app.services.external_decks import (
+    commander_to_slug,
     extract_archidekt_cards,
     extract_deck_metadata,
+    extract_edhrec_cards,
     extract_moxfield_cards,
     parse_deck_url,
 )
@@ -26,6 +28,10 @@ class TestParseDeckUrl:
         result = parse_deck_url("https://moxfield.com/decks/Xk3nZ")
         assert result == ("moxfield", "Xk3nZ")
 
+    def test_edhrec_preview_url(self):
+        result = parse_deck_url("https://edhrec.com/deckpreview/l4dyWqugVo_vuSUTOHRpLQ")
+        assert result == ("edhrec", "l4dyWqugVo_vuSUTOHRpLQ")
+
     def test_unsupported_url(self):
         assert parse_deck_url("https://scryfall.com/card/foo") is None
 
@@ -38,6 +44,55 @@ class TestParseDeckUrl:
     def test_url_in_text(self):
         result = parse_deck_url("check out https://archidekt.com/decks/42/my-deck please")
         assert result == ("archidekt", "42")
+
+
+class TestCommanderToSlug:
+    def test_basic(self):
+        assert commander_to_slug("Atraxa, Praetors' Voice") == "atraxa-praetors-voice"
+
+    def test_simple_name(self):
+        assert commander_to_slug("Krenko, Mob Boss") == "krenko-mob-boss"
+
+    def test_hyphens(self):
+        assert commander_to_slug("Lim-Dul the Necromancer") == "lim-dul-the-necromancer"
+
+    def test_caesar(self):
+        assert commander_to_slug("Caesar, Legion's Emperor") == "caesar-legions-emperor"
+
+    def test_no_punctuation(self):
+        assert commander_to_slug("Sol Ring") == "sol-ring"
+
+
+class TestExtractEdhrecCards:
+    def test_basic_extraction(self):
+        preview = {
+            "deck": ["1 Sol Ring", "1 Command Tower", "1 Atraxa, Praetors' Voice"],
+            "commanders": ["Atraxa, Praetors' Voice"],
+        }
+        cards = extract_edhrec_cards(preview)
+        assert len(cards) == 3
+        sol = next(c for c in cards if c["name"] == "Sol Ring")
+        assert sol["quantity"] == 1
+        assert sol["categories"] == []
+        atraxa = next(c for c in cards if "Atraxa" in c["name"])
+        assert "Commander" in atraxa["categories"]
+
+    def test_multiple_quantity(self):
+        preview = {"deck": ["4 Lightning Bolt"], "commanders": []}
+        cards = extract_edhrec_cards(preview)
+        assert len(cards) == 1
+        assert cards[0]["quantity"] == 4
+
+    def test_empty_deck(self):
+        assert extract_edhrec_cards({}) == []
+        assert extract_edhrec_cards({"deck": []}) == []
+
+    def test_malformed_lines_skipped(self):
+        preview = {"deck": ["", "  ", "nocount"], "commanders": []}
+        cards = extract_edhrec_cards(preview)
+        # "nocount" doesn't have a number prefix, so qty defaults to 1
+        # but "" and "  " should be skipped
+        assert len(cards) <= 1
 
 
 class TestExtractArchidektCards:
@@ -169,6 +224,12 @@ class TestExtractDeckMetadata:
         raw = {"name": "Deck", "createdByUser": {"userName": "bob123"}}
         meta = extract_deck_metadata(raw, "moxfield")
         assert meta["owner"] == "bob123"
+
+    def test_edhrec_metadata(self):
+        raw = {"header": "Deck with Atraxa"}
+        meta = extract_deck_metadata(raw, "edhrec")
+        assert meta["name"] == "Deck with Atraxa"
+        assert meta["owner"] == "EDHREC"
 
     def test_unknown_source(self):
         meta = extract_deck_metadata({}, "unknown")

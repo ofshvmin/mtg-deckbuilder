@@ -239,10 +239,11 @@ export class ApiClient {
     return this.request<ExternalDeckSummary[]>("GET", `/explore/search${qs}`);
   }
 
-  fetchExternalDeck(opts: { url?: string; archidektId?: string }): Promise<ExternalDeckResponse> {
+  fetchExternalDeck(opts: { url?: string; archidektId?: string; edhrecHash?: string }): Promise<ExternalDeckResponse> {
     const params = new URLSearchParams();
     if (opts.url) params.set("url", opts.url);
     if (opts.archidektId) params.set("archidekt_id", opts.archidektId);
+    if (opts.edhrecHash) params.set("edhrec_hash", opts.edhrecHash);
     return this.request<ExternalDeckResponse>("GET", `/explore/deck?${params.toString()}`);
   }
 
