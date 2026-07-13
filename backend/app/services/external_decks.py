@@ -69,7 +69,7 @@ async def search_edhrec(commander: str, page_size: int = 20) -> list[dict]:
             headers=HEADERS,
             timeout=TIMEOUT,
         )
-        if resp.status_code == 404:
+        if resp.status_code in (403, 404):
             return []
         resp.raise_for_status()
         data = resp.json()

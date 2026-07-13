@@ -15,6 +15,7 @@ from ..models.responses import (
     GeneratedDeckResponse,
     PrintingOut,
 )
+from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
 from ..services import external_decks
 from ..services.generator import compose
@@ -44,15 +45,29 @@ async def search_decks(
 ):
     """Search EDHREC for commander decklists, fully server-side.
 
-    Fetches hash table from json.edhrec.com, then batch-fetches previews
-    from edhrec.com/api/deckpreview to build summaries.
+    EDHREC needs the full commander name as a slug. If the user types a
+    partial name (e.g. "Caesar"), we first resolve it against our cards DB
+    to get the full name (e.g. "Caesar, Legion's Emperor").
     """
+    database = db.get_db()
+    # Resolve partial name to full commander name via our DB
+    search_name = commander.strip()
+    card = await cards_repo.find_by_normalized_name(database, search_name)
+    if card is None:
+        # Try substring search for partial matches
+        docs = await cards_repo.search(database, search_name, limit=5)
+        # Prefer legendary creatures
+        legendary = [d for d in docs if "Legendary" in d.get("type_line", "")]
+        card = legendary[0] if legendary else (docs[0] if docs else None)
+    if card:
+        search_name = card["name"]
+
     try:
-        results = await external_decks.search_edhrec(commander, page_size)
+        results = await external_decks.search_edhrec(search_name, page_size)
     except httpx.TimeoutException:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "External service timeout.")
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
+        if e.response.status_code in (403, 404):
             return []
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"External service error ({e.response.status_code}).")
     except httpx.HTTPError:
