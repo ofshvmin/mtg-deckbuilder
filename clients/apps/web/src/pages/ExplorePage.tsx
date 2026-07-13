@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
 import type { Color } from "@mtg/shared";
-import { searchDecks, fetchPreview, type EdhrecPreview } from "../lib/edhrec";
+import { fetchDeckHashes } from "../lib/edhrec";
 import CommanderArt from "../components/CommanderArt";
 import DeckView from "../components/DeckView";
 import ImportCardsModal from "../components/ImportCardsModal";
@@ -36,7 +36,8 @@ export default function ExplorePage() {
   const [saving, setSaving] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
-  // Client-side search via EDHREC
+  // Step 1: Client fetches hash list from json.edhrec.com (has CORS)
+  // Step 2: Send hashes to our backend which proxies deckpreview calls
   const handleSearch = useCallback(async () => {
     const q = commander.trim();
     if (!q) return;
@@ -45,9 +46,25 @@ export default function ExplorePage() {
     setFetchedDeck(null);
     setSavedId(null);
     try {
-      const data = await searchDecks(q);
-      setResults(data);
-      if (data.length === 0) setSearchError("No decks found for that commander on EDHREC.");
+      // Client-side: fetch hash list from EDHREC (has CORS)
+      const hashes = await fetchDeckHashes(q, 20);
+      if (hashes.length === 0) {
+        setSearchError("No decks found for that commander on EDHREC.");
+        setResults([]);
+        return;
+      }
+      // Server-side: proxy deckpreview calls (no CORS on edhrec.com/api)
+      const hashIds = hashes.map((h) => h.urlhash);
+      const previews = await api.fetchEdhrecPreviews(hashIds);
+      // Merge bracket/price from the original hash table
+      const hashMap = new Map(hashes.map((h) => [h.urlhash, h]));
+      const merged: SearchResult[] = previews.map((p) => ({
+        ...p,
+        bracket: p.bracket ?? hashMap.get(p.external_id)?.bracket ?? null,
+        price: p.price ?? (hashMap.get(p.external_id)?.price ? Math.round(hashMap.get(p.external_id)!.price!) : null),
+      }));
+      setResults(merged);
+      if (merged.length === 0) setSearchError("No decks could be loaded.");
     } catch (e) {
       setSearchError(e instanceof Error ? e.message : "Search failed");
       setResults([]);
@@ -56,7 +73,7 @@ export default function ExplorePage() {
     }
   }, [commander]);
 
-  // Fetch from URL (Archidekt) via our backend
+  // Fetch Archidekt URL via our backend
   async function handleFetchByUrl() {
     const u = urlInput.trim();
     if (!u) return;
@@ -74,22 +91,31 @@ export default function ExplorePage() {
     }
   }
 
-  // Fetch EDHREC preview client-side, then resolve via our backend
+  // Fetch full deck: proxy EDHREC preview via backend, then resolve cards
   async function handleFetchResult(result: SearchResult) {
     setFetching(true);
     setFetchError(null);
     setFetchedDeck(null);
     setSavedId(null);
     try {
-      // Step 1: fetch preview from EDHREC (client-side)
-      const preview = await fetchPreview(result.external_id);
-      if (!preview || !preview.deck?.length) {
+      // Fetch full preview via our backend proxy
+      const preview = await api.fetchEdhrecDeck(result.external_id);
+      if (!preview?.deck?.length) {
         setFetchError("Could not load deck from EDHREC.");
         return;
       }
+      // Parse card list and resolve via backend
+      const commanders = new Set(preview.commanders ?? []);
+      const cards = (preview.deck ?? [])
+        .filter((line: string) => line?.trim())
+        .map((line: string) => {
+          const parts = line.trim().split(" ", 2);
+          const qty = parseInt(parts[0], 10) || 1;
+          const name = line.trim().substring(parts[0].length).trim();
+          return { name, quantity: qty, is_commander: commanders.has(name) };
+        })
+        .filter((c: { name: string }) => c.name);
 
-      // Step 2: parse card list and send to our backend for resolution
-      const cards = parseEdhrecDeck(preview);
       const data = await api.resolveExternalDeck({
         cards,
         source: result.source,
@@ -122,7 +148,6 @@ export default function ExplorePage() {
     }
   }
 
-  // Viewing a fetched deck
   if (fetchedDeck) {
     return (
       <div className="space-y-6">
@@ -135,30 +160,24 @@ export default function ExplorePage() {
           </button>
           <div className="flex items-center gap-2">
             {!savedId && (
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
-              >
+              <button onClick={handleSave} disabled={saving}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50">
                 {saving ? "Saving…" : "Save to My Decks"}
               </button>
             )}
             {savedId && (
-              <button
-                onClick={() => setShowImport(true)}
-                className="rounded-lg border border-emerald-700 px-4 py-2 text-sm font-medium text-emerald-300 transition hover:bg-emerald-900/30"
-              >
+              <button onClick={() => setShowImport(true)}
+                className="rounded-lg border border-emerald-700 px-4 py-2 text-sm font-medium text-emerald-300 transition hover:bg-emerald-900/30">
                 Import Cards to Collection
               </button>
             )}
           </div>
         </div>
 
-        {/* Source attribution */}
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-2 text-sm text-slate-400">
           <span>
             From <span className="capitalize text-slate-200">{fetchedDeck.source}</span>
-            {fetchedDeck.owner !== "Unknown" && (
+            {fetchedDeck.owner !== "Unknown" && fetchedDeck.owner !== "EDHREC" && (
               <> by <span className="text-slate-200">{fetchedDeck.owner}</span></>
             )}
           </span>
@@ -186,10 +205,7 @@ export default function ExplorePage() {
             deck={fetchedDeck.deck}
             unownedCount={fetchedDeck.unowned_count}
             onClose={() => setShowImport(false)}
-            onImported={() => {
-              refreshSummary();
-              setShowImport(false);
-            }}
+            onImported={() => { refreshSummary(); setShowImport(false); }}
           />
         )}
       </div>
@@ -200,41 +216,27 @@ export default function ExplorePage() {
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Explore Decks</h2>
 
-      {/* Commander search */}
       <div className="space-y-3">
         <div className="flex gap-2">
-          <input
-            type="text"
-            value={commander}
+          <input type="text" value={commander}
             onChange={(e) => setCommander(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             placeholder="Search by commander name…"
-            className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
-          />
-          <button
-            onClick={handleSearch}
-            disabled={searching || !commander.trim()}
-            className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
-          >
+            className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500" />
+          <button onClick={handleSearch} disabled={searching || !commander.trim()}
+            className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50">
             {searching ? "Searching…" : "Search"}
           </button>
         </div>
 
-        {/* URL import */}
         <div className="flex gap-2">
-          <input
-            type="text"
-            value={urlInput}
+          <input type="text" value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleFetchByUrl()}
             placeholder="Or paste an Archidekt URL…"
-            className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
-          />
-          <button
-            onClick={handleFetchByUrl}
-            disabled={fetching || !urlInput.trim()}
-            className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:opacity-50"
-          >
+            className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500" />
+          <button onClick={handleFetchByUrl} disabled={fetching || !urlInput.trim()}
+            className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:opacity-50">
             {fetching ? "Fetching…" : "Import"}
           </button>
         </div>
@@ -244,16 +246,11 @@ export default function ExplorePage() {
       {fetchError && <p className="text-sm text-rose-400">{fetchError}</p>}
       {fetching && <p className="text-sm text-slate-400">Loading deck…</p>}
 
-      {/* Results grid */}
       {results.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {results.map((d) => (
-            <button
-              key={d.external_id}
-              onClick={() => handleFetchResult(d)}
-              disabled={fetching}
-              className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 text-left transition hover:border-slate-700 disabled:opacity-50"
-            >
+            <button key={d.external_id} onClick={() => handleFetchResult(d)} disabled={fetching}
+              className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 text-left transition hover:border-slate-700 disabled:opacity-50">
               <CommanderArt name={d.commander_name || "Unknown"} className="h-36">
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
                 {d.bracket != null && (
@@ -272,7 +269,7 @@ export default function ExplorePage() {
                   {d.commander_name} · {formatColorIdentity(d.color_identity as Color[])} · {d.card_count} cards
                 </p>
                 {d.price != null && (
-                  <p className="mt-0.5 text-xs text-slate-500">${Math.round(d.price)}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">${d.price}</p>
                 )}
               </div>
             </button>
@@ -281,21 +278,4 @@ export default function ExplorePage() {
       )}
     </div>
   );
-}
-
-/** Parse EDHREC preview deck lines into card entries for our resolve endpoint. */
-function parseEdhrecDeck(preview: EdhrecPreview) {
-  const commanders = new Set(preview.commanders ?? []);
-  const cards: { name: string; quantity: number; is_commander: boolean }[] = [];
-  for (const line of preview.deck ?? []) {
-    if (!line?.trim()) continue;
-    const parts = line.trim().split(" ", 2);
-    if (parts.length < 2) continue;
-    const qty = parseInt(parts[0], 10) || 1;
-    // name is everything after the first space (handle "1 Atraxa, Praetors' Voice")
-    const name = line.trim().substring(parts[0].length).trim();
-    if (!name) continue;
-    cards.push({ name, quantity: qty, is_commander: commanders.has(name) });
-  }
-  return cards;
 }

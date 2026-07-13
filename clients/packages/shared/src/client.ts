@@ -233,6 +233,23 @@ export class ApiClient {
 
   // ---- Explore (external decks) ----
 
+  /** Proxy EDHREC deckpreview calls for a batch of hashes (no CORS on edhrec.com/api). */
+  fetchEdhrecPreviews(hashes: string[]): Promise<{
+    external_id: string; source: string; name: string; owner: string;
+    card_count: number; url: string; commander_name: string;
+    color_identity: string[]; bracket: number | null; price: number | null;
+  }[]> {
+    return this.request("POST", "/explore/previews", { body: { hashes } });
+  }
+
+  /** Fetch a single EDHREC deck preview by hash (server-side proxy). */
+  fetchEdhrecDeck(hash: string): Promise<{
+    deck: string[]; commanders: string[]; coloridentity: string[];
+    url: string; header?: string; price?: number;
+  }> {
+    return this.request("GET", `/explore/edhrec-deck?hash=${encodeURIComponent(hash)}`);
+  }
+
   fetchExternalDeck(opts: { url?: string; archidektId?: string }): Promise<ExternalDeckResponse> {
     const params = new URLSearchParams();
     if (opts.url) params.set("url", opts.url);
