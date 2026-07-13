@@ -3,7 +3,7 @@ import type { GeneratedDeck } from "@mtg/shared";
 import { buildLibrary, sampleOpenerStats, shuffle, type LibCard, type OpenerStats } from "../lib/playtest";
 import { scryfallNamedImageUrl } from "../lib/scryfall";
 
-type Phase = "mulligan" | "bottoming" | "play";
+type Phase = "mulligan" | "bottoming" | "play" | "discard";
 
 interface BfCard extends LibCard {
   tapped: boolean;
@@ -17,12 +17,26 @@ interface Game {
   battlefield: BfCard[];
   graveyard: LibCard[];
   exile: LibCard[];
-  commandZone: boolean; // true = commander is in command zone (not on battlefield)
+  commandZone: boolean;
   turn: number;
   mulligans: number;
   phase: Phase;
   landPlayedThisTurn: boolean;
   manaPool: number;
+  noMaxHandSize: boolean; // true if a "no max hand size" card is in play
+}
+
+const MAX_HAND = 7;
+
+// Detect cards that grant no maximum hand size
+function grantsNoMaxHandSize(card: LibCard): boolean {
+  const t = card.type_line.toLowerCase();
+  const n = card.name.toLowerCase();
+  // Well-known cards + heuristic for oracle text (not available here, so use names)
+  return n === "reliquary tower" || n === "thought vessel" || n === "spellbook"
+    || n === "library of leng" || n === "venser's journal" || n === "kruphix, god of horizons"
+    || n === "nezahal, primal tide" || n === "the immortal sun" || n === "alhammaret's archive"
+    || n === "anvil of bogardan" || n === "sea gate restoration";
 }
 
 function freshGame(lib: LibCard[]): Game {
@@ -39,6 +53,7 @@ function freshGame(lib: LibCard[]): Game {
     phase: "mulligan",
     landPlayedThisTurn: false,
     manaPool: 0,
+    noMaxHandSize: false,
   };
 }
 
@@ -153,14 +168,36 @@ function ZoneBrowser({ title, cards, onClose, actions, onHover, onLeave }: {
 
 type Sidebar = "library" | "graveyard" | "exile" | null;
 
+const MAX_UNDO = 50;
+
 export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; onClose: () => void }) {
   const library0 = useMemo(() => buildLibrary(deck.cards), [deck]);
-  const [game, setGame] = useState<Game>(() => freshGame(library0));
+  const [game, setGameRaw] = useState<Game>(() => freshGame(library0));
+  const [history, setHistory] = useState<Game[]>([]);
   const [toBottom, setToBottom] = useState<Set<string>>(new Set());
   const [stats, setStats] = useState<OpenerStats | null>(() => sampleOpenerStats(deck.cards, 1000));
   const [showStats, setShowStats] = useState(true);
   const [sidebar, setSidebar] = useState<Sidebar>(null);
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
+
+  // Wrap setGame to push current state onto undo stack
+  function setGame(updater: Game | ((g: Game) => Game)) {
+    setGameRaw((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if (next === prev) return prev; // no change, don't push history
+      setHistory((h) => [...h.slice(-(MAX_UNDO - 1)), prev]);
+      return next;
+    });
+  }
+
+  function undo() {
+    setHistory((h) => {
+      if (h.length === 0) return h;
+      const prev = h[h.length - 1];
+      setGameRaw(prev);
+      return h.slice(0, -1);
+    });
+  }
 
   const landsInPlay = game.battlefield.filter((c) => c.isLand);
   const nonlandsInPlay = game.battlefield.filter((c) => !c.isLand);
@@ -168,32 +205,67 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
   const availableMana = game.manaPool + untappedLands;
   const mulliganHandSize = game.mulligans <= 0 ? 7 : Math.max(1, 8 - game.mulligans);
   const cardsToBottom = 7 - mulliganHandSize;
+  const effectiveMaxHand = game.noMaxHandSize ? Infinity : MAX_HAND;
+  const mustDiscard = game.phase === "discard" ? game.hand.length - effectiveMaxHand : 0;
 
-  const nextTurn = useCallback(() => {
+  // End turn: if hand > max, enter discard phase; otherwise go to next turn
+  function endTurn() {
     setGame((g) => {
+      const maxH = g.noMaxHandSize ? Infinity : MAX_HAND;
+      if (g.hand.length > maxH) {
+        return { ...g, phase: "discard" as Phase };
+      }
+      // Proceed to next turn
       const bf = g.battlefield.map((c) => ({ ...c, tapped: false, summoningSick: false }));
       const newTurn = g.turn + 1;
       if (g.library.length === 0) return { ...g, battlefield: bf, turn: newTurn, landPlayedThisTurn: false, manaPool: 0 };
       const [drawn, ...rest] = g.library;
       return { ...g, hand: [...g.hand, drawn], library: rest, battlefield: bf, turn: newTurn, landPlayedThisTurn: false, manaPool: 0 };
     });
-  }, []);
+  }
+
+  function discardCard(uid: string) {
+    setGame((g) => {
+      const card = g.hand.find((c) => c.uid === uid);
+      if (!card) return g;
+      const newHand = g.hand.filter((c) => c.uid !== uid);
+      const newGy = [...g.graveyard, card];
+      const maxH = g.noMaxHandSize ? Infinity : MAX_HAND;
+      if (newHand.length <= maxH) {
+        // Done discarding — proceed to next turn
+        const bf = g.battlefield.map((c) => ({ ...c, tapped: false, summoningSick: false }));
+        const newTurn = g.turn + 1;
+        if (g.library.length === 0) return { ...g, hand: newHand, graveyard: newGy, battlefield: bf, turn: newTurn, landPlayedThisTurn: false, manaPool: 0, phase: "play" as Phase };
+        const [drawn, ...rest] = g.library;
+        return { ...g, hand: [...newHand, drawn], library: rest, graveyard: newGy, battlefield: bf, turn: newTurn, landPlayedThisTurn: false, manaPool: 0, phase: "play" as Phase };
+      }
+      return { ...g, hand: newHand, graveyard: newGy };
+    });
+  }
+
+  const nextTurn = useCallback(() => { endTurn(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const untapAll = useCallback(() => {
     setGame((g) => ({ ...g, battlefield: g.battlefield.map((c) => ({ ...c, tapped: false })), manaPool: 0 }));
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function shuffleLibrary() {
+    setGame((g) => ({ ...g, library: shuffle(g.library) }));
+    setSidebar(null);
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") { if (sidebar) setSidebar(null); else onClose(); }
-      if (e.key === "d" && game.phase === "play") nextTurn();
+      if (e.key === "d" && (game.phase === "play")) endTurn();
       if (e.key === "u" && game.phase === "play") untapAll();
+      if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); undo(); }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, game.phase, nextTurn, untapAll, sidebar]);
+  }, [onClose, game.phase, untapAll, sidebar]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function newGame() { setGame(freshGame(library0)); setToBottom(new Set()); setSidebar(null); }
+  function newGame() { setGameRaw(freshGame(library0)); setHistory([]); setToBottom(new Set()); setSidebar(null); }
   function mulligan() {
     setGame((g) => {
       const s = shuffle(library0);
@@ -249,16 +321,19 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
       if (!card) return g;
       if (card.isLand) {
         if (g.landPlayedThisTurn) return g;
+        const noMax = g.noMaxHandSize || grantsNoMaxHandSize(card);
         return { ...g, hand: g.hand.filter((c) => c.uid !== uid),
           battlefield: [...g.battlefield, { ...card, tapped: card.etbTapped, summoningSick: false, enteredTurn: g.turn }],
-          landPlayedThisTurn: true };
+          landPlayedThisTurn: true, noMaxHandSize: noMax };
       }
       const cost = Math.ceil(card.cmc);
       const am = g.manaPool + g.battlefield.filter((c) => c.isLand && !c.tapped).length;
       if (cost > am) return g;
       const after = autoTapLands(cost)(g);
+      const noMax = after.noMaxHandSize || grantsNoMaxHandSize(card);
       return { ...after, hand: after.hand.filter((c) => c.uid !== uid),
-        battlefield: [...after.battlefield, { ...card, tapped: false, summoningSick: card.isCreature, enteredTurn: g.turn }] };
+        battlefield: [...after.battlefield, { ...card, tapped: false, summoningSick: card.isCreature, enteredTurn: g.turn }],
+        noMaxHandSize: noMax };
     });
   }
   function castCommander() {
@@ -366,10 +441,18 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
           )}
           {game.phase === "play" && (
             <>
-              <button onClick={nextTurn} className="rounded bg-sky-600 px-3 py-1 text-xs font-medium text-white hover:bg-sky-500">Draw (D)</button>
+              <button onClick={endTurn} className="rounded bg-sky-600 px-3 py-1 text-xs font-medium text-white hover:bg-sky-500">End turn (D)</button>
               <button onClick={untapAll} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">Untap (U)</button>
             </>
           )}
+          {game.phase === "discard" && (
+            <span className="text-xs text-rose-400">Discard to {MAX_HAND} — click {mustDiscard} card{mustDiscard > 1 ? "s" : ""}</span>
+          )}
+          <button onClick={undo} disabled={history.length === 0}
+            className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-30"
+            title="Undo (Ctrl+Z)">Undo</button>
+          <button onClick={shuffleLibrary} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800"
+            title="Shuffle library">Shuffle</button>
           <button onClick={newGame} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">New</button>
           <button onClick={() => setShowStats((s) => !s)}
             className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">
@@ -480,12 +563,17 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
             const canPlay = game.phase === "play" && (c.isLand ? !game.landPlayedThisTurn : Math.ceil(c.cmc) <= availableMana);
             const selected = toBottom.has(c.uid);
             let label: string | undefined;
-            if (game.phase === "play" && c.isLand && !game.landPlayedThisTurn) label = "Play land";
+            if (game.phase === "discard") label = "Discard";
+            else if (game.phase === "play" && c.isLand && !game.landPlayedThisTurn) label = "Play land";
             else if (game.phase === "play" && !c.isLand && canPlay) label = `Cast (${Math.ceil(c.cmc)})`;
             else if (game.phase === "bottoming" && selected) label = "Bottom";
             return (
               <PlayCard key={c.uid} card={c} selected={selected} label={label} tall
-                onClick={() => { if (game.phase === "bottoming") toggleBottom(c.uid); else if (canPlay) playCard(c.uid); }}
+                onClick={() => {
+                  if (game.phase === "discard") discardCard(c.uid);
+                  else if (game.phase === "bottoming") toggleBottom(c.uid);
+                  else if (canPlay) playCard(c.uid);
+                }}
                 onRightClick={game.phase === "play" ? () => toGraveyard(c.uid, "hand") : undefined}
                 onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} />
             );
