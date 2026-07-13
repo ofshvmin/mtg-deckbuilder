@@ -198,6 +198,11 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
     pool_id_set = {card["_id"] for card in result.pool}
     locked_ids = {oid for oid in (body.locked or []) if oid in pool_id_set}
 
+    # Add jitter when regenerating (locked cards present) so the unlocked
+    # slots get different picks each time. 0.8 is enough to shuffle the
+    # mid-tier cards without overriding strong role/synergy signals.
+    use_jitter = 0.8 if locked_ids else 0.0
+
     deck = generator.generate(
         result.commander,
         result.pool,
@@ -211,6 +216,7 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         strategy=strat if body.strategy else None,
         theme_matches=theme_matches,
         locked_ids=locked_ids,
+        jitter=use_jitter,
     )
     # Attach theme string so frontend can display it
     deck.theme = body.theme if body.theme and body.theme.strip() else None
