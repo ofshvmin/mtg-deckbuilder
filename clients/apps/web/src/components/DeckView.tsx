@@ -12,7 +12,7 @@ import DeckCardList from "./DeckCardList";
 import DeckComboFinishers from "./DeckComboFinishers";
 import DeckUpgrades from "./DeckUpgrades";
 import { cheapestPrint, fetchCardDetail } from "../lib/scryfallPrints";
-import { buildScavengerList } from "../lib/scavenger";
+import { buildScavengerData, downloadScavengerPdf } from "../lib/scavenger";
 import PlaytestModal from "./PlaytestModal";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
@@ -152,8 +152,8 @@ export default function DeckView({
     setScavenging(true);
     try {
       const title = savedAs || name || `${deck.commander.name} Deck`;
-      const md = await buildScavengerList(deck, title);
-      downloadBlob(new Blob([md], { type: "text/markdown" }), `${title.replace(/\s+/g, "-")}-scavenger.md`);
+      const data = await buildScavengerData(deck, title);
+      await downloadScavengerPdf(data);
     } catch {
       // silent
     } finally {
