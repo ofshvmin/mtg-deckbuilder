@@ -246,6 +246,9 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
 class BriefRequest(BaseModel):
     commander: str
     brief: str
+    # When refining an existing brief-built deck: the prior spec + core card names,
+    # so Claude adjusts the current build instead of starting over.
+    prior_spec: dict | None = None
 
 
 @router.post("/brief", response_model=BriefDeckResponse)
@@ -286,7 +289,9 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(get_curren
     shortlist = ai_brief.build_shortlist(result.pool, quality, combo_pieces)
     strat_names = [s["name"] for s in strategies.list_strategies()]
     try:
-        raw_spec = await ai_brief.interpret_brief(result.commander, brief, shortlist, strat_names)
+        raw_spec = await ai_brief.interpret_brief(
+            result.commander, brief, shortlist, strat_names, prior_spec=body.prior_spec
+        )
     except ai_brief.BriefUnavailable as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
     except ai_brief.BriefError as e:

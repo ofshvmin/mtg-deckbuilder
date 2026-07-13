@@ -113,20 +113,42 @@ _SYSTEM = (
 
 
 async def interpret_brief(
-    commander: dict, brief: str, shortlist: list[dict], strategy_names: list[str]
+    commander: dict,
+    brief: str,
+    shortlist: list[dict],
+    strategy_names: list[str],
+    prior_spec: dict | None = None,
 ) -> dict:
-    """Call Claude and return the raw build-spec dict (validate separately)."""
+    """Call Claude and return the raw build-spec dict (validate separately).
+
+    When ``prior_spec`` is given, this is a *refinement* of an existing build:
+    Claude adjusts that spec per the new instruction and returns the full updated
+    spec (keeping the deck's identity except where the instruction changes it).
+    """
     settings = get_settings()
     if not settings.claude_api:
         raise BriefUnavailable("AI deck brief is not configured (no API key).")
 
     import json
 
+    if prior_spec:
+        instruction = (
+            "This is a REFINEMENT of a deck you already built. Current build spec "
+            "(core cards + knobs):\n"
+            f"{json.dumps(prior_spec, ensure_ascii=False)}\n\n"
+            f"The player now wants this change:\n{brief.strip()}\n\n"
+            "Return the FULL updated build spec — keep the rest of the deck's identity, "
+            "only changing what the request implies (e.g. adjust core_cards, quotas, "
+            "avoid_combos, land_count, strategy, or theme as needed)."
+        )
+    else:
+        instruction = f"Player's request:\n{brief.strip()}"
+
     user = (
         f"Commander: {commander['name']}\n"
         f"{commander.get('oracle_text', '')}\n\n"
         f"Available strategies: {', '.join(strategy_names)}\n\n"
-        f"Player's request:\n{brief.strip()}\n\n"
+        f"{instruction}\n\n"
         f"Candidate cards (choose core cards ONLY from these exact names):\n"
         f"{json.dumps(shortlist, ensure_ascii=False)}"
     )

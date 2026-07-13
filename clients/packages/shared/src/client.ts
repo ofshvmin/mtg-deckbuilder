@@ -210,10 +210,15 @@ export class ApiClient {
     });
   }
 
-  /** Interpret a natural-language deck request with Claude, then build the deck. */
-  briefDeck(commanderName: string, brief: string): Promise<BriefDeckResponse> {
+  /** Interpret a natural-language deck request with Claude, then build the deck.
+   *  Pass `priorSpec` (last spec + core card names) to refine an existing build. */
+  briefDeck(
+    commanderName: string,
+    brief: string,
+    priorSpec?: Record<string, unknown>,
+  ): Promise<BriefDeckResponse> {
     return this.request<BriefDeckResponse>("POST", "/decks/brief", {
-      body: { commander: commanderName, brief },
+      body: { commander: commanderName, brief, prior_spec: priorSpec },
     });
   }
 

@@ -4,7 +4,7 @@ import type { BriefDeckResponse, CommanderOption, GeneratedDeck, PoolResponse, S
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
-import AiPlanPanel from "../components/AiPlanPanel";
+import AiPlanPanel, { type BriefTurn } from "../components/AiPlanPanel";
 import CommanderFeature from "../components/CommanderFeature";
 import CommanderPicker from "../components/CommanderPicker";
 import DeckView from "../components/DeckView";
@@ -36,6 +36,8 @@ export default function BuildPage() {
   const [briefResult, setBriefResult] = useState<BriefDeckResponse | null>(null);
   const [briefing, setBriefing] = useState(false);
   const [briefError, setBriefError] = useState<string | null>(null);
+  const [conversation, setConversation] = useState<BriefTurn[]>([]);
+  const [refining, setRefining] = useState(false);
 
   useEffect(() => {
     api.listStrategies().then(setStrategies).catch(() => {});
@@ -77,6 +79,7 @@ export default function BuildPage() {
     setMode("auto");
     setEditSeed(null);
     setBriefResult(null);
+    setConversation([]);
     setBriefText("");
     try {
       setPool(await api.getPool(c.name));
@@ -105,6 +108,7 @@ export default function BuildPage() {
     setBuildingDeck(true);
     setDeckError(null);
     setBriefResult(null);
+    setConversation([]);
     try {
       const opts: { strategy?: string; theme?: string } = {};
       if (selectedStrategy && selectedStrategy !== "Balanced") opts.strategy = selectedStrategy;
@@ -119,16 +123,45 @@ export default function BuildPage() {
 
   async function submitBrief() {
     if (!pool || !briefText.trim()) return;
+    const request = briefText.trim();
     setBriefing(true);
     setBriefError(null);
     try {
-      const res = await api.briefDeck(pool.commander.name, briefText.trim());
+      const res = await api.briefDeck(pool.commander.name, request);
       setBriefResult(res);
       setDeck(res.deck);
+      setConversation([
+        { role: "user", text: request },
+        { role: "assistant", text: res.rationale },
+      ]);
     } catch (e) {
       setBriefError(e instanceof Error ? e.message : "Couldn't build from your description.");
     } finally {
       setBriefing(false);
+    }
+  }
+
+  // Conversational refinement: adjust the current brief-built deck.
+  async function submitRefine(instruction: string) {
+    if (!pool || !briefResult || refining) return;
+    setRefining(true);
+    setConversation((c) => [...c, { role: "user", text: instruction }]);
+    try {
+      const priorSpec = {
+        ...briefResult.spec,
+        core_cards: briefResult.core_cards.map((c) => c.name),
+      };
+      const res = await api.briefDeck(pool.commander.name, instruction, priorSpec);
+      setBriefResult(res);
+      setDeck(res.deck);
+      setConversation((c) => [...c, { role: "assistant", text: res.rationale }]);
+    } catch (e) {
+      setConversation((c) => [
+        ...c,
+        { role: "assistant", text: `Couldn't refine: ${e instanceof Error ? e.message : "error"}` },
+      ]);
+    } finally {
+      setRefining(false);
     }
   }
 
@@ -181,7 +214,14 @@ export default function BuildPage() {
           {deck ? (
             <>
               {deckError && <p className="text-rose-400">{deckError}</p>}
-              {briefResult && <AiPlanPanel result={briefResult} />}
+              {briefResult && (
+                <AiPlanPanel
+                  result={briefResult}
+                  conversation={conversation}
+                  onRefine={submitRefine}
+                  refining={refining}
+                />
+              )}
               <DeckView deck={deck} onSaved={refreshSaved} onEdit={(d) => editDeck(d)} />
             </>
           ) : (
