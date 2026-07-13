@@ -90,6 +90,76 @@ async def fetch_edhrec_deck(
     return preview
 
 
+# ---- Preconstructed decks (MTGJSON) ----
+
+
+class PreconSummary(BaseModel):
+    file_name: str
+    name: str
+    code: str
+    release_date: str
+    source: str = "precon"
+
+
+@router.get("/precons", response_model=list[PreconSummary])
+async def search_precons(
+    q: str = Query("", description="Search by deck or set name"),
+    limit: int = Query(30, ge=1, le=100),
+    current_user: dict = Depends(get_current_user),
+):
+    """Search MTGJSON Commander preconstructed decks."""
+    try:
+        if q.strip():
+            decks = await external_decks.search_precons(q, limit)
+        else:
+            all_decks = await external_decks.get_precon_list()
+            decks = all_decks[:limit]
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not fetch precon list.")
+    return [
+        PreconSummary(
+            file_name=d.get("fileName", ""),
+            name=d.get("name", "Untitled"),
+            code=d.get("code", ""),
+            release_date=d.get("releaseDate", ""),
+        )
+        for d in decks
+    ]
+
+
+@router.get("/precon", response_model=ExternalDeckResponse)
+async def fetch_precon(
+    file_name: str = Query(..., min_length=1),
+    current_user: dict = Depends(get_current_user),
+):
+    """Fetch a precon deck from MTGJSON and resolve against our DB."""
+    try:
+        deck_data = await external_decks.fetch_precon_deck(file_name)
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not fetch precon deck.")
+    if not deck_data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Precon deck not found.")
+
+    card_entries = external_decks.extract_precon_cards(deck_data)
+    if not card_entries:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Precon deck has no cards.")
+
+    database = db.get_db()
+    deck_response, unowned_count, owned_count = await _resolve_external_deck(
+        database, current_user["_id"], card_entries,
+    )
+
+    return ExternalDeckResponse(
+        source="precon",
+        source_url=deck_data.get("source") or "",
+        name=deck_data.get("name", "Untitled"),
+        owner="Wizards of the Coast",
+        deck=deck_response,
+        unowned_count=unowned_count,
+        owned_count=owned_count,
+    )
+
+
 class ResolveCardEntry(BaseModel):
     name: str
     quantity: int = 1

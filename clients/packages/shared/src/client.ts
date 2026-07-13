@@ -251,6 +251,19 @@ export class ApiClient {
     return this.request("GET", `/explore/edhrec-deck?hash=${encodeURIComponent(hash)}`);
   }
 
+  /** Search MTGJSON Commander precon decks. */
+  searchPrecons(query = "", limit = 30): Promise<{
+    file_name: string; name: string; code: string; release_date: string;
+  }[]> {
+    const qs = `?q=${encodeURIComponent(query)}&limit=${limit}`;
+    return this.request("GET", `/explore/precons${qs}`);
+  }
+
+  /** Fetch a precon deck from MTGJSON and resolve against our DB. */
+  fetchPrecon(fileName: string): Promise<ExternalDeckResponse> {
+    return this.request("GET", `/explore/precon?file_name=${encodeURIComponent(fileName)}`);
+  }
+
   fetchExternalDeck(opts: { url?: string; archidektId?: string }): Promise<ExternalDeckResponse> {
     const params = new URLSearchParams();
     if (opts.url) params.set("url", opts.url);

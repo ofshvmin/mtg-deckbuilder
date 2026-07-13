@@ -267,6 +267,91 @@ def extract_moxfield_cards(raw: dict) -> list[dict]:
     return cards
 
 
+# ---- MTGJSON preconstructed decks ----
+
+# In-memory cache for the deck list (fetched once per process lifetime).
+_precon_cache: list[dict] | None = None
+
+
+async def get_precon_list() -> list[dict]:
+    """Fetch and cache the MTGJSON Commander Deck list."""
+    global _precon_cache
+    if _precon_cache is not None:
+        return _precon_cache
+
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        resp = await client.get(
+            "https://mtgjson.com/api/v5/DeckList.json",
+            headers=HEADERS,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    all_decks = data.get("data") or []
+    # Filter to Commander Deck type only
+    commander_decks = [
+        d for d in all_decks
+        if d.get("type") == "Commander Deck"
+    ]
+    # Sort by release date descending (newest first)
+    commander_decks.sort(key=lambda d: d.get("releaseDate", ""), reverse=True)
+    _precon_cache = commander_decks
+    return _precon_cache
+
+
+async def search_precons(query: str, limit: int = 20) -> list[dict]:
+    """Search MTGJSON precon decks by name (substring match)."""
+    decks = await get_precon_list()
+    q = query.lower()
+    matches = [d for d in decks if q in d.get("name", "").lower() or q in d.get("code", "").lower()]
+    return matches[:limit]
+
+
+async def fetch_precon_deck(file_name: str) -> dict:
+    """Fetch a single precon deck from MTGJSON by fileName."""
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        resp = await client.get(
+            f"https://mtgjson.com/api/v5/decks/{file_name}.json",
+            headers=HEADERS,
+            timeout=15,
+        )
+        if resp.status_code == 404:
+            return {}
+        resp.raise_for_status()
+        return resp.json().get("data", {})
+
+
+def extract_precon_cards(deck_data: dict) -> list[dict]:
+    """Extract card entries from a MTGJSON precon deck."""
+    cards: list[dict] = []
+    # Commander(s)
+    for card in deck_data.get("commander") or []:
+        name = card.get("name", "")
+        if not name:
+            continue
+        cards.append({
+            "name": name,
+            "quantity": card.get("count", 1),
+            "categories": ["Commander"],
+            "set_code": card.get("setCode", ""),
+            "collector_number": card.get("number", ""),
+        })
+    # Main board
+    for card in deck_data.get("mainBoard") or []:
+        name = card.get("name", "")
+        if not name:
+            continue
+        cards.append({
+            "name": name,
+            "quantity": card.get("count", 1),
+            "categories": [],
+            "set_code": card.get("setCode", ""),
+            "collector_number": card.get("number", ""),
+        })
+    return cards
+
+
 def extract_deck_metadata(raw: dict, source: str) -> dict:
     """Extract deck name and owner from a raw API response."""
     if source == "archidekt":
