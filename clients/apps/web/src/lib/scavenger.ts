@@ -1,19 +1,17 @@
-// Build a "scavenger list": a print-ready PDF pull-guide + checklist for a deck,
-// matched to how the collection is stored (by set, then color). Two lists —
-// Rares & Mythics, then Commons & Uncommons — each grouped by set (newest first)
-// → color (lands their own group) → alphabetical, plus a "multiples" checklist
-// for cards owned across 2+ sets. Client-side: rarity/colors are per-printing
-// (Scryfall), set names + release dates come from the /sets index.
+// Build a "scavenger list": a print-ready PDF pull-guide + checklist for a deck.
+// Two sections: Rares & Mythics (flat alphabetical per set), then Commons &
+// Uncommons (grouped set → color → alphabetical). Sets are merged into their
+// "superset" — same parent_set_code, or same product family by name prefix.
+// Multi-column layout to minimize pages.
 import type { GeneratedDeck } from "@mtg/shared";
 import { loadSetIndex, type SetIndex } from "./scryfallSets";
 
-const COLOR_ORDER = ["White", "Blue", "Black", "Red", "Green", "Multicolor", "Colorless", "Lands", "—"];
+const COLOR_ORDER = ["White", "Blue", "Black", "Red", "Green", "Multicolor", "Colorless", "Lands"];
 const COLOR_NAME: Record<string, string> = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green" };
 const RARITY_TAG: Record<string, string> = { mythic: "M", rare: "R", uncommon: "U", common: "C", special: "S", bonus: "S" };
 
 const RARES = "Rares & Mythics";
 const COMMONS = "Commons & Uncommons";
-const OTHER = "Other (printing not resolved)";
 
 function colorGroup(colors: string[], typeLine: string): string {
   if (/\bland\b/i.test(typeLine)) return "Lands";
@@ -22,29 +20,88 @@ function colorGroup(colors: string[], typeLine: string): string {
   return COLOR_NAME[colors[0]] ?? "Colorless";
 }
 
-function rarityTier(rarity: string): string {
-  if (rarity === "common" || rarity === "uncommon") return COMMONS;
-  if (!rarity) return OTHER;
-  return RARES; // rare, mythic, special, bonus
+function isRare(rarity: string): boolean {
+  return rarity === "rare" || rarity === "mythic" || rarity === "special" || rarity === "bonus";
+}
+
+// ---- Superset resolution ----
+// Merge child sets into their parent (e.g. EOC → EOE). For sets without a
+// parent (masterpiece, promo, etc.), fall back to grouping by the first
+// significant word of the set name (e.g. "Marvel Universe" + "Marvel Super
+// Heroes" → both resolve to the "Marvel ..." expansion).
+
+function buildSupersetMap(sets: SetIndex): Map<string, string> {
+  const map = new Map<string, string>();
+
+  // First pass: follow parent_set_code chains to their root
+  for (const [code, info] of sets) {
+    let root = code;
+    let depth = 0;
+    while (depth < 5) {
+      const parent = sets.get(root)?.parentCode;
+      if (!parent || parent === root) break;
+      root = parent;
+      depth++;
+    }
+    map.set(code, root);
+  }
+
+  // Second pass: for orphan non-expansion sets (masterpiece, promo, box,
+  // funny, etc.) that resolved to themselves, try to match by name prefix to
+  // the nearest expansion/commander set.
+  const CHILD_TYPES = new Set(["masterpiece", "promo", "box", "spellbook", "from_the_vault", "premium_deck", "funny"]);
+  const expansionsByPrefix = new Map<string, string>(); // first word → expansion code
+  for (const [code, info] of sets) {
+    // Only consider root-level sets (no parent) as candidate parents
+    if (info.parentCode) continue;
+    const firstWord = info.name.split(/\s+/)[0]?.toLowerCase();
+    if (!firstWord || firstWord.length < 3) continue;
+    // Prefer the earliest (most canonical) expansion for this prefix
+    if (!expansionsByPrefix.has(firstWord)) {
+      expansionsByPrefix.set(firstWord, code);
+    } else {
+      // Keep the one with the earlier release date (more likely to be the "main" set)
+      const existing = sets.get(expansionsByPrefix.get(firstWord)!);
+      if (existing && info.released && existing.released && info.released < existing.released) {
+        expansionsByPrefix.set(firstWord, code);
+      }
+    }
+  }
+
+  for (const [code, info] of sets) {
+    if (map.get(code) !== code) continue; // already has a parent
+    const setType = (info as any).setType; // not available, so check by heuristic
+    const firstWord = info.name.split(/\s+/)[0]?.toLowerCase();
+    if (!firstWord) continue;
+    const candidate = expansionsByPrefix.get(firstWord);
+    if (candidate && candidate !== code) {
+      map.set(code, candidate);
+    }
+  }
+
+  return map;
 }
 
 // ---- Data model ----
-export interface ScavCard { name: string; collector: string; tag: string }
+export interface ScavCard { name: string; tag: string }
 export interface ScavColorGroup { color: string; cards: ScavCard[] }
 export interface ScavSet { code: string; name: string; released: string; colors: ScavColorGroup[] }
-export interface ScavTier { title: string; sets: ScavSet[] }
-export interface ScavMultiple { name: string; sets: { code: string; name: string; released: string }[] }
+// For rares: flat alphabetical, no color subgroups
+export interface ScavRareSet { code: string; name: string; released: string; cards: ScavCard[] }
 export interface ScavData {
   deckName: string;
   commander: string;
   total: number;
-  tiers: ScavTier[];
-  multiples: ScavMultiple[];
+  rareSets: ScavRareSet[];      // Rares & Mythics: set → flat alphabetical
+  commonSets: ScavSet[];        // Commons & Uncommons: set → color → alphabetical
+  multiples: { name: string; sets: string[] }[];
 }
 
 interface CardData { rarity: string; colors: string[]; typeLine: string }
 
-async function fetchCardData(ids: { set: string; collector_number: string }[]): Promise<Map<string, CardData>> {
+type ScryfallIdentifier = { set: string; collector_number: string } | { name: string };
+
+async function fetchCardData(ids: ScryfallIdentifier[]): Promise<Map<string, CardData>> {
   const out = new Map<string, CardData>();
   for (let i = 0; i < ids.length; i += 75) {
     const chunk = ids.slice(i, i + 75);
@@ -57,187 +114,289 @@ async function fetchCardData(ids: { set: string; collector_number: string }[]): 
       if (!res.ok) continue;
       const body = await res.json();
       for (const c of body.data ?? []) {
-        out.set(`${c.set}:${c.collector_number}`, {
+        const d: CardData = {
           rarity: c.rarity ?? "",
           colors: c.colors ?? c.card_faces?.[0]?.colors ?? [],
           typeLine: c.type_line ?? "",
-        });
+        };
+        // Key by set:collector when available, and always by name for fallback
+        out.set(`${c.set}:${c.collector_number}`, d);
+        if (c.name) out.set(`name:${c.name.toLowerCase()}`, d);
       }
-    } catch {
-      /* skip chunk */
-    }
+    } catch { /* skip */ }
   }
   return out;
 }
 
-function setName(sets: SetIndex, code: string): string {
-  const info = sets.get(code);
-  return info ? info.name : code.toUpperCase();
+function setNameOf(sets: SetIndex, code: string): string {
+  return sets.get(code)?.name ?? code.toUpperCase();
 }
-function setReleased(sets: SetIndex, code: string): string {
+function setReleasedOf(sets: SetIndex, code: string): string {
   return sets.get(code)?.released ?? "0000-00-00";
 }
 
 export async function buildScavengerData(deck: GeneratedDeck, deckName: string): Promise<ScavData> {
-  const ids: { set: string; collector_number: string }[] = [];
-  const entries: { name: string; set: string; collector: string }[] = [];
-  const cardSets = new Map<string, Set<string>>(); // card name -> distinct set codes owned
+  const ids: ScryfallIdentifier[] = [];
+  const namesSent = new Set<string>(); // avoid duplicate name lookups
+  const entries: { name: string; set: string; collector: string; deckColors: string[]; deckType: string }[] = [];
 
   for (const card of deck.cards) {
     if (card.oracle_id.startsWith("basic:")) continue;
-    for (const p of card.printings ?? []) {
+    const printings = card.printings ?? [];
+    if (printings.length === 0) {
+      entries.push({ name: card.name, set: "", collector: "", deckColors: card.color_identity, deckType: card.type_line });
+      // Look up by name so we at least get rarity
+      if (!namesSent.has(card.name.toLowerCase())) {
+        ids.push({ name: card.name });
+        namesSent.add(card.name.toLowerCase());
+      }
+      continue;
+    }
+    for (const p of printings) {
       if (!p.edition) continue;
       const set = p.edition.toLowerCase();
       const collector = p.collector_number ?? "";
-      entries.push({ name: card.name, set, collector });
-      if (collector) ids.push({ set, collector_number: collector });
-      (cardSets.get(card.name) ?? cardSets.set(card.name, new Set()).get(card.name)!).add(set);
+      entries.push({ name: card.name, set, collector, deckColors: card.color_identity, deckType: card.type_line });
+      if (collector) {
+        ids.push({ set, collector_number: collector });
+      } else if (!namesSent.has(card.name.toLowerCase())) {
+        // No collector # — fall back to name lookup for rarity
+        ids.push({ name: card.name });
+        namesSent.add(card.name.toLowerCase());
+      }
     }
   }
 
   const [data, sets] = await Promise.all([fetchCardData(ids), loadSetIndex()]);
+  const supersetMap = buildSupersetMap(sets);
 
-  // tier -> set code -> color -> cards[]
-  const grouped: Record<string, Record<string, Record<string, ScavCard[]>>> = {};
+  function superset(code: string): string {
+    return supersetMap.get(code) ?? code;
+  }
+
+  // Track which supersets each card appears in (for multiples)
+  const cardSupersets = new Map<string, Set<string>>();
+
+  // rares: superset → card names (deduped)
+  const raresBySet: Record<string, Map<string, ScavCard>> = {};
+  // commons: superset → color → card names (deduped)
+  const commonsBySet: Record<string, Record<string, Map<string, ScavCard>>> = {};
+
   for (const e of entries) {
-    const d = data.get(`${e.set}:${e.collector}`);
-    const tier = d ? rarityTier(d.rarity) : OTHER;
-    const color = d ? colorGroup(d.colors, d.typeLine) : "—";
-    const tag = d ? RARITY_TAG[d.rarity] ?? "" : "";
-    (((grouped[tier] ??= {})[e.set] ??= {})[color] ??= []).push({ name: e.name, collector: e.collector, tag });
+    // Try set:collector first, then fall back to name lookup
+    const d = data.get(`${e.set}:${e.collector}`) ?? data.get(`name:${e.name.toLowerCase()}`);
+    const colors = d ? d.colors : e.deckColors;
+    const typeLine = d ? d.typeLine : e.deckType;
+    const rarity = d?.rarity ?? "";
+    const tag = rarity ? (RARITY_TAG[rarity] ?? "") : "";
+    const ss = e.set ? superset(e.set) : "unknown";
+
+    // Track for multiples
+    if (e.set) {
+      const s = cardSupersets.get(e.name) ?? new Set<string>();
+      s.add(ss);
+      cardSupersets.set(e.name, s);
+    }
+
+    if (isRare(rarity)) {
+      const setCards = raresBySet[ss] ??= new Map();
+      if (!setCards.has(e.name)) setCards.set(e.name, { name: e.name, tag });
+    } else {
+      const color = colorGroup(colors, typeLine);
+      const setColors = commonsBySet[ss] ??= {};
+      const colorCards = setColors[color] ??= new Map();
+      if (!colorCards.has(e.name)) colorCards.set(e.name, { name: e.name, tag });
+    }
   }
 
-  const tiers: ScavTier[] = [];
-  for (const title of [RARES, COMMONS, OTHER]) {
-    const bySet = grouped[title];
-    if (!bySet) continue;
-    const setCodes = Object.keys(bySet).sort((a, b) => {
-      const r = setReleased(sets, b).localeCompare(setReleased(sets, a)); // newest first
-      return r !== 0 ? r : setName(sets, a).localeCompare(setName(sets, b));
-    });
-    const scavSets: ScavSet[] = setCodes.map((code) => {
-      const byColor = bySet[code];
-      const colorsPresent = COLOR_ORDER.filter((c) => byColor[c]).concat(
-        Object.keys(byColor).filter((c) => !COLOR_ORDER.includes(c)),
-      );
-      return {
-        code,
-        name: setName(sets, code),
-        released: setReleased(sets, code),
-        colors: colorsPresent.map((color) => ({
-          color,
-          cards: byColor[color].slice().sort((a, b) => a.name.localeCompare(b.name)),
-        })),
-      };
-    });
-    tiers.push({ title, sets: scavSets });
-  }
+  // Build sorted rare sets
+  const rareSetCodes = Object.keys(raresBySet).sort((a, b) => {
+    const r = setReleasedOf(sets, b).localeCompare(setReleasedOf(sets, a));
+    return r !== 0 ? r : setNameOf(sets, a).localeCompare(setNameOf(sets, b));
+  });
+  const rareSets: ScavRareSet[] = rareSetCodes.map((code) => ({
+    code,
+    name: setNameOf(sets, code),
+    released: setReleasedOf(sets, code),
+    cards: [...raresBySet[code].values()].sort((a, b) => a.name.localeCompare(b.name)),
+  }));
 
-  const multiples: ScavMultiple[] = [...cardSets.entries()]
+  // Build sorted common sets with color subgroups
+  const commonSetCodes = Object.keys(commonsBySet).sort((a, b) => {
+    const r = setReleasedOf(sets, b).localeCompare(setReleasedOf(sets, a));
+    return r !== 0 ? r : setNameOf(sets, a).localeCompare(setNameOf(sets, b));
+  });
+  const commonSets: ScavSet[] = commonSetCodes.map((code) => {
+    const byColor = commonsBySet[code];
+    const colorsPresent = COLOR_ORDER.filter((c) => byColor[c]).concat(
+      Object.keys(byColor).filter((c) => !COLOR_ORDER.includes(c)),
+    );
+    return {
+      code,
+      name: setNameOf(sets, code),
+      released: setReleasedOf(sets, code),
+      colors: colorsPresent.map((color) => ({
+        color,
+        cards: [...byColor[color].values()].sort((a, b) => a.name.localeCompare(b.name)),
+      })),
+    };
+  });
+
+  // Multiples
+  const multiples = [...cardSupersets.entries()]
     .filter(([, s]) => s.size > 1)
     .map(([name, s]) => ({
       name,
       sets: [...s]
-        .map((code) => ({ code, name: setName(sets, code), released: setReleased(sets, code) }))
-        .sort((a, b) => b.released.localeCompare(a.released)),
+        .sort((a, b) => setReleasedOf(sets, b).localeCompare(setReleasedOf(sets, a)))
+        .map((code) => setNameOf(sets, code)),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  return { deckName, commander: deck.commander.name, total: deck.total, tiers, multiples };
+  return { deckName, commander: deck.commander.name, total: deck.total, rareSets, commonSets, multiples };
 }
 
-// ---- PDF rendering (jsPDF, dynamically imported so it code-splits out) ----
+// ---- PDF rendering ----
+
+const ML = 36;             // left margin
+const MR = 36;             // right margin
+const MT = 40;             // top margin
+const PAGE_W = 612;
+const PAGE_H = 792;
+const USABLE_W = PAGE_W - ML - MR;
+const USABLE_BOTTOM = PAGE_H - 40;
+
+const COLS = 3;
+const COL_GAP = 14;
+const COL_W = (USABLE_W - COL_GAP * (COLS - 1)) / COLS;
+
+const LINE = 11;           // card line height
+const COLOR_H = 12;        // color heading height
+const SET_H = 16;          // set heading height
+const CB = 6;              // checkbox size
+
 export async function downloadScavengerPdf(data: ScavData): Promise<void> {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "letter" });
 
-  const M = 48;              // margin
-  const PAGE_H = 792;
-  const BOTTOM = PAGE_H - M;
-  let y = M;
-
-  const ensure = (h: number) => {
-    if (y + h > BOTTOM) {
-      doc.addPage();
-      y = M;
-    }
+  // ---- primitives ----
+  const t = (s: string, x: number, y: number, sz: number, bold: boolean, gray: number) => {
+    doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(sz); doc.setTextColor(gray); doc.text(s, x, y);
   };
-  const text = (s: string, x: number, size: number, bold: boolean, gray = 40) => {
-    doc.setFont("helvetica", bold ? "bold" : "normal");
-    doc.setFontSize(size);
-    doc.setTextColor(gray);
-    doc.text(s, x, y);
+  const tR = (s: string, x: number, y: number, sz: number, gray: number) => {
+    doc.setFont("helvetica", "normal"); doc.setFontSize(sz); doc.setTextColor(gray); doc.text(s, x, y, { align: "right" });
+  };
+  const box = (x: number, y: number) => {
+    doc.setDrawColor(140); doc.setLineWidth(0.5); doc.rect(x, y - 5, CB, CB);
+  };
+  const rule = (y: number) => {
+    doc.setDrawColor(180); doc.setLineWidth(0.5); doc.line(ML, y, PAGE_W - MR, y);
   };
 
-  // Header
-  text(`Scavenger List — ${data.deckName}`, M, 18, true, 20);
-  y += 20;
-  text(
-    `${data.commander} · ${data.total} cards · ${new Date().toLocaleDateString()} · basic lands excluded`,
-    M, 10, false, 120,
-  );
-  y += 22;
+  // ---- column cursor ----
+  let col = 0;
+  let cy = MT;
+  // The top of the content area on the current page. On page 1 this is
+  // pushed down by the header; on subsequent pages it's just MT.
+  let pageContentTop = MT;
 
-  for (const tier of data.tiers) {
-    ensure(40);
-    text(tier.title.toUpperCase(), M, 14, true, 20);
-    y += 6;
-    doc.setDrawColor(200);
-    doc.setLineWidth(0.8);
-    doc.line(M, y, 612 - M, y);
-    y += 16;
+  const colX = () => ML + col * (COL_W + COL_GAP);
 
-    for (const set of tier.sets) {
-      ensure(26);
-      text(`${set.name} (${set.code.toUpperCase()})`, M, 11, true, 30);
-      y += 16;
-
-      for (const cg of set.colors) {
-        ensure(24);
-        text(cg.color, M + 14, 9.5, true, 90);
-        y += 14;
-        for (const c of cg.cards) {
-          ensure(14);
-          doc.setDrawColor(130);
-          doc.setLineWidth(0.7);
-          doc.rect(M + 28, y - 8, 9, 9);
-          text(c.name, M + 44, 10, false, 40);
-          const meta = [c.tag, c.collector ? `#${c.collector}` : ""].filter(Boolean).join("  ");
-          if (meta) text(meta, 612 - M - 60, 8.5, false, 150);
-          y += 14;
-        }
-        y += 4;
-      }
-      y += 6;
-    }
-    y += 8;
+  function need(h: number) {
+    if (cy + h <= USABLE_BOTTOM) return; // fits
+    col++;
+    if (col >= COLS) { doc.addPage(); col = 0; pageContentTop = MT; }
+    cy = pageContentTop;
   }
 
-  if (data.multiples.length > 0) {
-    ensure(40);
-    text(`MULTIPLES — owned in 2+ sets (${data.multiples.length})`, M, 14, true, 20);
-    y += 6;
-    doc.setDrawColor(200);
-    doc.line(M, y, 612 - M, y);
-    y += 16;
-    for (const m of data.multiples) {
-      ensure(26);
-      doc.setDrawColor(130);
-      doc.setLineWidth(0.7);
-      doc.rect(M, y - 8, 9, 9);
-      text(m.name, M + 16, 10, true, 30);
-      y += 13;
-      const setsLine = m.sets.map((s) => `${s.name} (${s.code.toUpperCase()})`).join(", ");
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(120);
-      for (const line of doc.splitTextToSize(setsLine, 612 - 2 * M - 24) as string[]) {
-        ensure(12);
-        doc.text(line, M + 20, y);
-        y += 12;
+  // Draw a column-width section label. Treated like any other block.
+  function sectionLabel(title: string) {
+    need(24);
+    t(title.toUpperCase(), colX(), cy + 11, 9, true, 40);
+    doc.setDrawColor(160); doc.setLineWidth(0.5);
+    doc.line(colX(), cy + 15, colX() + COL_W, cy + 15);
+    cy += 22;
+  }
+
+  // ---- page 1 header (full-width, before any columns) ----
+  t("Scavenger List", ML, cy + 14, 16, true, 20);
+  t(data.deckName, ML, cy + 28, 10, false, 60);
+  t(
+    `${data.commander}  ·  ${data.total} cards  ·  ${new Date().toLocaleDateString()}  ·  basic lands excluded`,
+    ML, cy + 40, 8, false, 120,
+  );
+  rule(cy + 46);
+  cy += 56;
+  pageContentTop = cy; // all columns on page 1 start below the header
+
+  // ---- RARES & MYTHICS (flat alphabetical per set) ----
+  if (data.rareSets.length) {
+    sectionLabel(RARES);
+    for (const set of data.rareSets) {
+      need(SET_H + Math.min(set.cards.length, 2) * LINE);
+      t(`${set.name} (${set.code.toUpperCase()})`, colX(), cy + 10, 8, true, 50);
+      cy += SET_H;
+      for (const card of set.cards) {
+        need(LINE);
+        box(colX() + 2, cy + 7);
+        t(card.name, colX() + 2 + CB + 3, cy + 8, 8, false, 30);
+        if (card.tag) tR(card.tag, colX() + COL_W, cy + 8, 7, 160);
+        cy += LINE;
       }
-      y += 4;
+      cy += 4;
     }
+  }
+
+  // ---- COMMONS & UNCOMMONS (set → color → alphabetical) ----
+  if (data.commonSets.length) {
+    sectionLabel(COMMONS);
+    for (const set of data.commonSets) {
+      need(SET_H + COLOR_H + LINE);
+      t(`${set.name} (${set.code.toUpperCase()})`, colX(), cy + 10, 8, true, 50);
+      cy += SET_H;
+      for (const cg of set.colors) {
+        need(COLOR_H + LINE);
+        t(cg.color, colX() + 2, cy + 8, 7, true, 110);
+        cy += COLOR_H;
+        for (const card of cg.cards) {
+          need(LINE);
+          box(colX() + 4, cy + 7);
+          t(card.name, colX() + 4 + CB + 3, cy + 8, 8, false, 30);
+          if (card.tag) tR(card.tag, colX() + COL_W, cy + 8, 7, 160);
+          cy += LINE;
+        }
+      }
+      cy += 4;
+    }
+  }
+
+  // ---- MULTIPLES ----
+  if (data.multiples.length) {
+    sectionLabel("Multiples — owned in 2+ sets");
+    for (const m of data.multiples) {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7);
+      const setsStr = m.sets.join(", ");
+      const wrapped = doc.splitTextToSize(setsStr, COL_W - CB - 6) as string[];
+      const h = 14 + wrapped.length * 9 + 6;
+      need(h);
+      box(colX(), cy + 7);
+      t(m.name, colX() + CB + 3, cy + 8, 8, true, 30);
+      cy += 14; // enough clearance below the bold card name
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(120);
+      for (const line of wrapped) {
+        doc.text(line, colX() + CB + 3, cy);
+        cy += 9;
+      }
+      cy += 6;
+    }
+  }
+
+  // ---- page footers ----
+  const pages = doc.getNumberOfPages();
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p);
+    t(data.deckName, ML, PAGE_H - 22, 7, false, 170);
+    tR(`Page ${p} of ${pages}`, PAGE_W - MR, PAGE_H - 22, 7, 170);
   }
 
   const safe = data.deckName.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "") || "deck";
