@@ -278,18 +278,20 @@ export async function downloadScavengerPdf(data: ScavData): Promise<void> {
   // ---- column cursor ----
   let col = 0;
   let cy = MT;
+  // The top of the content area on the current page. On page 1 this is
+  // pushed down by the header; on subsequent pages it's just MT.
+  let pageContentTop = MT;
 
   const colX = () => ML + col * (COL_W + COL_GAP);
 
   function need(h: number) {
     if (cy + h <= USABLE_BOTTOM) return; // fits
     col++;
-    if (col >= COLS) { doc.addPage(); col = 0; }
-    cy = MT;
+    if (col >= COLS) { doc.addPage(); col = 0; pageContentTop = MT; }
+    cy = pageContentTop;
   }
 
-  // Draw a column-width section label (not full-width — avoids overlap with
-  // content in adjacent columns). Treated just like any other block.
+  // Draw a column-width section label. Treated like any other block.
   function sectionLabel(title: string) {
     need(24);
     t(title.toUpperCase(), colX(), cy + 11, 9, true, 40);
@@ -307,6 +309,7 @@ export async function downloadScavengerPdf(data: ScavData): Promise<void> {
   );
   rule(cy + 46);
   cy += 56;
+  pageContentTop = cy; // all columns on page 1 start below the header
 
   // ---- RARES & MYTHICS (flat alphabetical per set) ----
   if (data.rareSets.length) {
