@@ -13,7 +13,7 @@ The app is named **Grimoire** (an MTG Commander deck builder). Everything is **d
 - **Frontend:** React SPA on Vercel at `https://mtg-deckbuilder-bice.vercel.app`
 - **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K+ oracle cards, 96K+ combos
 - **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`
-- **Backend tests:** **101 passing** (`pytest`, excluding tests needing fastapi/pymongo in env)
+- **Backend tests:** **120 passing** (`pytest`, excluding tests needing fastapi/pymongo in env)
 
 The app: import your card collection, pick a commander, and build a legal, mana-curved, synergy/
 combo-tuned 99-card Commander deck in one of **four ways** — auto-build, build by hand, **lock &
@@ -110,6 +110,19 @@ and a per-deck-card `selected_printing_key` — the seams for future value/image
   preview disabled on touch devices (`pointer: coarse`), zone browsers go full-screen on mobile.
 - **Card image fix**: retry named URL with cache-bust param when initial and fallback URLs are
   identical (fixes "No image found" on unowned combo cards).
+- **Explore page** (`/explore`, PR #32): two-tab layout for browsing external decks:
+  - **Precons tab** (default): ~190 official Commander preconstructed decks from MTGJSON, searchable
+    by name or set code. Deck list index cached in memory; individual decks fetched on demand.
+  - **Community tab**: EDHREC user decklists by commander name. Partial names auto-resolved via our
+    cards DB (e.g. "Caesar" → "Caesar, Legion's Emperor"). Results show EDHREC tags, bracket, and
+    price for differentiation. Single-request search (uses hash table directly, no N+1 preview calls).
+  - **Archidekt URL import**: paste a deck URL to fetch and resolve.
+  - **Ownership display**: unowned cards shown dimmed/italic (text view) or greyscale (image views).
+  - **Save to My Decks**: saves with `source`/`source_url` fields. Source badge on deck tiles.
+  - **Import Cards to Collection**: batch-add deck cards with "ignore duplicates" or "import all" mode.
+- **Compare Decks** (`/compare`, PR #32): select 2 saved decks on the Decks page → side-by-side
+  stats (total, lands, avg MV, bracket), mana curves, shared cards grouped by slot, and cards
+  unique to each deck. Selection mode with checkbox overlays + "Compare Selected" button.
 
 ---
 
@@ -200,20 +213,26 @@ app/
     collection.py      — owned_counts, owned_printings, list_collection_cards
     decks.py           — saved-deck CRUD
     users.py
-  routers/             — collection, commanders, pool, decks
+  routers/             — collection, commanders, pool, decks, explore
     decks.py           — /decks/generate (auto), /decks/compose (manual), saved-deck CRUD + export
+    explore.py         — /explore/search (EDHREC), /explore/precons + /explore/precon (MTGJSON),
+                         /explore/resolve (card list resolution), /explore/deck (Archidekt URL)
   services/
     csv_formats.py     — format detection / normalization / parse / export
     importer.py        — collection import (CSV/Excel → Mongo); stamps printing_key + added_at
     generator.py       — generate() greedy 99-card build; compose() analyze an exact card list
+    external_decks.py  — EDHREC search/preview, MTGJSON precon list/fetch, Archidekt deck fetch
     edhrec.py, spellbook.py, pool.py, roles.py, mana_math.py
   util.py              — normalize_name, strip_diacritics, printing_key, normalize_finish
-tests/                 — pytest (57): csv_formats, mana_math, roles, printings, compose
+tests/                 — pytest (120): csv_formats, mana_math, roles, printings, compose, external_decks
 ```
 
 Key endpoints: `POST /decks/generate` (auto), `POST /decks/compose` (manual — same
 `GeneratedDeckResponse` shape, built from a fixed `oracle_ids` list), `GET /collection/cards`
-(grouped-by-oracle browser data), plus auth / collection / pool / saved-deck CRUD + export.
+(grouped-by-oracle browser data), `GET /explore/search` (EDHREC community decks),
+`GET /explore/precons` + `GET /explore/precon` (MTGJSON precons), `POST /explore/resolve`
+(resolve external card list against DB), `POST /collection/batch-add` (bulk import cards),
+plus auth / collection / pool / saved-deck CRUD + export.
 
 ### Frontend (`clients/` — npm workspaces)
 ```
@@ -222,18 +241,21 @@ packages/shared/src/
   client.ts  — framework-agnostic ApiClient w/ token refresh (composeDeck, listCollectionCards, …)
 
 apps/web/src/
-  App.tsx                    — routes: /login, /register, and Layout → /, /build, /decks
+  App.tsx                    — routes: /login, /register, Layout → /, /build, /explore, /decks, /compare
   components/Layout.tsx      — header + NavLinks + Outlet context (summary, saved count)
   pages/
     CollectionPage.tsx       — import/export/add + CollectionGrid (landing)
     BuildPage.tsx            — commander → pool → Auto (DeckView) or Manual (ManualBuilder)
-    DecksPage.tsx            — saved-deck tiles (commander art) → DeckView
+    ExplorePage.tsx          — Precons (MTGJSON) + Community (EDHREC) tabs, URL import
+    DecksPage.tsx            — saved-deck tiles (commander art) → DeckView; Compare selection mode
+    ComparePage.tsx          — side-by-side deck stats, curves, shared/unique cards
   components/
     CollectionGrid.tsx       — one row per card; row click → CardDetailModal
     CardDetailModal.tsx      — set banner + image + printing nav + detail panel
     ManualBuilder.tsx        — pool picker + live composed deck (seq-guarded)
-    DeckCardList.tsx         — role-grouped masonry list (shared; optional per-row remove)
-    DeckView.tsx             — hero + stats + curve + DeckCardList + combos
+    DeckCardList.tsx         — role-grouped masonry list (shared; optional per-row remove; ownership dimming)
+    DeckView.tsx             — hero + stats + curve + DeckCardList + combos; showOwnership mode
+    ImportCardsModal.tsx     — batch-add external deck cards to collection (ignore dupes / import all)
     CommanderArt.tsx, SetSymbol.tsx, CardImage.tsx
     ManaCost.tsx, ColorPips.tsx (mana-font glyphs), ManaCurve, StatTile, PrintingChips,
     CommanderPicker, PoolTable, AddCardSearch, Import/ExportCollection, CollectionList
@@ -241,6 +263,7 @@ apps/web/src/
     api.ts             — singleton ApiClient (localStorage TokenStore)
     scryfall.ts        — per-printing card image URLs (Scryfall image API + name fallback)
     scryfallSets.ts    — /sets fetch (memoized, localStorage 24h) → code→{name, iconSvgUri}
+    edhrec.ts          — client-side EDHREC helpers (slug conversion, hash list fetch)
     format.ts          — formatManaCost, COLOR_PIP, formatColorIdentity
 ```
 
@@ -251,7 +274,7 @@ apps/web/src/
 - `collection_items` — one doc per owned printing line: oracle_id, name, count, edition,
   collector_number, foil, finish, condition, language, purchase_price, printing_key, added_at.
   Indexed: user_id + oracle_id.
-- `decks` — saved decks (user_id + updated_at).
+- `decks` — saved decks (user_id + updated_at; optional `source` + `source_url` for imported decks).
 - `combos` — Commander Spellbook (cards multikey, identity). `edhrec_cache` — per-commander, 7-day TTL.
 
 ---
