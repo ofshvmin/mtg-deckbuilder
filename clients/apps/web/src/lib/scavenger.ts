@@ -356,17 +356,17 @@ export async function downloadScavengerPdf(data: ScavData): Promise<void> {
       doc.setFont("helvetica", "normal"); doc.setFontSize(7);
       const setsStr = m.sets.join(", ");
       const wrapped = doc.splitTextToSize(setsStr, COL_W - CB - 6) as string[];
-      const h = LINE + wrapped.length * 9 + 4;
+      const h = 14 + wrapped.length * 9 + 6;
       need(h);
       box(colX(), cy + 7);
       t(m.name, colX() + CB + 3, cy + 8, 8, true, 30);
-      cy += LINE;
+      cy += 14; // enough clearance below the bold card name
       doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(120);
       for (const line of wrapped) {
         doc.text(line, colX() + CB + 3, cy);
         cy += 9;
       }
-      cy += 4;
+      cy += 6;
     }
   }
 
