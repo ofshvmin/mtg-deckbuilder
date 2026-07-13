@@ -99,7 +99,9 @@ export interface ScavData {
 
 interface CardData { rarity: string; colors: string[]; typeLine: string }
 
-async function fetchCardData(ids: { set: string; collector_number: string }[]): Promise<Map<string, CardData>> {
+type ScryfallIdentifier = { set: string; collector_number: string } | { name: string };
+
+async function fetchCardData(ids: ScryfallIdentifier[]): Promise<Map<string, CardData>> {
   const out = new Map<string, CardData>();
   for (let i = 0; i < ids.length; i += 75) {
     const chunk = ids.slice(i, i + 75);
@@ -112,11 +114,14 @@ async function fetchCardData(ids: { set: string; collector_number: string }[]): 
       if (!res.ok) continue;
       const body = await res.json();
       for (const c of body.data ?? []) {
-        out.set(`${c.set}:${c.collector_number}`, {
+        const d: CardData = {
           rarity: c.rarity ?? "",
           colors: c.colors ?? c.card_faces?.[0]?.colors ?? [],
           typeLine: c.type_line ?? "",
-        });
+        };
+        // Key by set:collector when available, and always by name for fallback
+        out.set(`${c.set}:${c.collector_number}`, d);
+        if (c.name) out.set(`name:${c.name.toLowerCase()}`, d);
       }
     } catch { /* skip */ }
   }
@@ -131,7 +136,8 @@ function setReleasedOf(sets: SetIndex, code: string): string {
 }
 
 export async function buildScavengerData(deck: GeneratedDeck, deckName: string): Promise<ScavData> {
-  const ids: { set: string; collector_number: string }[] = [];
+  const ids: ScryfallIdentifier[] = [];
+  const namesSent = new Set<string>(); // avoid duplicate name lookups
   const entries: { name: string; set: string; collector: string; deckColors: string[]; deckType: string }[] = [];
 
   for (const card of deck.cards) {
@@ -139,6 +145,11 @@ export async function buildScavengerData(deck: GeneratedDeck, deckName: string):
     const printings = card.printings ?? [];
     if (printings.length === 0) {
       entries.push({ name: card.name, set: "", collector: "", deckColors: card.color_identity, deckType: card.type_line });
+      // Look up by name so we at least get rarity
+      if (!namesSent.has(card.name.toLowerCase())) {
+        ids.push({ name: card.name });
+        namesSent.add(card.name.toLowerCase());
+      }
       continue;
     }
     for (const p of printings) {
@@ -146,7 +157,13 @@ export async function buildScavengerData(deck: GeneratedDeck, deckName: string):
       const set = p.edition.toLowerCase();
       const collector = p.collector_number ?? "";
       entries.push({ name: card.name, set, collector, deckColors: card.color_identity, deckType: card.type_line });
-      if (collector) ids.push({ set, collector_number: collector });
+      if (collector) {
+        ids.push({ set, collector_number: collector });
+      } else if (!namesSent.has(card.name.toLowerCase())) {
+        // No collector # — fall back to name lookup for rarity
+        ids.push({ name: card.name });
+        namesSent.add(card.name.toLowerCase());
+      }
     }
   }
 
@@ -166,7 +183,8 @@ export async function buildScavengerData(deck: GeneratedDeck, deckName: string):
   const commonsBySet: Record<string, Record<string, Map<string, ScavCard>>> = {};
 
   for (const e of entries) {
-    const d = data.get(`${e.set}:${e.collector}`);
+    // Try set:collector first, then fall back to name lookup
+    const d = data.get(`${e.set}:${e.collector}`) ?? data.get(`name:${e.name.toLowerCase()}`);
     const colors = d ? d.colors : e.deckColors;
     const typeLine = d ? d.typeLine : e.deckType;
     const rarity = d?.rarity ?? "";
