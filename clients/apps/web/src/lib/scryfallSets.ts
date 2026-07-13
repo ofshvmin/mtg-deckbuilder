@@ -9,11 +9,12 @@ export interface SetInfo {
   name: string;
   iconSvgUri: string;
   released?: string; // ISO date, for ordering sets newest-first
+  parentCode?: string; // parent set code (e.g. "eoe" for "eoc")
 }
 
 export type SetIndex = Map<string, SetInfo>;
 
-const CACHE_KEY = "mtg.sets.v2";
+const CACHE_KEY = "mtg.sets.v3";
 const TTL_MS = 24 * 60 * 60 * 1000;
 
 let inflight: Promise<SetIndex> | null = null;
@@ -48,10 +49,15 @@ export function loadSetIndex(): Promise<SetIndex> {
   }
   inflight = fetch("https://api.scryfall.com/sets")
     .then((r) => (r.ok ? r.json() : Promise.reject(new Error("sets fetch failed"))))
-    .then((body: { data?: Array<{ code: string; name: string; icon_svg_uri: string; released_at?: string }> }) => {
+    .then((body: { data?: Array<{ code: string; name: string; icon_svg_uri: string; released_at?: string; parent_set_code?: string }> }) => {
       const index: SetIndex = new Map();
       for (const s of body.data ?? []) {
-        index.set(s.code.toLowerCase(), { name: s.name, iconSvgUri: s.icon_svg_uri, released: s.released_at });
+        index.set(s.code.toLowerCase(), {
+          name: s.name,
+          iconSvgUri: s.icon_svg_uri,
+          released: s.released_at,
+          parentCode: s.parent_set_code?.toLowerCase(),
+        });
       }
       toCache(index);
       return index;
