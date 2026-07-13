@@ -240,201 +240,151 @@ export async function buildScavengerData(deck: GeneratedDeck, deckName: string):
 
 // ---- PDF rendering ----
 
-const M_LEFT = 36;
-const M_RIGHT = 36;
-const M_TOP = 40;
-const M_BOTTOM = 36;
+const ML = 36;             // left margin
+const MR = 36;             // right margin
+const MT = 40;             // top margin
 const PAGE_W = 612;
 const PAGE_H = 792;
-const CONTENT_W = PAGE_W - M_LEFT - M_RIGHT;
-const BOTTOM = PAGE_H - M_BOTTOM;
+const USABLE_W = PAGE_W - ML - MR;
+const USABLE_BOTTOM = PAGE_H - 40;
 
-const COL_GAP = 12;
-const NUM_COLS = 3;
-const COL_W = (CONTENT_W - COL_GAP * (NUM_COLS - 1)) / NUM_COLS;
+const COLS = 3;
+const COL_GAP = 14;
+const COL_W = (USABLE_W - COL_GAP * (COLS - 1)) / COLS;
 
-const CARD_LINE_H = 11;
-const COLOR_HEADING_H = 12;
-const SET_HEADING_H = 15;
-const CB_SIZE = 6;
-const CB_Y_OFFSET = -5;
-
-interface Block {
-  height: number;
-  render: (doc: any, x: number, y: number) => void;
-}
+const LINE = 11;           // card line height
+const COLOR_H = 12;        // color heading height
+const SET_H = 16;          // set heading height
+const CB = 6;              // checkbox size
 
 export async function downloadScavengerPdf(data: ScavData): Promise<void> {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "letter" });
 
-  function txt(s: string, x: number, yy: number, size: number, style: "normal" | "bold", gray: number) {
-    doc.setFont("helvetica", style);
-    doc.setFontSize(size);
-    doc.setTextColor(gray);
-    doc.text(s, x, yy);
-  }
-  function txtR(s: string, x: number, yy: number, size: number, gray: number) {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(size);
-    doc.setTextColor(gray);
-    doc.text(s, x, yy, { align: "right" });
-  }
-  function cb(x: number, yy: number) {
-    doc.setDrawColor(140);
-    doc.setLineWidth(0.5);
-    doc.rect(x, yy + CB_Y_OFFSET, CB_SIZE, CB_SIZE);
-  }
-  function hr(x1: number, x2: number, yy: number) {
-    doc.setDrawColor(180);
-    doc.setLineWidth(0.5);
-    doc.line(x1, yy, x2, yy);
-  }
+  // ---- primitives ----
+  const t = (s: string, x: number, y: number, sz: number, bold: boolean, gray: number) => {
+    doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(sz); doc.setTextColor(gray); doc.text(s, x, y);
+  };
+  const tR = (s: string, x: number, y: number, sz: number, gray: number) => {
+    doc.setFont("helvetica", "normal"); doc.setFontSize(sz); doc.setTextColor(gray); doc.text(s, x, y, { align: "right" });
+  };
+  const box = (x: number, y: number) => {
+    doc.setDrawColor(140); doc.setLineWidth(0.5); doc.rect(x, y - 5, CB, CB);
+  };
+  const rule = (y: number) => {
+    doc.setDrawColor(180); doc.setLineWidth(0.5); doc.line(ML, y, PAGE_W - MR, y);
+  };
 
-  // --- Build blocks for rares (flat per set) ---
-  const rareBlocks: Block[] = [];
-  for (const set of data.rareSets) {
-    const h = SET_HEADING_H + set.cards.length * CARD_LINE_H;
-    rareBlocks.push({
-      height: h,
-      render: (_d, x, yy) => {
-        let cy = yy;
-        txt(`${set.name} (${set.code.toUpperCase()})`, x, cy + 10, 8, "bold", 50);
-        cy += SET_HEADING_H;
-        for (const card of set.cards) {
-          cb(x + 2, cy + 7);
-          txt(card.name, x + 2 + CB_SIZE + 3, cy + 8, 8, "normal", 30);
-          if (card.tag) txtR(card.tag, x + COL_W, cy + 8, 7, 160);
-          cy += CARD_LINE_H;
-        }
-      },
-    });
+  // ---- column cursor ----
+  let col = 0;
+  let cy = MT;
+
+  const colX = () => ML + col * (COL_W + COL_GAP);
+
+  function need(h: number) {
+    if (cy + h <= USABLE_BOTTOM) return; // fits
+    col++;
+    if (col >= COLS) { doc.addPage(); col = 0; }
+    cy = MT;
   }
 
-  // --- Build blocks for commons (set → color → cards) ---
-  const commonBlocks: Block[] = [];
-  for (const set of data.commonSets) {
-    let h = SET_HEADING_H;
-    for (const cg of set.colors) {
-      h += COLOR_HEADING_H + cg.cards.length * CARD_LINE_H;
-    }
-    commonBlocks.push({
-      height: h,
-      render: (_d, x, yy) => {
-        let cy = yy;
-        txt(`${set.name} (${set.code.toUpperCase()})`, x, cy + 10, 8, "bold", 50);
-        cy += SET_HEADING_H;
-        for (const cg of set.colors) {
-          txt(cg.color, x + 2, cy + 8, 7, "bold", 110);
-          cy += COLOR_HEADING_H;
-          for (const card of cg.cards) {
-            cb(x + 4, cy + 7);
-            txt(card.name, x + 4 + CB_SIZE + 3, cy + 8, 8, "normal", 30);
-            if (card.tag) txtR(card.tag, x + COL_W, cy + 8, 7, 160);
-            cy += CARD_LINE_H;
-          }
-        }
-      },
-    });
+  function freshPage() {
+    if (col !== 0 || cy !== MT) { doc.addPage(); col = 0; cy = MT; }
   }
 
-  // --- Build blocks for multiples ---
-  const multiBlocks: Block[] = [];
-  for (const m of data.multiples) {
-    const setsLine = m.sets.join(", ");
-    const charsPer = Math.floor(COL_W / 3.5);
-    const lines = Math.max(1, Math.ceil(setsLine.length / charsPer));
-    const h = CARD_LINE_H + lines * 9 + 2;
-    multiBlocks.push({
-      height: h,
-      render: (_d, x, yy) => {
-        cb(x, yy + 7);
-        txt(m.name, x + CB_SIZE + 3, yy + 8, 8, "bold", 30);
-        const wrapped = doc.splitTextToSize(setsLine, COL_W - 14) as string[];
-        let ly = yy + CARD_LINE_H + 1;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(7);
-        doc.setTextColor(120);
-        for (const line of wrapped) {
-          doc.text(line, x + CB_SIZE + 3, ly);
-          ly += 9;
-        }
-      },
-    });
-  }
-
-  // --- Render: flow blocks into columns ---
-  function flowSection(
-    title: string,
-    blocks: Block[],
-    startY: number,
-    startCol: number,
-  ): { y: number; col: number } {
-    let colY = startY;
-    let colIdx = startCol;
-
-    function colX() { return M_LEFT + colIdx * (COL_W + COL_GAP); }
-    function nextCol() {
-      colIdx++;
-      if (colIdx >= NUM_COLS) {
-        doc.addPage();
-        colIdx = 0;
-      }
-      colY = M_TOP;
-    }
-
-    // Section heading (full width)
-    if (colY > M_TOP + 4 || colIdx > 0) {
-      // Start new page for each major section
-      if (colIdx > 0 || colY > M_TOP + 20) {
-        doc.addPage();
-        colIdx = 0;
-        colY = M_TOP;
-      }
-    }
-    txt(title.toUpperCase(), M_LEFT, colY + 12, 10, "bold", 40);
-    hr(M_LEFT, PAGE_W - M_RIGHT, colY + 16);
-    colY += 24;
-
-    for (const block of blocks) {
-      if (colY + block.height > BOTTOM) nextCol();
-      block.render(doc, colX(), colY);
-      colY += block.height + 3;
-    }
-
-    return { y: colY, col: colIdx };
-  }
-
-  // --- Header ---
-  txt("Scavenger List", M_LEFT, M_TOP + 14, 16, "bold", 20);
-  txt(data.deckName, M_LEFT, M_TOP + 28, 10, "normal", 60);
-  txt(
+  // ---- page 1 header ----
+  t("Scavenger List", ML, cy + 14, 16, true, 20);
+  t(data.deckName, ML, cy + 28, 10, false, 60);
+  t(
     `${data.commander}  ·  ${data.total} cards  ·  ${new Date().toLocaleDateString()}  ·  basic lands excluded`,
-    M_LEFT, M_TOP + 40, 8, "normal", 120,
+    ML, cy + 40, 8, false, 120,
   );
-  hr(M_LEFT, PAGE_W - M_RIGHT, M_TOP + 46);
+  rule(cy + 46);
+  cy += 56;
 
-  // Rares section
-  if (rareBlocks.length > 0) {
-    flowSection(RARES, rareBlocks, M_TOP + 56, 0);
+  // ---- RARES & MYTHICS (flat alphabetical per set) ----
+  if (data.rareSets.length) {
+    t(RARES.toUpperCase(), ML, cy + 11, 10, true, 40);
+    rule(cy + 15);
+    cy += 24;
+
+    for (const set of data.rareSets) {
+      const h = SET_H + set.cards.length * LINE;
+      need(Math.min(h, SET_H + 3 * LINE)); // keep heading + at least 3 cards
+      t(`${set.name} (${set.code.toUpperCase()})`, colX(), cy + 10, 8, true, 50);
+      cy += SET_H;
+      for (const card of set.cards) {
+        need(LINE);
+        box(colX() + 2, cy + 7);
+        t(card.name, colX() + 2 + CB + 3, cy + 8, 8, false, 30);
+        if (card.tag) tR(card.tag, colX() + COL_W, cy + 8, 7, 160);
+        cy += LINE;
+      }
+      cy += 4;
+    }
   }
 
-  // Commons section (new page)
-  if (commonBlocks.length > 0) {
-    flowSection(COMMONS, commonBlocks, M_TOP, 0);
+  // ---- COMMONS & UNCOMMONS (set → color → alphabetical) ----
+  if (data.commonSets.length) {
+    freshPage();
+    t(COMMONS.toUpperCase(), ML, cy + 11, 10, true, 40);
+    rule(cy + 15);
+    cy += 24;
+
+    for (const set of data.commonSets) {
+      need(SET_H + COLOR_H + LINE); // heading + at least one color + one card
+      t(`${set.name} (${set.code.toUpperCase()})`, colX(), cy + 10, 8, true, 50);
+      cy += SET_H;
+
+      for (const cg of set.colors) {
+        need(COLOR_H + LINE);
+        t(cg.color, colX() + 2, cy + 8, 7, true, 110);
+        cy += COLOR_H;
+        for (const card of cg.cards) {
+          need(LINE);
+          box(colX() + 4, cy + 7);
+          t(card.name, colX() + 4 + CB + 3, cy + 8, 8, false, 30);
+          if (card.tag) tR(card.tag, colX() + COL_W, cy + 8, 7, 160);
+          cy += LINE;
+        }
+      }
+      cy += 4;
+    }
   }
 
-  // Multiples section (new page)
-  if (multiBlocks.length > 0) {
-    flowSection("Multiples — owned in 2+ sets", multiBlocks, M_TOP, 0);
+  // ---- MULTIPLES ----
+  if (data.multiples.length) {
+    freshPage();
+    t("MULTIPLES — OWNED IN 2+ SETS", ML, cy + 11, 10, true, 40);
+    rule(cy + 15);
+    cy += 24;
+
+    for (const m of data.multiples) {
+      // Pre-measure: wrap the sets line to know exact height
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7);
+      const setsStr = m.sets.join(", ");
+      const wrapped = doc.splitTextToSize(setsStr, COL_W - CB - 6) as string[];
+      const h = LINE + wrapped.length * 9 + 4;
+
+      need(h);
+      box(colX(), cy + 7);
+      t(m.name, colX() + CB + 3, cy + 8, 8, true, 30);
+      cy += LINE;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(120);
+      for (const line of wrapped) {
+        doc.text(line, colX() + CB + 3, cy);
+        cy += 9;
+      }
+      cy += 4;
+    }
   }
 
-  // --- Page footers ---
-  const totalPages = doc.getNumberOfPages();
-  for (let p = 1; p <= totalPages; p++) {
+  // ---- page footers ----
+  const pages = doc.getNumberOfPages();
+  for (let p = 1; p <= pages; p++) {
     doc.setPage(p);
-    txt(data.deckName, M_LEFT, PAGE_H - 22, 7, "normal", 170);
-    txtR(`Page ${p} of ${totalPages}`, PAGE_W - M_RIGHT, PAGE_H - 22, 7, 170);
+    t(data.deckName, ML, PAGE_H - 22, 7, false, 170);
+    tR(`Page ${p} of ${pages}`, PAGE_W - MR, PAGE_H - 22, 7, 170);
   }
 
   const safe = data.deckName.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "") || "deck";
