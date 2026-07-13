@@ -14,6 +14,7 @@ from .config import get_settings
 from .routers.collection import router as collection_router
 from .routers.commanders import router as commanders_router
 from .routers.decks import router as decks_router
+from .routers.explore import router as explore_router
 from .routers.pool import router as pool_router
 
 settings = get_settings()
@@ -44,6 +45,7 @@ app.include_router(collection_router)
 app.include_router(commanders_router)
 app.include_router(pool_router)
 app.include_router(decks_router)
+app.include_router(explore_router)
 
 
 @app.get("/livez")

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from .. import db
 from ..auth.deps import get_current_user
 from ..models.responses import (
+    BatchAddResult,
     CardSearchResult,
     CollectionCardOut,
     CollectionItemOut,
@@ -213,3 +214,85 @@ async def search_cards(q: str = "", limit: int = 20, current_user: dict = Depend
         )
         for d in docs
     ]
+
+
+class BatchAddCardEntry(BaseModel):
+    name: str
+    oracle_id: str | None = None
+    edition: str | None = None
+    collector_number: str | None = None
+    finish: str | None = None
+    count: int = 1
+
+
+class BatchAddRequest(BaseModel):
+    cards: list[BatchAddCardEntry]
+    mode: str = "ignore_duplicates"  # "ignore_duplicates" | "import_all"
+
+
+@router.post("/batch-add", response_model=BatchAddResult)
+async def batch_add_cards(body: BatchAddRequest, current_user: dict = Depends(get_current_user)):
+    """Add multiple cards to the user's collection at once.
+
+    mode="ignore_duplicates": skip cards already in collection (by oracle_id).
+    mode="import_all": add everything regardless of existing cards.
+    """
+    if body.mode not in ("ignore_duplicates", "import_all"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "mode must be 'ignore_duplicates' or 'import_all'")
+
+    database = db.get_db()
+
+    # Resolve card names to oracle_ids
+    resolved: list[dict] = []
+    for entry in body.cards:
+        card = None
+        if entry.oracle_id:
+            card = await database.cards.find_one({"_id": entry.oracle_id})
+        if card is None:
+            card = await cards_repo.find_by_normalized_name(database, entry.name)
+        if card is None:
+            continue
+
+        oracle_id = card["_id"]
+        edition = entry.edition
+        collector_number = entry.collector_number
+        finish = normalize_finish(entry.finish)
+        resolved.append({
+            "oracle_id": oracle_id,
+            "name": card["name"],
+            "name_normalized": normalize_name(card["name"]),
+            "count": entry.count,
+            "edition": edition,
+            "collector_number": collector_number,
+            "finish": finish,
+            "foil": "foil" if finish == "foil" else "",
+            "printing_key": printing_key(edition, collector_number, entry.finish),
+            "added_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    if not resolved:
+        return BatchAddResult(added=0, skipped=len(body.cards))
+
+    # Filter duplicates if requested
+    skipped = 0
+    to_add = resolved
+    if body.mode == "ignore_duplicates":
+        existing_ids = set()
+        cursor = database.collection_items.find(
+            {"user_id": current_user["_id"], "oracle_id": {"$ne": None}},
+            {"oracle_id": 1},
+        )
+        async for doc in cursor:
+            existing_ids.add(doc["oracle_id"])
+
+        filtered = []
+        for item in resolved:
+            if item["oracle_id"] in existing_ids:
+                skipped += 1
+            else:
+                filtered.append(item)
+                existing_ids.add(item["oracle_id"])  # prevent dupes within batch
+        to_add = filtered
+
+    added = await collection_repo.batch_add_items(database, current_user["_id"], to_add)
+    return BatchAddResult(added=added, skipped=skipped + (len(body.cards) - len(resolved)))

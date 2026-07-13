@@ -251,6 +251,8 @@ export interface SavedDeck {
   deck: GeneratedDeck;
   created_at: string;
   updated_at: string;
+  source?: string | null;
+  source_url?: string | null;
 }
 
 export interface SavedDeckSummary {
@@ -263,4 +265,31 @@ export interface SavedDeckSummary {
   updated_at: string;
   bracket?: number | null;
   bracket_label?: string | null;
+  source?: string | null;
+}
+
+export interface ExternalDeckSummary {
+  external_id: string;
+  source: string;
+  name: string;
+  owner: string;
+  card_count: number;
+  url: string;
+  commander_name: string | null;
+  color_identity: string[];
+}
+
+export interface ExternalDeckResponse {
+  source: string;
+  source_url: string;
+  name: string;
+  owner: string;
+  deck: GeneratedDeck;
+  unowned_count: number;
+  owned_count: number;
+}
+
+export interface BatchAddResult {
+  added: number;
+  skipped: number;
 }

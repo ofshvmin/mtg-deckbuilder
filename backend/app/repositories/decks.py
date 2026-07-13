@@ -8,7 +8,8 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 
 async def save_deck(
-    db: AsyncDatabase, user_id: str, name: str, deck_data: dict
+    db: AsyncDatabase, user_id: str, name: str, deck_data: dict,
+    source: str | None = None, source_url: str | None = None,
 ) -> str:
     """Save a generated deck. Returns the new deck's ID."""
     doc = {
@@ -18,12 +19,19 @@ async def save_deck(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if source:
+        doc["source"] = source
+    if source_url:
+        doc["source_url"] = source_url
     result = await db.decks.insert_one(doc)
     return str(result.inserted_id)
 
 
 async def list_decks(db: AsyncDatabase, user_id: str) -> list[dict]:
-    """List all saved decks for a user (metadata only, no full card list)."""
+    """List all saved decks for a user (metadata only, no full card list).
+
+    Includes source field for imported decks.
+    """
     cursor = db.decks.find(
         {"user_id": user_id},
         {"deck.cards": 0, "deck.combos": 0, "deck.near_combos": 0, "deck.curve": 0},

@@ -8,6 +8,7 @@
 
 import type {
   AuthTokens,
+  BatchAddResult,
   BriefDeckResponse,
   CardSearchResult,
   ComboFinisher,
@@ -15,6 +16,7 @@ import type {
   CollectionItem,
   CollectionSummary,
   CommanderOption,
+  ExternalDeckResponse,
   GeneratedDeck,
   HealthStatus,
   ImportResult,
@@ -229,10 +231,70 @@ export class ApiClient {
     });
   }
 
+  // ---- Explore (external decks) ----
+
+  /** Search EDHREC for commander decklists (fully server-side). */
+  searchExternalDecks(commander: string, pageSize = 20): Promise<{
+    external_id: string; source: string; name: string; owner: string;
+    card_count: number; url: string; commander_name: string;
+    color_identity: string[]; bracket: number | null; price: number | null;
+  }[]> {
+    const qs = `?commander=${encodeURIComponent(commander)}&page_size=${pageSize}`;
+    return this.request("GET", `/explore/search${qs}`);
+  }
+
+  /** Fetch a single EDHREC deck preview by hash (server-side proxy). */
+  fetchEdhrecDeck(hash: string): Promise<{
+    deck: string[]; commanders: string[]; coloridentity: string[];
+    url: string; header?: string; price?: number;
+  }> {
+    return this.request("GET", `/explore/edhrec-deck?hash=${encodeURIComponent(hash)}`);
+  }
+
+  /** Search MTGJSON Commander precon decks. */
+  searchPrecons(query = "", limit = 30): Promise<{
+    file_name: string; name: string; code: string; release_date: string;
+  }[]> {
+    const qs = `?q=${encodeURIComponent(query)}&limit=${limit}`;
+    return this.request("GET", `/explore/precons${qs}`);
+  }
+
+  /** Fetch a precon deck from MTGJSON and resolve against our DB. */
+  fetchPrecon(fileName: string): Promise<ExternalDeckResponse> {
+    return this.request("GET", `/explore/precon?file_name=${encodeURIComponent(fileName)}`);
+  }
+
+  fetchExternalDeck(opts: { url?: string; archidektId?: string }): Promise<ExternalDeckResponse> {
+    const params = new URLSearchParams();
+    if (opts.url) params.set("url", opts.url);
+    if (opts.archidektId) params.set("archidekt_id", opts.archidektId);
+    return this.request<ExternalDeckResponse>("GET", `/explore/deck?${params.toString()}`);
+  }
+
+  /** Resolve a card list (from client-side EDHREC fetch) against our DB. */
+  resolveExternalDeck(body: {
+    cards: { name: string; quantity: number; is_commander: boolean }[];
+    source: string;
+    source_url: string;
+    name: string;
+    owner: string;
+  }): Promise<ExternalDeckResponse> {
+    return this.request<ExternalDeckResponse>("POST", "/explore/resolve", { body });
+  }
+
+  batchAddToCollection(
+    cards: { name: string; oracle_id?: string; edition?: string; collector_number?: string; finish?: string; count?: number }[],
+    mode: "ignore_duplicates" | "import_all",
+  ): Promise<BatchAddResult> {
+    return this.request<BatchAddResult>("POST", "/collection/batch-add", {
+      body: { cards, mode },
+    });
+  }
+
   // ---- Saved decks ----
 
-  saveDeck(name: string, deck: GeneratedDeck): Promise<SavedDeck> {
-    return this.request<SavedDeck>("POST", "/decks/save", { body: { name, deck } });
+  saveDeck(name: string, deck: GeneratedDeck, opts?: { source?: string; source_url?: string }): Promise<SavedDeck> {
+    return this.request<SavedDeck>("POST", "/decks/save", { body: { name, deck, ...opts } });
   }
 
   listSavedDecks(): Promise<SavedDeckSummary[]> {
