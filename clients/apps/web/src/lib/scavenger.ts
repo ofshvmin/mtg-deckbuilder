@@ -1,18 +1,17 @@
-// Build a "scavenger list": a print-ready PDF pull-guide + checklist for a deck,
-// matched to how the collection is stored (by set, then color). Two lists —
-// Rares & Mythics, then Commons & Uncommons — each grouped by set (newest first)
-// → color → alphabetical. Sets are merged by parent (e.g. Edge of Eternities
-// Commander → Edge of Eternities). Multi-column layout to minimize pages.
+// Build a "scavenger list": a print-ready PDF pull-guide + checklist for a deck.
+// Two sections: Rares & Mythics (flat alphabetical per set), then Commons &
+// Uncommons (grouped set → color → alphabetical). Sets are merged into their
+// "superset" — same parent_set_code, or same product family by name prefix.
+// Multi-column layout to minimize pages.
 import type { GeneratedDeck } from "@mtg/shared";
 import { loadSetIndex, type SetIndex } from "./scryfallSets";
 
-const COLOR_ORDER = ["White", "Blue", "Black", "Red", "Green", "Multicolor", "Colorless", "Lands", "—"];
+const COLOR_ORDER = ["White", "Blue", "Black", "Red", "Green", "Multicolor", "Colorless", "Lands"];
 const COLOR_NAME: Record<string, string> = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green" };
 const RARITY_TAG: Record<string, string> = { mythic: "M", rare: "R", uncommon: "U", common: "C", special: "S", bonus: "S" };
 
 const RARES = "Rares & Mythics";
 const COMMONS = "Commons & Uncommons";
-const OTHER = "Other";
 
 function colorGroup(colors: string[], typeLine: string): string {
   if (/\bland\b/i.test(typeLine)) return "Lands";
@@ -21,30 +20,81 @@ function colorGroup(colors: string[], typeLine: string): string {
   return COLOR_NAME[colors[0]] ?? "Colorless";
 }
 
-function rarityTier(rarity: string): string {
-  if (rarity === "common" || rarity === "uncommon") return COMMONS;
-  if (!rarity) return OTHER;
-  return RARES;
+function isRare(rarity: string): boolean {
+  return rarity === "rare" || rarity === "mythic" || rarity === "special" || rarity === "bonus";
 }
 
-/** Resolve a set code to its parent (superset), or itself if it has no parent. */
-function resolveParent(sets: SetIndex, code: string): string {
-  const info = sets.get(code);
-  return info?.parentCode ?? code;
+// ---- Superset resolution ----
+// Merge child sets into their parent (e.g. EOC → EOE). For sets without a
+// parent (masterpiece, promo, etc.), fall back to grouping by the first
+// significant word of the set name (e.g. "Marvel Universe" + "Marvel Super
+// Heroes" → both resolve to the "Marvel ..." expansion).
+
+function buildSupersetMap(sets: SetIndex): Map<string, string> {
+  const map = new Map<string, string>();
+
+  // First pass: follow parent_set_code chains to their root
+  for (const [code, info] of sets) {
+    let root = code;
+    let depth = 0;
+    while (depth < 5) {
+      const parent = sets.get(root)?.parentCode;
+      if (!parent || parent === root) break;
+      root = parent;
+      depth++;
+    }
+    map.set(code, root);
+  }
+
+  // Second pass: for orphan non-expansion sets (masterpiece, promo, box,
+  // funny, etc.) that resolved to themselves, try to match by name prefix to
+  // the nearest expansion/commander set.
+  const CHILD_TYPES = new Set(["masterpiece", "promo", "box", "spellbook", "from_the_vault", "premium_deck", "funny"]);
+  const expansionsByPrefix = new Map<string, string>(); // first word → expansion code
+  for (const [code, info] of sets) {
+    // Only consider root-level sets (no parent) as candidate parents
+    if (info.parentCode) continue;
+    const firstWord = info.name.split(/\s+/)[0]?.toLowerCase();
+    if (!firstWord || firstWord.length < 3) continue;
+    // Prefer the earliest (most canonical) expansion for this prefix
+    if (!expansionsByPrefix.has(firstWord)) {
+      expansionsByPrefix.set(firstWord, code);
+    } else {
+      // Keep the one with the earlier release date (more likely to be the "main" set)
+      const existing = sets.get(expansionsByPrefix.get(firstWord)!);
+      if (existing && info.released && existing.released && info.released < existing.released) {
+        expansionsByPrefix.set(firstWord, code);
+      }
+    }
+  }
+
+  for (const [code, info] of sets) {
+    if (map.get(code) !== code) continue; // already has a parent
+    const setType = (info as any).setType; // not available, so check by heuristic
+    const firstWord = info.name.split(/\s+/)[0]?.toLowerCase();
+    if (!firstWord) continue;
+    const candidate = expansionsByPrefix.get(firstWord);
+    if (candidate && candidate !== code) {
+      map.set(code, candidate);
+    }
+  }
+
+  return map;
 }
 
 // ---- Data model ----
 export interface ScavCard { name: string; tag: string }
 export interface ScavColorGroup { color: string; cards: ScavCard[] }
 export interface ScavSet { code: string; name: string; released: string; colors: ScavColorGroup[] }
-export interface ScavTier { title: string; sets: ScavSet[] }
-export interface ScavMultiple { name: string; sets: { code: string; name: string }[] }
+// For rares: flat alphabetical, no color subgroups
+export interface ScavRareSet { code: string; name: string; released: string; cards: ScavCard[] }
 export interface ScavData {
   deckName: string;
   commander: string;
   total: number;
-  tiers: ScavTier[];
-  multiples: ScavMultiple[];
+  rareSets: ScavRareSet[];      // Rares & Mythics: set → flat alphabetical
+  commonSets: ScavSet[];        // Commons & Uncommons: set → color → alphabetical
+  multiples: { name: string; sets: string[] }[];
 }
 
 interface CardData { rarity: string; colors: string[]; typeLine: string }
@@ -68,153 +118,148 @@ async function fetchCardData(ids: { set: string; collector_number: string }[]): 
           typeLine: c.type_line ?? "",
         });
       }
-    } catch {
-      /* skip chunk */
-    }
+    } catch { /* skip */ }
   }
   return out;
 }
 
-function setName(sets: SetIndex, code: string): string {
+function setNameOf(sets: SetIndex, code: string): string {
   return sets.get(code)?.name ?? code.toUpperCase();
 }
-function setReleased(sets: SetIndex, code: string): string {
+function setReleasedOf(sets: SetIndex, code: string): string {
   return sets.get(code)?.released ?? "0000-00-00";
 }
 
 export async function buildScavengerData(deck: GeneratedDeck, deckName: string): Promise<ScavData> {
   const ids: { set: string; collector_number: string }[] = [];
   const entries: { name: string; set: string; collector: string; deckColors: string[]; deckType: string }[] = [];
-  // Track which parent sets each card appears in (for the multiples section)
-  const cardParentSets = new Map<string, Set<string>>();
 
   for (const card of deck.cards) {
     if (card.oracle_id.startsWith("basic:")) continue;
     const printings = card.printings ?? [];
     if (printings.length === 0) {
-      entries.push({
-        name: card.name, set: "", collector: "",
-        deckColors: card.color_identity, deckType: card.type_line,
-      });
+      entries.push({ name: card.name, set: "", collector: "", deckColors: card.color_identity, deckType: card.type_line });
       continue;
     }
     for (const p of printings) {
       if (!p.edition) continue;
       const set = p.edition.toLowerCase();
       const collector = p.collector_number ?? "";
-      entries.push({
-        name: card.name, set, collector,
-        deckColors: card.color_identity, deckType: card.type_line,
-      });
+      entries.push({ name: card.name, set, collector, deckColors: card.color_identity, deckType: card.type_line });
       if (collector) ids.push({ set, collector_number: collector });
     }
   }
 
   const [data, sets] = await Promise.all([fetchCardData(ids), loadSetIndex()]);
+  const supersetMap = buildSupersetMap(sets);
 
-  // Populate cardParentSets now that we have the set index
-  for (const e of entries) {
-    if (!e.set) continue;
-    const parent = resolveParent(sets, e.set);
-    const s = cardParentSets.get(e.name) ?? new Set<string>();
-    s.add(parent);
-    cardParentSets.set(e.name, s);
+  function superset(code: string): string {
+    return supersetMap.get(code) ?? code;
   }
 
-  // tier -> parent set code -> color -> cards[] (deduplicated by name)
-  const grouped: Record<string, Record<string, Record<string, ScavCard[]>>> = {};
-  const seen = new Map<string, Set<string>>(); // "tier:parentSet:color" -> card names already added
+  // Track which supersets each card appears in (for multiples)
+  const cardSupersets = new Map<string, Set<string>>();
+
+  // rares: superset → card names (deduped)
+  const raresBySet: Record<string, Map<string, ScavCard>> = {};
+  // commons: superset → color → card names (deduped)
+  const commonsBySet: Record<string, Record<string, Map<string, ScavCard>>> = {};
+
   for (const e of entries) {
     const d = data.get(`${e.set}:${e.collector}`);
     const colors = d ? d.colors : e.deckColors;
     const typeLine = d ? d.typeLine : e.deckType;
     const rarity = d?.rarity ?? "";
-    const tier = rarity ? rarityTier(rarity) : OTHER;
-    const color = colorGroup(colors, typeLine);
     const tag = rarity ? (RARITY_TAG[rarity] ?? "") : "";
-    const parentCode = e.set ? resolveParent(sets, e.set) : "unknown";
+    const ss = e.set ? superset(e.set) : "unknown";
 
-    // Deduplicate: same card name appearing multiple times under the same
-    // parent set + color (e.g. from commander deck + main set printings)
-    const key = `${tier}:${parentCode}:${color}`;
-    const already = seen.get(key) ?? new Set<string>();
-    if (already.has(e.name)) continue;
-    already.add(e.name);
-    seen.set(key, already);
+    // Track for multiples
+    if (e.set) {
+      const s = cardSupersets.get(e.name) ?? new Set<string>();
+      s.add(ss);
+      cardSupersets.set(e.name, s);
+    }
 
-    (((grouped[tier] ??= {})[parentCode] ??= {})[color] ??= []).push({ name: e.name, tag });
+    if (isRare(rarity)) {
+      const setCards = raresBySet[ss] ??= new Map();
+      if (!setCards.has(e.name)) setCards.set(e.name, { name: e.name, tag });
+    } else {
+      const color = colorGroup(colors, typeLine);
+      const setColors = commonsBySet[ss] ??= {};
+      const colorCards = setColors[color] ??= new Map();
+      if (!colorCards.has(e.name)) colorCards.set(e.name, { name: e.name, tag });
+    }
   }
 
-  const tiers: ScavTier[] = [];
-  for (const title of [RARES, COMMONS, OTHER]) {
-    const bySet = grouped[title];
-    if (!bySet) continue;
-    const setCodes = Object.keys(bySet).sort((a, b) => {
-      const r = setReleased(sets, b).localeCompare(setReleased(sets, a));
-      return r !== 0 ? r : setName(sets, a).localeCompare(setName(sets, b));
-    });
-    const scavSets: ScavSet[] = setCodes.map((code) => {
-      const byColor = bySet[code];
-      const colorsPresent = COLOR_ORDER.filter((c) => byColor[c]).concat(
-        Object.keys(byColor).filter((c) => !COLOR_ORDER.includes(c)),
-      );
-      return {
-        code,
-        name: setName(sets, code),
-        released: setReleased(sets, code),
-        colors: colorsPresent.map((color) => ({
-          color,
-          cards: byColor[color].slice().sort((a, b) => a.name.localeCompare(b.name)),
-        })),
-      };
-    });
-    tiers.push({ title, sets: scavSets });
-  }
+  // Build sorted rare sets
+  const rareSetCodes = Object.keys(raresBySet).sort((a, b) => {
+    const r = setReleasedOf(sets, b).localeCompare(setReleasedOf(sets, a));
+    return r !== 0 ? r : setNameOf(sets, a).localeCompare(setNameOf(sets, b));
+  });
+  const rareSets: ScavRareSet[] = rareSetCodes.map((code) => ({
+    code,
+    name: setNameOf(sets, code),
+    released: setReleasedOf(sets, code),
+    cards: [...raresBySet[code].values()].sort((a, b) => a.name.localeCompare(b.name)),
+  }));
 
-  // Multiples: cards owned across 2+ parent sets
-  const multiples: ScavMultiple[] = [...cardParentSets.entries()]
+  // Build sorted common sets with color subgroups
+  const commonSetCodes = Object.keys(commonsBySet).sort((a, b) => {
+    const r = setReleasedOf(sets, b).localeCompare(setReleasedOf(sets, a));
+    return r !== 0 ? r : setNameOf(sets, a).localeCompare(setNameOf(sets, b));
+  });
+  const commonSets: ScavSet[] = commonSetCodes.map((code) => {
+    const byColor = commonsBySet[code];
+    const colorsPresent = COLOR_ORDER.filter((c) => byColor[c]).concat(
+      Object.keys(byColor).filter((c) => !COLOR_ORDER.includes(c)),
+    );
+    return {
+      code,
+      name: setNameOf(sets, code),
+      released: setReleasedOf(sets, code),
+      colors: colorsPresent.map((color) => ({
+        color,
+        cards: [...byColor[color].values()].sort((a, b) => a.name.localeCompare(b.name)),
+      })),
+    };
+  });
+
+  // Multiples
+  const multiples = [...cardSupersets.entries()]
     .filter(([, s]) => s.size > 1)
     .map(([name, s]) => ({
       name,
       sets: [...s]
-        .map((code) => ({ code, name: setName(sets, code) }))
-        .sort((a, b) => setReleased(sets, b.code).localeCompare(setReleased(sets, a.code))),
+        .sort((a, b) => setReleasedOf(sets, b).localeCompare(setReleasedOf(sets, a)))
+        .map((code) => setNameOf(sets, code)),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  return { deckName, commander: deck.commander.name, total: deck.total, tiers, multiples };
+  return { deckName, commander: deck.commander.name, total: deck.total, rareSets, commonSets, multiples };
 }
 
-// ---- PDF rendering (jsPDF, dynamically imported so it code-splits out) ----
+// ---- PDF rendering ----
 
-// Layout constants (US Letter in points: 612 x 792)
 const M_LEFT = 36;
 const M_RIGHT = 36;
 const M_TOP = 40;
-const M_BOTTOM = 40;
+const M_BOTTOM = 36;
 const PAGE_W = 612;
 const PAGE_H = 792;
 const CONTENT_W = PAGE_W - M_LEFT - M_RIGHT;
 const BOTTOM = PAGE_H - M_BOTTOM;
 
-// Column layout
-const COL_GAP = 14;
+const COL_GAP = 12;
 const NUM_COLS = 3;
 const COL_W = (CONTENT_W - COL_GAP * (NUM_COLS - 1)) / NUM_COLS;
 
-// Spacing
 const CARD_LINE_H = 11;
-const COLOR_HEADING_H = 13;
-const SET_HEADING_H = 16;
-const SECTION_GAP = 10;
-const CB_SIZE = 6.5;
-const CB_Y_OFFSET = -5.5;
+const COLOR_HEADING_H = 12;
+const SET_HEADING_H = 15;
+const CB_SIZE = 6;
+const CB_Y_OFFSET = -5;
 
-// A "block" is a contiguous chunk that shouldn't be split across columns:
-// a set heading + its color groups. We pre-measure all blocks, then flow
-// them into columns page by page.
 interface Block {
-  type: "tier-heading" | "set" | "multiples-heading" | "multiple";
   height: number;
   render: (doc: any, x: number, y: number) => void;
 }
@@ -223,187 +268,173 @@ export async function downloadScavengerPdf(data: ScavData): Promise<void> {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "letter" });
 
-  // --- drawing helpers (all take absolute x, y) ---
   function txt(s: string, x: number, yy: number, size: number, style: "normal" | "bold", gray: number) {
     doc.setFont("helvetica", style);
     doc.setFontSize(size);
     doc.setTextColor(gray);
     doc.text(s, x, yy);
   }
-
-  function txtRight(s: string, x: number, yy: number, size: number, style: "normal" | "bold", gray: number) {
-    doc.setFont("helvetica", style);
+  function txtR(s: string, x: number, yy: number, size: number, gray: number) {
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(size);
     doc.setTextColor(gray);
     doc.text(s, x, yy, { align: "right" });
   }
-
-  function checkbox(x: number, yy: number) {
+  function cb(x: number, yy: number) {
     doc.setDrawColor(140);
     doc.setLineWidth(0.5);
     doc.rect(x, yy + CB_Y_OFFSET, CB_SIZE, CB_SIZE);
   }
-
-  function rule(x1: number, x2: number, yy: number) {
+  function hr(x1: number, x2: number, yy: number) {
     doc.setDrawColor(180);
     doc.setLineWidth(0.5);
     doc.line(x1, yy, x2, yy);
   }
 
-  // --- Build blocks ---
-  const blocks: Block[] = [];
-
-  for (const tier of data.tiers) {
-    // Tier heading block
-    blocks.push({
-      type: "tier-heading",
-      height: 20,
-      render: (_doc, x, yy) => {
-        txt(tier.title.toUpperCase(), x, yy + 12, 10, "bold", 40);
-        rule(x, x + COL_W, yy + 16);
+  // --- Build blocks for rares (flat per set) ---
+  const rareBlocks: Block[] = [];
+  for (const set of data.rareSets) {
+    const h = SET_HEADING_H + set.cards.length * CARD_LINE_H;
+    rareBlocks.push({
+      height: h,
+      render: (_d, x, yy) => {
+        let cy = yy;
+        txt(`${set.name} (${set.code.toUpperCase()})`, x, cy + 10, 8, "bold", 50);
+        cy += SET_HEADING_H;
+        for (const card of set.cards) {
+          cb(x + 2, cy + 7);
+          txt(card.name, x + 2 + CB_SIZE + 3, cy + 8, 8, "normal", 30);
+          if (card.tag) txtR(card.tag, x + COL_W, cy + 8, 7, 160);
+          cy += CARD_LINE_H;
+        }
       },
     });
+  }
 
-    for (const set of tier.sets) {
-      // Calculate the height this set block needs
-      let h = SET_HEADING_H;
-      for (const cg of set.colors) {
-        h += COLOR_HEADING_H;
-        h += cg.cards.length * CARD_LINE_H;
+  // --- Build blocks for commons (set → color → cards) ---
+  const commonBlocks: Block[] = [];
+  for (const set of data.commonSets) {
+    let h = SET_HEADING_H;
+    for (const cg of set.colors) {
+      h += COLOR_HEADING_H + cg.cards.length * CARD_LINE_H;
+    }
+    commonBlocks.push({
+      height: h,
+      render: (_d, x, yy) => {
+        let cy = yy;
+        txt(`${set.name} (${set.code.toUpperCase()})`, x, cy + 10, 8, "bold", 50);
+        cy += SET_HEADING_H;
+        for (const cg of set.colors) {
+          txt(cg.color, x + 2, cy + 8, 7, "bold", 110);
+          cy += COLOR_HEADING_H;
+          for (const card of cg.cards) {
+            cb(x + 4, cy + 7);
+            txt(card.name, x + 4 + CB_SIZE + 3, cy + 8, 8, "normal", 30);
+            if (card.tag) txtR(card.tag, x + COL_W, cy + 8, 7, 160);
+            cy += CARD_LINE_H;
+          }
+        }
+      },
+    });
+  }
+
+  // --- Build blocks for multiples ---
+  const multiBlocks: Block[] = [];
+  for (const m of data.multiples) {
+    const setsLine = m.sets.join(", ");
+    const charsPer = Math.floor(COL_W / 3.5);
+    const lines = Math.max(1, Math.ceil(setsLine.length / charsPer));
+    const h = CARD_LINE_H + lines * 9 + 2;
+    multiBlocks.push({
+      height: h,
+      render: (_d, x, yy) => {
+        cb(x, yy + 7);
+        txt(m.name, x + CB_SIZE + 3, yy + 8, 8, "bold", 30);
+        const wrapped = doc.splitTextToSize(setsLine, COL_W - 14) as string[];
+        let ly = yy + CARD_LINE_H + 1;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.setTextColor(120);
+        for (const line of wrapped) {
+          doc.text(line, x + CB_SIZE + 3, ly);
+          ly += 9;
+        }
+      },
+    });
+  }
+
+  // --- Render: flow blocks into columns ---
+  function flowSection(
+    title: string,
+    blocks: Block[],
+    startY: number,
+    startCol: number,
+  ): { y: number; col: number } {
+    let colY = startY;
+    let colIdx = startCol;
+
+    function colX() { return M_LEFT + colIdx * (COL_W + COL_GAP); }
+    function nextCol() {
+      colIdx++;
+      if (colIdx >= NUM_COLS) {
+        doc.addPage();
+        colIdx = 0;
       }
-
-      blocks.push({
-        type: "set",
-        height: h,
-        render: (_doc, x, yy) => {
-          let cy = yy;
-          txt(`${set.name} (${set.code.toUpperCase()})`, x, cy + 10, 8.5, "bold", 50);
-          cy += SET_HEADING_H;
-
-          for (const cg of set.colors) {
-            txt(cg.color, x + 2, cy + 9, 7.5, "bold", 110);
-            cy += COLOR_HEADING_H;
-
-            for (const card of cg.cards) {
-              checkbox(x + 4, cy + 7);
-              txt(card.name, x + 4 + CB_SIZE + 4, cy + 8, 8, "normal", 30);
-              if (card.tag) {
-                txtRight(card.tag, x + COL_W, cy + 8, 7, "normal", 160);
-              }
-              cy += CARD_LINE_H;
-            }
-          }
-        },
-      });
+      colY = M_TOP;
     }
+
+    // Section heading (full width)
+    if (colY > M_TOP + 4 || colIdx > 0) {
+      // Start new page for each major section
+      if (colIdx > 0 || colY > M_TOP + 20) {
+        doc.addPage();
+        colIdx = 0;
+        colY = M_TOP;
+      }
+    }
+    txt(title.toUpperCase(), M_LEFT, colY + 12, 10, "bold", 40);
+    hr(M_LEFT, PAGE_W - M_RIGHT, colY + 16);
+    colY += 24;
+
+    for (const block of blocks) {
+      if (colY + block.height > BOTTOM) nextCol();
+      block.render(doc, colX(), colY);
+      colY += block.height + 3;
+    }
+
+    return { y: colY, col: colIdx };
   }
 
-  // Multiples section
-  if (data.multiples.length > 0) {
-    blocks.push({
-      type: "multiples-heading",
-      height: 20,
-      render: (_doc, x, yy) => {
-        txt(`MULTIPLES — owned in 2+ sets (${data.multiples.length})`, x, yy + 12, 10, "bold", 40);
-        rule(x, x + COL_W, yy + 16);
-      },
-    });
-
-    for (const m of data.multiples) {
-      const setsLine = m.sets.map((s) => s.name).join(", ");
-      // Estimate wrapped height
-      const charsPer = Math.floor(COL_W / 4); // rough chars per line at font size 7
-      const lines = Math.ceil(setsLine.length / charsPer) || 1;
-      const h = CARD_LINE_H + lines * 9 + 4;
-
-      blocks.push({
-        type: "multiple",
-        height: h,
-        render: (_doc, x, yy) => {
-          checkbox(x, yy + 7);
-          txt(m.name, x + CB_SIZE + 4, yy + 8, 8, "bold", 30);
-          const wrapped = doc.splitTextToSize(setsLine, COL_W - 16) as string[];
-          let ly = yy + CARD_LINE_H + 2;
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(7);
-          doc.setTextColor(120);
-          for (const line of wrapped) {
-            doc.text(line, x + CB_SIZE + 4, ly);
-            ly += 9;
-          }
-        },
-      });
-    }
-  }
-
-  // --- Flow blocks into columns ---
-
-  // Draw the header on page 1
+  // --- Header ---
   txt("Scavenger List", M_LEFT, M_TOP + 14, 16, "bold", 20);
   txt(data.deckName, M_LEFT, M_TOP + 28, 10, "normal", 60);
   txt(
     `${data.commander}  ·  ${data.total} cards  ·  ${new Date().toLocaleDateString()}  ·  basic lands excluded`,
     M_LEFT, M_TOP + 40, 8, "normal", 120,
   );
-  rule(M_LEFT, PAGE_W - M_RIGHT, M_TOP + 46);
+  hr(M_LEFT, PAGE_W - M_RIGHT, M_TOP + 46);
 
-  let colY = M_TOP + 56; // start of content area on page 1
-  let colIdx = 0;
-
-  function colX(): number {
-    return M_LEFT + colIdx * (COL_W + COL_GAP);
+  // Rares section
+  if (rareBlocks.length > 0) {
+    flowSection(RARES, rareBlocks, M_TOP + 56, 0);
   }
 
-  function nextCol() {
-    colIdx++;
-    if (colIdx >= NUM_COLS) {
-      doc.addPage();
-      colIdx = 0;
-      colY = M_TOP;
-    } else {
-      colY = M_TOP + (doc.getNumberOfPages() === 1 ? 56 : 0);
-    }
+  // Commons section (new page)
+  if (commonBlocks.length > 0) {
+    flowSection(COMMONS, commonBlocks, M_TOP, 0);
   }
 
-  for (const block of blocks) {
-    // If block doesn't fit in this column, move to next
-    if (colY + block.height > BOTTOM) {
-      nextCol();
-    }
-
-    // If a tier/multiples heading, try to span all remaining columns
-    if (block.type === "tier-heading" || block.type === "multiples-heading") {
-      // If not at start of a column, advance to next column
-      if (colY > M_TOP + (doc.getNumberOfPages() === 1 ? 56 : 0) + 2) {
-        // Start a fresh row of columns for a new tier
-        nextCol();
-        // Reset to column 0 on this page for the heading
-        if (colIdx !== 0) {
-          doc.addPage();
-          colIdx = 0;
-          colY = M_TOP;
-        }
-      }
-      block.render(doc, M_LEFT, colY);
-      colY += block.height;
-      continue;
-    }
-
-    // For set/multiple blocks: if it's too tall for any single column,
-    // just render it and let it overflow (rare edge case)
-    block.render(doc, colX(), colY);
-    colY += block.height + 4;
+  // Multiples section (new page)
+  if (multiBlocks.length > 0) {
+    flowSection("Multiples — owned in 2+ sets", multiBlocks, M_TOP, 0);
   }
 
-  // --- Footer on every page ---
+  // --- Page footers ---
   const totalPages = doc.getNumberOfPages();
   for (let p = 1; p <= totalPages; p++) {
     doc.setPage(p);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    doc.setTextColor(170);
-    doc.text(`Page ${p} of ${totalPages}`, PAGE_W - M_RIGHT, PAGE_H - 24, { align: "right" });
-    doc.text(data.deckName, M_LEFT, PAGE_H - 24);
+    txt(data.deckName, M_LEFT, PAGE_H - 22, 7, "normal", 170);
+    txtR(`Page ${p} of ${totalPages}`, PAGE_W - M_RIGHT, PAGE_H - 22, 7, 170);
   }
 
   const safe = data.deckName.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "") || "deck";
