@@ -130,6 +130,38 @@ opening-hand math already shown in the deck stats (`p_2plus_lands_opening`, etc.
 
 ---
 
+## Feature detail: Scavenger list (print-ready PDF)
+
+A **🔎 Scavenger list** button on any deck view downloads a **print-ready PDF** — a physical
+pull-guide + checklist to actually find a deck's cards, laid out to match how the collection is
+stored (**by set, then color**). Entirely **client-side** (no backend).
+
+- **Files:** `clients/apps/web/src/lib/scavenger.ts` (data + PDF), `clients/apps/web/src/lib/
+  scryfallSets.ts` (`loadSetIndex()` — set names + release dates), and the button/handler in
+  `DeckView`. Uses **`jspdf`** (added to `apps/web`), **dynamically imported** (`await
+  import("jspdf")`) so it code-splits out of the main bundle.
+- **`buildScavengerData(deck, deckName)`** (async, returns a plain data object — testable, no
+  rendering): expands `deck.cards` by their **owned printings** (basics excluded); batch-fetches
+  Scryfall `/cards/collection` by **set + collector number** for per-printing **rarity + colors +
+  type_line**; uses `loadSetIndex()` for **full set names + release dates**.
+- **Output structure** (confirmed with Danko — PDF, not markdown):
+  - **Two lists**: *Rares & Mythics* (rare/mythic/special/bonus) then *Commons & Uncommons*.
+  - Each list grouped **set (newest-first, by `/sets` `released_at`) → color → alphabetical**.
+    Color order: White, Blue, Black, Red, Green, Multicolor, Colorless, **Lands** (own group).
+  - Each card line: a **drawn checkbox** + name + rarity tag (M/R/U/C) + collector #.
+  - Set headers spell out the **full name + code** (`Commander Legends (CMR)`); an **"Other"** group
+    catches printings whose set+collector didn't resolve (e.g. import missing a collector number).
+  - **Multiples** section: cards owned across **2+ sets**, listed once with **all set names spelled
+    out** (newest-first) — and still shown under each set-group above.
+- **`downloadScavengerPdf(data)`**: renders the data object to a one-column, paginated letter PDF
+  (manual layout, `doc.rect` checkboxes, page-break on `y > bottom`) and `doc.save()`s it.
+- **Reuse note:** `scryfallSets.ts` cache key was bumped to `mtg.sets.v2` when `released` was added.
+- **Known / out of scope:** ~14 pages for a 99-card deck (one column — a **two-column** layout would
+  ~halve it); an owned foil + nonfoil of the same printing lists twice (could **merge with ×N**); an
+  in-app rendered view and a name-based fallback for the "Other" bucket are possible later.
+
+---
+
 ## Architecture
 
 ### Backend (`backend/`)
