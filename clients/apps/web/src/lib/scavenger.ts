@@ -80,16 +80,29 @@ function setReleased(sets: SetIndex, code: string): string {
 
 export async function buildScavengerData(deck: GeneratedDeck, deckName: string): Promise<ScavData> {
   const ids: { set: string; collector_number: string }[] = [];
-  const entries: { name: string; set: string; collector: string }[] = [];
+  const entries: { name: string; set: string; collector: string; deckColors: string[]; deckType: string }[] = [];
   const cardSets = new Map<string, Set<string>>(); // card name -> distinct set codes owned
 
   for (const card of deck.cards) {
     if (card.oracle_id.startsWith("basic:")) continue;
-    for (const p of card.printings ?? []) {
+    const printings = card.printings ?? [];
+    if (printings.length === 0) {
+      // Card has no printing data (old saved deck) — still include it with a
+      // blank set so it appears in the list, using deck-level color/type.
+      entries.push({
+        name: card.name, set: "", collector: "",
+        deckColors: card.color_identity, deckType: card.type_line,
+      });
+      continue;
+    }
+    for (const p of printings) {
       if (!p.edition) continue;
       const set = p.edition.toLowerCase();
       const collector = p.collector_number ?? "";
-      entries.push({ name: card.name, set, collector });
+      entries.push({
+        name: card.name, set, collector,
+        deckColors: card.color_identity, deckType: card.type_line,
+      });
       if (collector) ids.push({ set, collector_number: collector });
       (cardSets.get(card.name) ?? cardSets.set(card.name, new Set()).get(card.name)!).add(set);
     }
@@ -101,10 +114,15 @@ export async function buildScavengerData(deck: GeneratedDeck, deckName: string):
   const grouped: Record<string, Record<string, Record<string, ScavCard[]>>> = {};
   for (const e of entries) {
     const d = data.get(`${e.set}:${e.collector}`);
-    const tier = d ? rarityTier(d.rarity) : OTHER;
-    const color = d ? colorGroup(d.colors, d.typeLine) : "—";
-    const tag = d ? RARITY_TAG[d.rarity] ?? "" : "";
-    (((grouped[tier] ??= {})[e.set] ??= {})[color] ??= []).push({ name: e.name, collector: e.collector, tag });
+    // Use Scryfall data when available; fall back to deck-level color_identity + type_line
+    const colors = d ? d.colors : e.deckColors;
+    const typeLine = d ? d.typeLine : e.deckType;
+    const rarity = d?.rarity ?? "";
+    const tier = rarity ? rarityTier(rarity) : OTHER;
+    const color = colorGroup(colors, typeLine);
+    const tag = rarity ? (RARITY_TAG[rarity] ?? "") : "";
+    const setKey = e.set || "unknown";
+    (((grouped[tier] ??= {})[setKey] ??= {})[color] ??= []).push({ name: e.name, collector: e.collector, tag });
   }
 
   const tiers: ScavTier[] = [];
