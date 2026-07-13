@@ -147,97 +147,187 @@ export async function buildScavengerData(deck: GeneratedDeck, deckName: string):
 }
 
 // ---- PDF rendering (jsPDF, dynamically imported so it code-splits out) ----
+
+// Layout constants (US Letter in points: 612 x 792)
+const M_LEFT = 50;           // left margin
+const M_RIGHT = 50;          // right margin
+const M_TOP = 50;            // top margin
+const M_BOTTOM = 50;         // bottom margin
+const PAGE_W = 612;
+const PAGE_H = 792;
+const CONTENT_W = PAGE_W - M_LEFT - M_RIGHT;
+const BOTTOM = PAGE_H - M_BOTTOM;
+
+// Spacing
+const TIER_HEADING_H = 32;   // height reserved for tier heading + rule
+const SET_HEADING_H = 20;    // height for a set name
+const COLOR_HEADING_H = 16;  // height for a color subgroup label
+const CARD_LINE_H = 15;      // height per card row
+const SECTION_GAP = 14;      // gap between sections
+const SET_GAP = 10;           // gap after a set
+const COLOR_GAP = 4;          // gap after a color group
+
+// Indent levels
+const INDENT_SET = 0;
+const INDENT_COLOR = 16;
+const INDENT_CHECKBOX = 30;
+const INDENT_NAME = 46;
+
+// Checkbox
+const CB_SIZE = 8;
+const CB_Y_OFFSET = -7;      // relative to text baseline
+
 export async function downloadScavengerPdf(data: ScavData): Promise<void> {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "letter" });
 
-  const M = 48;              // margin
-  const PAGE_H = 792;
-  const BOTTOM = PAGE_H - M;
-  let y = M;
+  let y = M_TOP;
+  let pageNum = 1;
 
-  const ensure = (h: number) => {
-    if (y + h > BOTTOM) {
-      doc.addPage();
-      y = M;
-    }
-  };
-  const text = (s: string, x: number, size: number, bold: boolean, gray = 40) => {
-    doc.setFont("helvetica", bold ? "bold" : "normal");
+  // --- helpers ---
+  function newPage() {
+    doc.addPage();
+    y = M_TOP;
+    pageNum++;
+  }
+
+  function ensure(h: number) {
+    if (y + h > BOTTOM) newPage();
+  }
+
+  function drawText(s: string, x: number, size: number, style: "normal" | "bold" | "italic", gray: number) {
+    doc.setFont("helvetica", style);
     doc.setFontSize(size);
     doc.setTextColor(gray);
-    doc.text(s, x, y);
-  };
+    doc.text(s, M_LEFT + x, y);
+  }
 
-  // Header
-  text(`Scavenger List — ${data.deckName}`, M, 18, true, 20);
-  y += 20;
-  text(
-    `${data.commander} · ${data.total} cards · ${new Date().toLocaleDateString()} · basic lands excluded`,
-    M, 10, false, 120,
+  function drawTextRight(s: string, size: number, style: "normal" | "bold" | "italic", gray: number) {
+    doc.setFont("helvetica", style);
+    doc.setFontSize(size);
+    doc.setTextColor(gray);
+    doc.text(s, PAGE_W - M_RIGHT, y, { align: "right" });
+  }
+
+  function drawCheckbox(x: number) {
+    doc.setDrawColor(140);
+    doc.setLineWidth(0.6);
+    doc.rect(M_LEFT + x, y + CB_Y_OFFSET, CB_SIZE, CB_SIZE);
+  }
+
+  function drawRule(yPos: number) {
+    doc.setDrawColor(190);
+    doc.setLineWidth(0.6);
+    doc.line(M_LEFT, yPos, PAGE_W - M_RIGHT, yPos);
+  }
+
+  // --- Header ---
+  drawText("Scavenger List", 0, 20, "bold", 20);
+  y += 6;
+  drawText(data.deckName, 0, 13, "normal", 60);
+  y += 18;
+  drawText(
+    `${data.commander}  ·  ${data.total} cards  ·  ${new Date().toLocaleDateString()}  ·  basic lands excluded`,
+    0, 9, "normal", 120,
   );
-  y += 22;
+  y += 6;
+  drawRule(y);
+  y += SECTION_GAP;
 
+  // --- Tier sections ---
   for (const tier of data.tiers) {
-    ensure(40);
-    text(tier.title.toUpperCase(), M, 14, true, 20);
-    y += 6;
-    doc.setDrawColor(200);
-    doc.setLineWidth(0.8);
-    doc.line(M, y, 612 - M, y);
-    y += 16;
+    // Tier heading
+    ensure(TIER_HEADING_H + SET_HEADING_H);
+    drawText(tier.title.toUpperCase(), 0, 13, "bold", 30);
+    y += 4;
+    drawRule(y);
+    y += SECTION_GAP;
 
-    for (const set of tier.sets) {
-      ensure(26);
-      text(`${set.name} (${set.code.toUpperCase()})`, M, 11, true, 30);
-      y += 16;
+    for (let si = 0; si < tier.sets.length; si++) {
+      const set = tier.sets[si];
+
+      // Count total cards in this set to decide if we should page-break before
+      const setCardCount = set.colors.reduce((sum, cg) => sum + cg.cards.length, 0);
+      const setMinH = SET_HEADING_H + COLOR_HEADING_H + Math.min(setCardCount, 3) * CARD_LINE_H;
+      ensure(setMinH);
+
+      // Set heading
+      drawText(`${set.name}  (${set.code.toUpperCase()})`, INDENT_SET, 11, "bold", 40);
+      y += SET_HEADING_H;
 
       for (const cg of set.colors) {
-        ensure(24);
-        text(cg.color, M + 14, 9.5, true, 90);
-        y += 14;
-        for (const c of cg.cards) {
-          ensure(14);
-          doc.setDrawColor(130);
-          doc.setLineWidth(0.7);
-          doc.rect(M + 28, y - 8, 9, 9);
-          text(c.name, M + 44, 10, false, 40);
-          const meta = [c.tag, c.collector ? `#${c.collector}` : ""].filter(Boolean).join("  ");
-          if (meta) text(meta, 612 - M - 60, 8.5, false, 150);
-          y += 14;
+        ensure(COLOR_HEADING_H + CARD_LINE_H);
+
+        // Color subgroup label
+        drawText(cg.color, INDENT_COLOR, 9, "bold", 100);
+        y += COLOR_HEADING_H;
+
+        for (const card of cg.cards) {
+          ensure(CARD_LINE_H);
+
+          // Checkbox
+          drawCheckbox(INDENT_CHECKBOX);
+
+          // Card name
+          drawText(card.name, INDENT_NAME, 10, "normal", 30);
+
+          // Right-aligned: rarity tag + collector number
+          const parts: string[] = [];
+          if (card.tag) parts.push(card.tag);
+          if (card.collector) parts.push(`#${card.collector}`);
+          if (parts.length) {
+            drawTextRight(parts.join("   "), 8, "normal", 160);
+          }
+
+          y += CARD_LINE_H;
         }
-        y += 4;
+        y += COLOR_GAP;
+      }
+      y += SET_GAP;
+    }
+    y += SECTION_GAP;
+  }
+
+  // --- Multiples section ---
+  if (data.multiples.length > 0) {
+    ensure(TIER_HEADING_H + 30);
+    drawText(`MULTIPLES  —  owned in 2+ sets  (${data.multiples.length})`, 0, 13, "bold", 30);
+    y += 4;
+    drawRule(y);
+    y += SECTION_GAP;
+
+    for (const m of data.multiples) {
+      ensure(CARD_LINE_H + 14);
+
+      // Checkbox + card name
+      drawCheckbox(0);
+      drawText(m.name, 16, 10, "bold", 30);
+      y += CARD_LINE_H;
+
+      // Set list underneath, indented
+      const setsLine = m.sets.map((s) => `${s.name} (${s.code.toUpperCase()})`).join(",  ");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(120);
+      const wrapped = doc.splitTextToSize(setsLine, CONTENT_W - 24) as string[];
+      for (const line of wrapped) {
+        ensure(11);
+        doc.text(line, M_LEFT + 20, y);
+        y += 11;
       }
       y += 6;
     }
-    y += 8;
   }
 
-  if (data.multiples.length > 0) {
-    ensure(40);
-    text(`MULTIPLES — owned in 2+ sets (${data.multiples.length})`, M, 14, true, 20);
-    y += 6;
-    doc.setDrawColor(200);
-    doc.line(M, y, 612 - M, y);
-    y += 16;
-    for (const m of data.multiples) {
-      ensure(26);
-      doc.setDrawColor(130);
-      doc.setLineWidth(0.7);
-      doc.rect(M, y - 8, 9, 9);
-      text(m.name, M + 16, 10, true, 30);
-      y += 13;
-      const setsLine = m.sets.map((s) => `${s.name} (${s.code.toUpperCase()})`).join(", ");
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(120);
-      for (const line of doc.splitTextToSize(setsLine, 612 - 2 * M - 24) as string[]) {
-        ensure(12);
-        doc.text(line, M + 20, y);
-        y += 12;
-      }
-      y += 4;
-    }
+  // --- Footer on every page ---
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(170);
+    doc.text(`Page ${p} of ${totalPages}`, PAGE_W - M_RIGHT, PAGE_H - 28, { align: "right" });
+    doc.text(data.deckName, M_LEFT, PAGE_H - 28);
   }
 
   const safe = data.deckName.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "") || "deck";
