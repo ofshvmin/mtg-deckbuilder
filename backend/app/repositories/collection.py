@@ -168,3 +168,13 @@ async def remove_item(db: AsyncDatabase, user_id: str, oracle_id: str) -> bool:
         {"user_id": user_id, "oracle_id": oracle_id}
     )
     return result.deleted_count > 0
+
+
+async def batch_add_items(db: AsyncDatabase, user_id: str, items: list[dict]) -> int:
+    """Bulk-insert multiple cards into the user's collection. Returns count added."""
+    if not items:
+        return 0
+    for item in items:
+        item["user_id"] = user_id
+    await db.collection_items.insert_many(items, ordered=False)
+    return len(items)

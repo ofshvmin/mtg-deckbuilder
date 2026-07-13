@@ -15,11 +15,13 @@ export default function DecksPage() {
   const deepOpened = useRef(false);
   const [decks, setDecks] = useState<SavedDeckSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [openDeck, setOpenDeck] = useState<{ id: string; name: string; deck: GeneratedDeck } | null>(
+  const [openDeck, setOpenDeck] = useState<{ id: string; name: string; deck: GeneratedDeck; source?: string | null } | null>(
     null,
   );
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [comparing, setComparing] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const loadDecks = useCallback(() => {
     api
@@ -44,7 +46,7 @@ export default function DecksPage() {
     setError(null);
     try {
       const saved = await api.getSavedDeck(id);
-      setOpenDeck({ id: saved.id, name: saved.name, deck: saved.deck });
+      setOpenDeck({ id: saved.id, name: saved.name, deck: saved.deck, source: saved.source });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load deck");
     } finally {
@@ -82,6 +84,22 @@ export default function DecksPage() {
     });
   }
 
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else if (next.size < 2) next.add(id);
+      return next;
+    });
+  }
+
+  function handleCompare() {
+    const ids = [...selected];
+    if (ids.length === 2) {
+      navigate(`/compare?a=${encodeURIComponent(ids[0])}&b=${encodeURIComponent(ids[1])}`);
+    }
+  }
+
   if (openDeck) {
     return (
       <div className="space-y-6">
@@ -98,7 +116,8 @@ export default function DecksPage() {
           deckName={openDeck.name}
           deckId={openDeck.id}
           onSaved={onSaved}
-          onEdit={editInBuilder}
+          onEdit={openDeck.source ? undefined : editInBuilder}
+          showOwnership={!!openDeck.source}
         />
       </div>
     );
@@ -106,7 +125,32 @@ export default function DecksPage() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-2xl font-semibold">Saved decks</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-2xl font-semibold">Saved decks</h2>
+        {decks.length >= 2 && (
+          <div className="flex items-center gap-2">
+            {comparing && selected.size === 2 && (
+              <button
+                onClick={handleCompare}
+                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-500"
+              >
+                Compare Selected
+              </button>
+            )}
+            <button
+              onClick={() => { setComparing((c) => !c); setSelected(new Set()); }}
+              className={
+                "rounded-lg border px-3 py-1.5 text-sm transition " +
+                (comparing
+                  ? "border-indigo-600 bg-indigo-600/20 text-indigo-300"
+                  : "border-slate-700 text-slate-300 hover:bg-slate-800")
+              }
+            >
+              {comparing ? "Cancel" : "Compare"}
+            </button>
+          </div>
+        )}
+      </div>
       {error && <p className="text-rose-400">{error}</p>}
       {loading ? (
         <p className="text-slate-400">Loading decks…</p>
@@ -119,16 +163,33 @@ export default function DecksPage() {
           {decks.map((d) => (
             <div
               key={d.id}
-              className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 transition hover:border-slate-700"
+              className={
+                "group overflow-hidden rounded-xl border bg-slate-900/60 transition " +
+                (comparing && selected.has(d.id)
+                  ? "border-indigo-500 ring-2 ring-indigo-500/40"
+                  : "border-slate-800 hover:border-slate-700")
+              }
             >
               <button
-                onClick={() => open(d.id)}
-                disabled={opening}
+                onClick={() => comparing ? toggleSelect(d.id) : open(d.id)}
+                disabled={!comparing && opening}
                 className="block w-full text-left"
-                title={`Open ${d.name}`}
+                title={comparing ? `Select ${d.name}` : `Open ${d.name}`}
               >
                 <CommanderArt name={d.commander_name} className="h-40">
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+                  {comparing && (
+                    <div className="absolute left-2 top-2">
+                      <div className={
+                        "flex h-6 w-6 items-center justify-center rounded-full border-2 text-xs font-bold " +
+                        (selected.has(d.id)
+                          ? "border-indigo-500 bg-indigo-600 text-white"
+                          : "border-slate-400 bg-slate-900/80 text-slate-400")
+                      }>
+                        {selected.has(d.id) ? "✓" : ""}
+                      </div>
+                    </div>
+                  )}
                   {d.bracket != null && (
                     <div className="absolute right-2 top-2">
                       <BracketBadge
@@ -147,6 +208,7 @@ export default function DecksPage() {
               <div className="flex items-center justify-between gap-2 px-3 py-2">
                 <p className="min-w-0 truncate text-xs text-slate-400">
                   {d.commander_name} · {formatColorIdentity(d.color_identity)} · {d.total} cards
+                  {d.source && <span className="ml-1 text-slate-600">· {d.source}</span>}
                 </p>
                 <button
                   onClick={() => remove(d.id)}

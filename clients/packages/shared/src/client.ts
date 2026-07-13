@@ -8,6 +8,7 @@
 
 import type {
   AuthTokens,
+  BatchAddResult,
   BriefDeckResponse,
   CardSearchResult,
   ComboFinisher,
@@ -15,6 +16,8 @@ import type {
   CollectionItem,
   CollectionSummary,
   CommanderOption,
+  ExternalDeckResponse,
+  ExternalDeckSummary,
   GeneratedDeck,
   HealthStatus,
   ImportResult,
@@ -229,10 +232,33 @@ export class ApiClient {
     });
   }
 
+  // ---- Explore (external decks) ----
+
+  searchExternalDecks(commander: string, pageSize = 20): Promise<ExternalDeckSummary[]> {
+    const qs = `?commander=${encodeURIComponent(commander)}&page_size=${pageSize}`;
+    return this.request<ExternalDeckSummary[]>("GET", `/explore/search${qs}`);
+  }
+
+  fetchExternalDeck(opts: { url?: string; archidektId?: string }): Promise<ExternalDeckResponse> {
+    const params = new URLSearchParams();
+    if (opts.url) params.set("url", opts.url);
+    if (opts.archidektId) params.set("archidekt_id", opts.archidektId);
+    return this.request<ExternalDeckResponse>("GET", `/explore/deck?${params.toString()}`);
+  }
+
+  batchAddToCollection(
+    cards: { name: string; oracle_id?: string; edition?: string; collector_number?: string; finish?: string; count?: number }[],
+    mode: "ignore_duplicates" | "import_all",
+  ): Promise<BatchAddResult> {
+    return this.request<BatchAddResult>("POST", "/collection/batch-add", {
+      body: { cards, mode },
+    });
+  }
+
   // ---- Saved decks ----
 
-  saveDeck(name: string, deck: GeneratedDeck): Promise<SavedDeck> {
-    return this.request<SavedDeck>("POST", "/decks/save", { body: { name, deck } });
+  saveDeck(name: string, deck: GeneratedDeck, opts?: { source?: string; source_url?: string }): Promise<SavedDeck> {
+    return this.request<SavedDeck>("POST", "/decks/save", { body: { name, deck, ...opts } });
   }
 
   listSavedDecks(): Promise<SavedDeckSummary[]> {

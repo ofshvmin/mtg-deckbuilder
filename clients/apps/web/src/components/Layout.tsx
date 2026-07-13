@@ -82,6 +82,7 @@ export default function Layout() {
             <nav className="hidden items-center gap-1 sm:flex">
               <NavLink to="/collection" className={navClass}>Collection</NavLink>
               <NavLink to="/build" className={navClass}>Build</NavLink>
+              <NavLink to="/explore" className={navClass}>Explore</NavLink>
               <NavLink to="/decks" className={navClass}>
                 Decks
                 {savedCount > 0 && (
@@ -139,6 +140,7 @@ export default function Layout() {
           <nav className="flex flex-col border-t border-slate-800 px-4 py-2 sm:hidden">
             <NavLink to="/collection" className={navClass} onClick={() => setMobileNav(false)}>Collection</NavLink>
             <NavLink to="/build" className={navClass} onClick={() => setMobileNav(false)}>Build</NavLink>
+            <NavLink to="/explore" className={navClass} onClick={() => setMobileNav(false)}>Explore</NavLink>
             <NavLink to="/decks" className={navClass} onClick={() => setMobileNav(false)}>
               Decks {savedCount > 0 && `(${savedCount})`}
             </NavLink>

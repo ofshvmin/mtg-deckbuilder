@@ -55,12 +55,14 @@ export default function DeckCardList({
   locked,
   onToggleLock,
   columnsClassName = "columns-1 sm:columns-2",
+  showOwnership,
 }: {
   cards: DeckCard[];
   onRemove?: (oracleId: string) => void;
   locked?: Set<string>;
   onToggleLock?: (oracleId: string) => void;
   columnsClassName?: string;
+  showOwnership?: boolean;
 }) {
   const [modal, setModal] = useState<CardModalData | null>(null);
   const { hover, onEnter, onLeave } = useCardHover();
@@ -132,6 +134,7 @@ export default function DeckCardList({
                     onClick={() => setModal(deckCardToModal(c))}
                     onHoverEnter={onEnter}
                     onHoverLeave={onLeave}
+                    unowned={showOwnership && (!c.printings || c.printings.length === 0)}
                   />
                 ))}
               </ul>
@@ -154,6 +157,7 @@ export default function DeckCardList({
                     onRemove={onRemove}
                     locked={locked?.has(c.oracle_id)}
                     onToggleLock={onToggleLock}
+                    unowned={showOwnership && (!c.printings || c.printings.length === 0)}
                   />
                 ))}
               </div>
@@ -180,6 +184,7 @@ export default function DeckCardList({
                       onRemove={onRemove}
                       locked={locked?.has(c.oracle_id)}
                       onToggleLock={onToggleLock}
+                      unowned={showOwnership && (!c.printings || c.printings.length === 0)}
                     />
                   </div>
                 ))}
@@ -206,17 +211,19 @@ function ImageCell({
   onRemove,
   locked,
   onToggleLock,
+  unowned,
 }: {
   card: DeckCard;
   onClick: () => void;
   onRemove?: (oracleId: string) => void;
   locked?: boolean;
   onToggleLock?: (oracleId: string) => void;
+  unowned?: boolean;
 }) {
   const printing = displayPrinting(card);
   const highSynergy = card.quality >= 0.3;
   return (
-    <div className="group relative">
+    <div className={"group relative" + (unowned ? " opacity-50 grayscale" : "")}>
       <button onClick={onClick} className="block w-full" title={card.name}>
         <CardImage
           printing={printing}
@@ -272,6 +279,7 @@ function DeckRow({
   onClick,
   onHoverEnter,
   onHoverLeave,
+  unowned,
 }: {
   card: DeckCard;
   onRemove?: (oracleId: string) => void;
@@ -280,13 +288,17 @@ function DeckRow({
   onClick: () => void;
   onHoverEnter: (e: React.MouseEvent, name: string, printing?: Printing) => void;
   onHoverLeave: () => void;
+  unowned?: boolean;
 }) {
   const highSynergy = card.quality >= 0.3;
   const firstPrinting = card.printings?.[0];
   return (
     <li className="group flex items-center gap-2 px-3 py-1.5 text-sm sm:px-4">
       <span
-        className="min-w-0 flex-1 cursor-pointer truncate text-slate-200 hover:text-emerald-300"
+        className={
+          "min-w-0 flex-1 cursor-pointer truncate hover:text-emerald-300" +
+          (unowned ? " italic text-slate-500" : " text-slate-200")
+        }
         onClick={onClick}
         onMouseEnter={(e) => onHoverEnter(e, card.name, firstPrinting)}
         onMouseLeave={onHoverLeave}

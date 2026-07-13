@@ -34,12 +34,14 @@ export default function DeckView({
   deckId,
   onSaved,
   onEdit,
+  showOwnership,
 }: {
   deck: GeneratedDeck;
   deckName?: string;
   deckId?: string;
   onSaved?: () => void;
   onEdit?: (deck: GeneratedDeck) => void;
+  showOwnership?: boolean;
 }) {
   const { user } = useAuth();
   const maxPrice = user?.preferences?.max_card_price ?? null;
@@ -279,7 +281,7 @@ export default function DeckView({
       )}
 
       {/* Regenerate toolbar: pin cards to keep, reroll the rest */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800/60 bg-slate-900/30 px-4 py-2">
+      {!showOwnership && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800/60 bg-slate-900/30 px-4 py-2">
         <span className="text-xs text-slate-500">
           📌 Pin cards to keep, then regenerate to rebuild the rest around them.
           {locked.size > 0 && (
@@ -307,16 +309,17 @@ export default function DeckView({
                 : "🎲 Regenerate deck"}
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Featured deck list (left) + combos as blocks (right) */}
       <div className={hasCombos ? "grid gap-6 lg:grid-cols-3" : ""}>
         <div className={hasCombos ? "lg:col-span-2" : ""}>
           <DeckCardList
             cards={deck.cards}
-            locked={locked}
-            onToggleLock={toggleLock}
+            locked={showOwnership ? undefined : locked}
+            onToggleLock={showOwnership ? undefined : toggleLock}
             columnsClassName={hasCombos ? "columns-1 sm:columns-2" : "columns-1 sm:columns-2 lg:columns-3"}
+            showOwnership={showOwnership}
           />
         </div>
 

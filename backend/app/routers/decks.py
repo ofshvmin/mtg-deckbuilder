@@ -598,7 +598,10 @@ async def save_deck(body: SaveDeckRequest, current_user: dict = Depends(get_curr
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Deck name cannot be empty.")
     database = db.get_db()
     deck_data = body.deck.model_dump()
-    deck_id = await decks_repo.save_deck(database, current_user["_id"], name, deck_data)
+    deck_id = await decks_repo.save_deck(
+        database, current_user["_id"], name, deck_data,
+        source=body.source, source_url=body.source_url,
+    )
     saved = await decks_repo.get_deck(database, current_user["_id"], deck_id)
     return SavedDeckResponse(
         id=saved["_id"],
@@ -606,6 +609,8 @@ async def save_deck(body: SaveDeckRequest, current_user: dict = Depends(get_curr
         deck=saved["deck"],
         created_at=saved["created_at"],
         updated_at=saved["updated_at"],
+        source=saved.get("source"),
+        source_url=saved.get("source_url"),
     )
 
 
@@ -627,6 +632,7 @@ async def list_saved_decks(current_user: dict = Depends(get_current_user)):
                 updated_at=doc["updated_at"],
                 bracket=b.get("bracket"),
                 bracket_label=b.get("label"),
+                source=doc.get("source"),
             )
         )
     return summaries
@@ -644,6 +650,8 @@ async def get_saved_deck(deck_id: str, current_user: dict = Depends(get_current_
         deck=doc["deck"],
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
+        source=doc.get("source"),
+        source_url=doc.get("source_url"),
     )
 
 

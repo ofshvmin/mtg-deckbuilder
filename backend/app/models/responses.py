@@ -220,6 +220,8 @@ class ImportResultResponse(BaseModel):
 class SaveDeckRequest(BaseModel):
     name: str
     deck: GeneratedDeckResponse
+    source: str | None = None
+    source_url: str | None = None
 
 
 class UpdateDeckRequest(BaseModel):
@@ -233,6 +235,8 @@ class SavedDeckResponse(BaseModel):
     deck: GeneratedDeckResponse
     created_at: str
     updated_at: str
+    source: str | None = None
+    source_url: str | None = None
 
 
 class SavedDeckSummary(BaseModel):
@@ -245,3 +249,30 @@ class SavedDeckSummary(BaseModel):
     updated_at: str
     bracket: int | None = None
     bracket_label: str | None = None
+    source: str | None = None
+
+
+class ExternalDeckSummary(BaseModel):
+    external_id: str
+    source: str
+    name: str
+    owner: str
+    card_count: int
+    url: str
+    commander_name: str | None = None
+    color_identity: list[str] = []
+
+
+class ExternalDeckResponse(BaseModel):
+    source: str
+    source_url: str
+    name: str
+    owner: str
+    deck: GeneratedDeckResponse
+    unowned_count: int
+    owned_count: int
+
+
+class BatchAddResult(BaseModel):
+    added: int
+    skipped: int
