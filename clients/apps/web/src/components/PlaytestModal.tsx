@@ -48,6 +48,8 @@ function PlayCard({
   label,
   onClick,
   onRightClick,
+  onHover,
+  onLeave,
   tall = false,
 }: {
   card: LibCard;
@@ -56,9 +58,10 @@ function PlayCard({
   label?: string;
   onClick?: () => void;
   onRightClick?: () => void;
-  tall?: boolean;  // true = full size, false = compact (lands on bf)
+  onHover?: () => void;
+  onLeave?: () => void;
+  tall?: boolean;
 }) {
-  // Tall cards: hand + creatures. Compact: lands on battlefield.
   const imgClass = tall ? "h-[180px] w-[129px]" : "h-[100px] w-[72px]";
 
   return (
@@ -73,7 +76,8 @@ function PlayCard({
       onContextMenu={(e) => {
         if (onRightClick) { e.preventDefault(); onRightClick(); }
       }}
-      title={card.name + (label ? ` — ${label}` : "")}
+      onMouseEnter={onHover}
+      onMouseLeave={onLeave}
     >
       <img
         src={cardImg(card.name)}
@@ -142,6 +146,7 @@ export default function PlaytestModal({
   const [toBottom, setToBottom] = useState<Set<string>>(new Set());
   const [stats, setStats] = useState<OpenerStats | null>(null);
   const [gySidebar, setGySidebar] = useState(false);
+  const [hoveredCard, setHoveredCard] = useState<string | null>(null); // card name for zoom
 
   const nextTurn = useCallback(() => {
     setGame((g) => {
@@ -319,7 +324,9 @@ export default function PlaytestModal({
                   {nonlandsInPlay.map((c) => (
                     <PlayCard key={c.uid} card={c} tapped={c.tapped} tall
                       onClick={() => tapToggle(c.uid)}
-                      onRightClick={() => toGraveyard(c.uid, "battlefield")} />
+                      onRightClick={() => toGraveyard(c.uid, "battlefield")}
+                      onHover={() => setHoveredCard(c.name)}
+                      onLeave={() => setHoveredCard(null)} />
                   ))}
                 </div>
               </div>
@@ -341,7 +348,9 @@ export default function PlaytestModal({
                 {landsInPlay.map((c) => (
                   <PlayCard key={c.uid} card={c} tapped={c.tapped}
                     onClick={() => tapToggle(c.uid)}
-                    onRightClick={() => toGraveyard(c.uid, "battlefield")} />
+                    onRightClick={() => toGraveyard(c.uid, "battlefield")}
+                    onHover={() => setHoveredCard(c.name)}
+                    onLeave={() => setHoveredCard(null)} />
                 ))}
               </div>
             </div>
@@ -386,7 +395,9 @@ export default function PlaytestModal({
                   if (game.phase === "bottoming") toggleBottom(c.uid);
                   else if (canPlay) playCard(c.uid);
                 }}
-                onRightClick={game.phase === "play" ? () => toGraveyard(c.uid, "hand") : undefined} />
+                onRightClick={game.phase === "play" ? () => toGraveyard(c.uid, "hand") : undefined}
+                onHover={() => setHoveredCard(c.name)}
+                onLeave={() => setHoveredCard(null)} />
             );
           })}
           {game.hand.length === 0 && game.phase === "play" && (
@@ -404,7 +415,8 @@ export default function PlaytestModal({
           </div>
           <div className="space-y-1.5">
             {game.graveyard.map((c) => (
-              <div key={c.uid} className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-slate-800/60">
+              <div key={c.uid} className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-slate-800/60"
+                onMouseEnter={() => setHoveredCard(c.name)} onMouseLeave={() => setHoveredCard(null)}>
                 <img src={cardImg(c.name)} alt="" className="h-14 w-10 shrink-0 rounded object-contain bg-slate-900" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-slate-200">{c.name}</div>
@@ -418,6 +430,17 @@ export default function PlaytestModal({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Hover zoom — large card centered on screen */}
+      {hoveredCard && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
+          <img
+            src={scryfallNamedImageUrl(hoveredCard, "large")}
+            alt={hoveredCard}
+            className="h-[480px] w-[344px] rounded-2xl border-2 border-slate-600 object-contain shadow-2xl shadow-black/80"
+          />
         </div>
       )}
     </div>
