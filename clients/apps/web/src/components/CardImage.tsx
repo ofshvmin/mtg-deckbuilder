@@ -54,14 +54,18 @@ export default function CardImage({
 
   function handleError() {
     if (face === "back") {
-      // Back face failed — just show "no image" rather than falling back to
-      // a name lookup (which would return the front face anyway).
       setFailed(true);
       return;
     }
     const named = scryfallNamedImageUrl(name);
-    if (!triedFallback && src !== named) {
-      setSrc(named);
+    if (!triedFallback) {
+      // If the initial URL was already the named URL (no printing data),
+      // retry it once with a cache-bust param in case of a transient error.
+      if (src === named) {
+        setSrc(named + (named.includes("?") ? "&" : "?") + "_r=1");
+      } else {
+        setSrc(named);
+      }
       setTriedFallback(true);
     } else {
       setFailed(true);
