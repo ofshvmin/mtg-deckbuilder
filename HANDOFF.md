@@ -1,6 +1,6 @@
 # Handoff — MTG Deck Builder
 
-Updated 2026-07-12. Self-contained onboarding for a fresh clone — the project's machine-local
+Updated 2026-07-13. Self-contained onboarding for a fresh clone — the project's machine-local
 memory and per-feature design plans (kept under `~/.claude/`, not in git) have been folded into
 this document.
 
@@ -12,8 +12,8 @@ The app is named **Grimoire** (an MTG Commander deck builder). Everything is **d
 - **Backend:** FastAPI on Fly.io at `https://mtg-deckbuilder-api.fly.dev`
 - **Frontend:** React SPA on Vercel at `https://mtg-deckbuilder-bice.vercel.app`
 - **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K+ oracle cards, 96K+ combos
-- **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`, latest ~`b57e6ae`, clean
-- **Backend tests:** **134 passing** (`pytest`)
+- **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`
+- **Backend tests:** **101 passing** (`pytest`, excluding tests needing fastapi/pymongo in env)
 
 The app: import your card collection, pick a commander, and build a legal, mana-curved, synergy/
 combo-tuned 99-card Commander deck in one of **four ways** — auto-build, build by hand, **lock &
@@ -62,7 +62,7 @@ and a per-deck-card `selected_printing_key` — the seams for future value/image
 - **Manual deck builder:** Build page Auto/Manual toggle. Manual mode = pool picker + a live
   working deck that recomputes categories + stats as you add/remove cards, via `POST /decks/compose`.
 
-**Shipped 2026-07-10 → 07-12 (this wave — all live):**
+**Shipped 2026-07-10 → 07-13 (this wave — all live):**
 - **Import fixes:** Dragon Shield quoted-`sep=`/delimiter handling; **Android "Failed to fetch"**
   (read the picked file to memory with `arrayBuffer()` before upload — Android's picker hands a
   lazy `content://` ref `fetch` can't read). Add-card printing picker.
@@ -87,78 +87,101 @@ and a per-deck-card `selected_printing_key` — the seams for future value/image
   Claude (Anthropic API via httpx, forced tool-use) picks **core cards from the owned pool** + build
   knobs → validated → `generate(locked_ids=core, strategy, theme, quotas, avoid_combos, land_count)`.
   Build page "✨ Describe" mode; `AiPlanPanel` shows Claude's rationale + core cards. Needs `CLAUDE_API`.
+- **Theme matching robustness** (`themes.py`): now checks card names (word-boundary), full type
+  lines, and handles multi-word themes by extracting distinctive keywords with stopword filtering.
+  "Urza's lands" matches Urza's Tower/Mine/etc.
+- **Manual builder suggestions**: "Get suggestions" button runs the auto-builder with current
+  strategy/theme and highlights recommended cards in the pool picker. Strategy/theme controls shared
+  between auto and manual modes.
+- **Regenerate variety**: `jitter` parameter (0.8) adds random scoring bonus when locked cards are
+  present, so unlocked slots get different picks each time.
+- **Visual playtester** (full rewrite): full-screen board with Scryfall card images, card zones
+  (battlefield, hand, graveyard, exile, library, command zone), click-to-select action popup
+  (Play/Cast, Discard, Exile, Tap/Untap, Sacrifice, Return), drag-and-drop between zones,
+  commander in command zone, library/graveyard/exile browsers with card movement, undo (Ctrl+Z,
+  50-state history), shuffle button, Monte Carlo stats shown by default. No rule enforcement — user
+  manages their own rules.
+- **Scavenger list PDF** (rewrite): 3-column print-ready PDF. Rares flat alphabetical per set;
+  Commons by set → color → alphabetical. Sets merged into supersets via `parent_set_code` + name-
+  prefix heuristic. Rarity fetched by set+collector with card-name fallback. Color grouping from
+  deck data as fallback. Page footers with deck name + page numbers.
+- **Mobile responsive**: hamburger nav, compact toolbars, `overflow-x: hidden` on `<html>` (iOS
+  Safari), `overscroll-behavior: none`, mana costs/printing chips hidden on mobile card rows, hover
+  preview disabled on touch devices (`pointer: coarse`), zone browsers go full-screen on mobile.
+- **Card image fix**: retry named URL with cache-bust param when initial and fallback URLs are
+  identical (fixes "No image found" on unowned combo cards).
 
 ---
 
-## Feature detail: Playtest (goldfish) simulator
+## Feature detail: Playtest (visual goldfish simulator)
 
-A **🎴 Playtest** button on any deck view (built or saved) opens a goldfish simulator to feel a
-deck's opening consistency. It is **entirely client-side** — no backend, no API — operating on the
-deck's own card list.
+A **Playtest** button on any deck view opens a **full-screen visual goldfish simulator** with actual
+MTG card art from Scryfall. Entirely **client-side** — no backend, no API.
 
-- **Files:** `clients/apps/web/src/lib/playtest.ts` (pure sim helpers, no React) and
-  `clients/apps/web/src/components/PlaytestModal.tsx` (the modal UI). Wired into `DeckView` via a
-  `playtesting` state + the Playtest button.
-- **Library construction (`buildLibrary(cards)`):** expands `deck.cards` into a flat array, one
-  entry per physical copy (respecting `count`, so basics appear N times). The **commander is not in
-  the library** (it lives in the command zone). A card is a land if `slot === "land"` or its
-  `type_line` contains "Land". Each `LibCard` carries `{ uid, oracle_id, name, mana_cost, cmc,
-  type_line, isLand }`.
+- **Files:** `clients/apps/web/src/lib/playtest.ts` (pure sim helpers) and
+  `clients/apps/web/src/components/PlaytestModal.tsx` (the UI).
+- **Library construction (`buildLibrary`):** expands `deck.cards` into a flat array (one per
+  physical copy). Each `LibCard` carries `{ uid, oracle_id, name, mana_cost, cmc, type_line,
+  isLand, isCreature, etbTapped }`. Commander is in the **command zone**, not the library.
 
-**Interactive mode** (`PlaytestModal`, a `Game` state machine with phases `mulligan → bottoming →
-play`):
-- Shuffle the 99-card library (Fisher-Yates, `shuffle()`), draw an opening 7.
-- **London mulligan:** "Mulligan (to N)" reshuffles everything and redraws 7, incrementing the
-  mulligan count. On **Keep** after M mulligans you enter *bottoming*: click M cards to put on the
-  bottom, then Confirm (they move to the end of the library). Zero mulligans → straight to play.
-- **Turn stepping:** "Draw for turn" draws 1 and increments the turn; you may **play one land per
-  turn** (click a land in hand → it moves to the battlefield). `landPlayedThisTurn` gates a second.
-- **Mana model (simplification):** mana available = **number of lands in play**; card **colors are
-  not simulated**. "Castable now" highlights nonland cards with `cmc ≤ lands` and shows a live count.
-- "New game" reshuffles from scratch.
+**Zones:** battlefield (creatures top, lands bottom), hand (bottom bar, horizontal scroll),
+graveyard pile, exile pile, library pile (face-down), command zone (commander card with amber
+border). All zone piles are clickable → browse sidebar with movement actions.
 
-**Statistical mode (`sampleOpenerStats(cards, iterations = 1000)`):** a Monte-Carlo over the opening
-7 (partial Fisher-Yates per iteration, counts lands in the drawn 7). Returns `OpenerStats {
-iterations, avgLands, keepablePct (2–5 lands), screwPct (0–1), floodPct (6–7), landDist[0..7] }`,
-rendered as headline numbers + a land-count histogram. The "Sample 1,000 opening hands" button runs
-it on demand.
+**Interactions (no rule enforcement — user manages rules):**
+- **Click any card** → large centered Scryfall preview + action buttons:
+  - Hand: Play/Cast, Discard, Exile
+  - Battlefield: Tap/Untap, Sacrifice, Exile, Return to hand
+  - Commander: Cast commander
+- **Drag-and-drop**: cards draggable between hand, battlefield, graveyard pile, exile pile
+- **Library browser**: Hand, Play (to battlefield), Top, Bottom + Shuffle button
+- **Graveyard browser**: Hand, Play, Exile
+- **Exile browser**: Hand, Play
+- **Keyboard**: D = end turn (untap all + draw), U = untap all, Ctrl+Z = undo, Esc = close
 
-**Caveats / by design:** it's a *feel/consistency* tool, not a rules engine — no colored-mana
-requirements, no card effects, no interaction. The rigorous complement is the hypergeometric
-opening-hand math already shown in the deck stats (`p_2plus_lands_opening`, etc., from the Phase-2
-`mana_math` engine). Colored-mana-aware simulation would be a future enhancement.
+**Game mechanics:**
+- Commander free mulligan (first mull keeps 7), London mulligan with visual bottom selection
+- Mana pool: tapping a land → +1 floating mana, untapping → -1. Pool resets each turn.
+- Summoning sickness: creatures enter upside down (rotate-180), clears on next untap step
+- Tapped cards rotate 90 degrees
+- ETB tapped lands detected via oracle text
+- Undo: 50-state history stack (Ctrl+Z or button)
+- Stats: Monte Carlo 1,000-hand analysis shown by default, toggleable
+
+**Mobile:** hover zoom disabled on touch devices; zone browsers go full-screen; top bar compact.
+
+**Caveats / by design:** a sandbox tool, not a rules engine — no colored-mana requirements, no
+card effects, no turn structure enforcement. User is responsible for following rules.
 
 ---
 
 ## Feature detail: Scavenger list (print-ready PDF)
 
-A **🔎 Scavenger list** button on any deck view downloads a **print-ready PDF** — a physical
-pull-guide + checklist to actually find a deck's cards, laid out to match how the collection is
-stored (**by set, then color**). Entirely **client-side** (no backend).
+A **Pull list** button on any deck view downloads a **print-ready PDF** — a physical pull-guide +
+checklist laid out to match how the collection is stored (**by set, then color**). Entirely
+**client-side** (no backend).
 
 - **Files:** `clients/apps/web/src/lib/scavenger.ts` (data + PDF), `clients/apps/web/src/lib/
-  scryfallSets.ts` (`loadSetIndex()` — set names + release dates), and the button/handler in
-  `DeckView`. Uses **`jspdf`** (added to `apps/web`), **dynamically imported** (`await
-  import("jspdf")`) so it code-splits out of the main bundle.
-- **`buildScavengerData(deck, deckName)`** (async, returns a plain data object — testable, no
-  rendering): expands `deck.cards` by their **owned printings** (basics excluded); batch-fetches
-  Scryfall `/cards/collection` by **set + collector number** for per-printing **rarity + colors +
-  type_line**; uses `loadSetIndex()` for **full set names + release dates**.
-- **Output structure** (confirmed with Danko — PDF, not markdown):
-  - **Two lists**: *Rares & Mythics* (rare/mythic/special/bonus) then *Commons & Uncommons*.
-  - Each list grouped **set (newest-first, by `/sets` `released_at`) → color → alphabetical**.
-    Color order: White, Blue, Black, Red, Green, Multicolor, Colorless, **Lands** (own group).
-  - Each card line: a **drawn checkbox** + name + rarity tag (M/R/U/C) + collector #.
-  - Set headers spell out the **full name + code** (`Commander Legends (CMR)`); an **"Other"** group
-    catches printings whose set+collector didn't resolve (e.g. import missing a collector number).
-  - **Multiples** section: cards owned across **2+ sets**, listed once with **all set names spelled
-    out** (newest-first) — and still shown under each set-group above.
-- **`downloadScavengerPdf(data)`**: renders the data object to a one-column, paginated letter PDF
-  (manual layout, `doc.rect` checkboxes, page-break on `y > bottom`) and `doc.save()`s it.
-- **Reuse note:** `scryfallSets.ts` cache key was bumped to `mtg.sets.v2` when `released` was added.
-- **Known / out of scope:** ~14 pages for a 99-card deck (one column — a **two-column** layout would
-  ~halve it); an owned foil + nonfoil of the same printing lists twice (could **merge with ×N**); an
-  in-app rendered view and a name-based fallback for the "Other" bucket are possible later.
+  scryfallSets.ts` (`loadSetIndex()` — set names + release dates + `parentCode`), and the
+  button/handler in `DeckView`. Uses **`jspdf`** (dynamically imported for code-splitting).
+- **`buildScavengerData(deck, deckName)`** (async, plain data object): expands `deck.cards` by
+  owned printings (basics excluded); batch-fetches Scryfall `/cards/collection` by **set+collector**
+  for rarity/colors/type_line, with **card-name fallback** for cards missing collector numbers; uses
+  `loadSetIndex()` for set names + release dates.
+- **Superset merging**: sets grouped by parent via `parent_set_code` chain + **name-prefix
+  heuristic** for orphan masterpiece/promo sets (e.g. "Marvel Universe" → "Marvel Super Heroes").
+  Cards deduplicated within each superset.
+- **Output structure** (PDF, 3-column flow, US Letter):
+  - **Rares & Mythics**: set (newest-first) → flat alphabetical. No color subgroups.
+  - **Commons & Uncommons**: set → color (White/Blue/Black/Red/Green/Multicolor/Colorless/Lands) →
+    alphabetical. Each card: drawn checkbox + name + rarity tag (M/R/U/C).
+  - **Multiples** section: cards owned across 2+ supersets, with all set names.
+  - Set headers: full name + code. Page footers: deck name + page numbers.
+- **Color grouping fallback**: when Scryfall lookup fails, uses deck card's `color_identity` +
+  `type_line` so every card gets a proper color group (no "Other" bucket).
+- **Layout engine**: inline cursor (col + cy) flows content across 3 columns. Section labels are
+  column-width (not full-page). `pageContentTop` tracks header clearance on page 1.
+- **Reuse note:** `scryfallSets.ts` cache key `mtg.sets.v3` (includes `parentCode`).
 
 ---
 
@@ -352,9 +375,11 @@ delete the throwaway user's `users` + `collection_items` + `decks` docs.
 - Client-side Scryfall image/set lookups depend on real set codes + collector numbers in the import
   (name-based fallback otherwise); no offline/catalog fallback yet.
 - `openpyxl` handles `.xlsx` only (not legacy `.xls`); reads the active sheet only.
-- Orphan `seed-user` collection in Atlas from early testing — harmless, deletable.
-- Atlas password was pasted in chat long ago — worth rotating; confirm whether the Fly secret already
-  uses a rotated value. Atlas Network Access is `0.0.0.0/0` (Atlas flags this; tighten later).
+- Some backend tests (`test_brackets`, `test_combo_finishers`, `test_upgrades`, `test_preferences`)
+  require fastapi/pymongo installed — they fail with import errors in the base test env. Run with
+  `--ignore` flags or install deps.
+- Mobile: `overflow-x: hidden` must be on `<html>` element (iOS Safari ignores it on inner divs).
+  Mana costs and printing chips are hidden on mobile card rows to save horizontal space.
 - **Engine caveats (by design, revisit later):** the mana-source model is raw no-mulligan
   (conservative vs Karsten's London-mulligan tables); `generator._color_pips` double-counts pips on
   MDFC/split cards (mana_cost is stored as "front // back"); the ramp/draw counts feeding the land
