@@ -284,9 +284,9 @@ function DeckRow({
   const highSynergy = card.quality >= 0.3;
   const firstPrinting = card.printings?.[0];
   return (
-    <li className="group flex items-center justify-between gap-3 px-4 py-1.5 text-sm">
+    <li className="group flex items-center justify-between gap-2 px-3 py-1.5 text-sm sm:gap-3 sm:px-4">
       <span
-        className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 text-slate-200 hover:text-emerald-300"
+        className="flex min-w-0 cursor-pointer items-center gap-x-1.5 text-slate-200 hover:text-emerald-300"
         onClick={onClick}
         onMouseEnter={(e) => onHoverEnter(e, card.name, firstPrinting)}
         onMouseLeave={onHoverLeave}
@@ -308,9 +308,9 @@ function DeckRow({
             ◆
           </span>
         )}
-        <PrintingChips printings={card.printings} />
+        <span className="hidden sm:inline-flex"><PrintingChips printings={card.printings} /></span>
       </span>
-      <span className="flex shrink-0 items-center gap-2">
+      <span className="flex shrink-0 items-center gap-1 sm:gap-2">
         <ManaCost cost={card.mana_cost} className="text-xs" />
         {onToggleLock && (
           <button
