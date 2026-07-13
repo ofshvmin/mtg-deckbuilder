@@ -17,6 +17,7 @@ which yields a legal, well-shaped deck but not yet a tuned one.
 """
 from __future__ import annotations
 
+import random
 import re
 from dataclasses import dataclass, field
 
@@ -137,6 +138,7 @@ def generate(
     theme_matches: set[str] | None = None,
     locked_ids: set[str] | None = None,
     avoid_combos: bool = False,
+    jitter: float = 0.0,
 ) -> GeneratedDeck:
     strat = strategy or get_strategy(None)
     # Explicit params override strategy defaults
@@ -223,6 +225,8 @@ def generate(
             for scorer in strat.extra_scorers:
                 score += scorer(doc, rset)
             score += max(0.0, 8 - (doc.get("cmc") or 0)) * 0.05  # efficiency tiebreak
+            if jitter > 0:
+                score += random.uniform(0, jitter)  # randomness for regenerate variety
             if roles.CREATURE in rset:
                 score += 0.15
             if score > best_score:

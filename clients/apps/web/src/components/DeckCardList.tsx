@@ -284,56 +284,33 @@ function DeckRow({
   const highSynergy = card.quality >= 0.3;
   const firstPrinting = card.printings?.[0];
   return (
-    <li className="group flex items-center justify-between gap-2 px-3 py-1.5 text-sm sm:gap-3 sm:px-4">
+    <li className="group flex items-center gap-2 px-3 py-1.5 text-sm sm:px-4">
       <span
-        className="flex min-w-0 cursor-pointer items-center gap-x-1.5 text-slate-200 hover:text-emerald-300"
+        className="min-w-0 flex-1 cursor-pointer truncate text-slate-200 hover:text-emerald-300"
         onClick={onClick}
         onMouseEnter={(e) => onHoverEnter(e, card.name, firstPrinting)}
         onMouseLeave={onHoverLeave}
       >
-        <span className="truncate">
-          {card.count > 1 && <span className="mr-1 text-slate-500">{card.count}×</span>}
-          {card.name}
-        </span>
-        {card.in_combo && (
-          <span className="text-fuchsia-400" title="Part of a combo in this deck">
-            ⚡
-          </span>
-        )}
-        {highSynergy && (
-          <span
-            className="text-emerald-400"
-            title={`High synergy with this commander (EDHREC score ${card.quality.toFixed(2)})`}
-          >
-            ◆
-          </span>
-        )}
-        <span className="hidden sm:inline-flex"><PrintingChips printings={card.printings} /></span>
+        {card.count > 1 && <span className="mr-1 text-slate-500">{card.count}×</span>}
+        {card.name}
+        {card.in_combo && <span className="ml-1 text-fuchsia-400">⚡</span>}
+        {highSynergy && <span className="ml-1 text-emerald-400">◆</span>}
       </span>
-      <span className="flex shrink-0 items-center gap-1 sm:gap-2">
-        <ManaCost cost={card.mana_cost} className="text-xs" />
-        {onToggleLock && (
-          <button
-            onClick={() => onToggleLock(card.oracle_id)}
-            className={
-              "text-xs transition " +
-              (locked ? "text-amber-400" : "text-slate-600 hover:text-amber-400")
-            }
-            title={locked ? "Locked — kept when regenerating" : "Lock this card"}
-          >
-            {locked ? "📌" : "📍"}
-          </button>
-        )}
-        {onRemove && (
-          <button
-            onClick={() => onRemove(card.oracle_id)}
-            className="text-xs text-slate-600 transition hover:text-rose-400"
-            title="Remove from deck"
-          >
-            ✕
-          </button>
-        )}
-      </span>
+      <span className="hidden sm:inline-flex"><PrintingChips printings={card.printings} /></span>
+      <ManaCost cost={card.mana_cost} className="shrink-0 text-xs" />
+      {onToggleLock && (
+        <button
+          onClick={() => onToggleLock(card.oracle_id)}
+          className={"shrink-0 px-1 text-xs transition " + (locked ? "text-amber-400" : "text-slate-600 hover:text-amber-400")}
+          title={locked ? "Locked" : "Lock"}
+        >
+          {locked ? "📌" : "📍"}
+        </button>
+      )}
+      {onRemove && (
+        <button onClick={() => onRemove(card.oracle_id)}
+          className="shrink-0 px-1 text-xs text-slate-600 transition hover:text-rose-400" title="Remove">✕</button>
+      )}
     </li>
   );
 }
