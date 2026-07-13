@@ -54,16 +54,13 @@ def commander_to_slug(name: str) -> str:
 async def search_edhrec(commander: str, page_size: int = 20) -> list[dict]:
     """Search EDHREC for public Commander decklists by commander name.
 
-    Fetches the EDHREC decks page for the commander, takes the top N deck
-    hashes, then batch-fetches their previews for names/URLs/card counts.
-
-    Returns a list of summary dicts with keys:
-      external_id, source, name, owner, card_count, url, commander_name, color_identity
+    Uses the hash table from json.edhrec.com directly — no preview fetches.
+    The table has tags, bracket, price, budget_label, and card type counts.
+    This is instant (single request) vs the old approach of N+1 requests.
     """
     slug = commander_to_slug(commander)
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
-        # Step 1: Get deck hashes from EDHREC
         resp = await client.get(
             f"https://json.edhrec.com/pages/decks/{slug}.json",
             headers=HEADERS,
@@ -78,51 +75,59 @@ async def search_edhrec(commander: str, page_size: int = 20) -> list[dict]:
     if not table:
         return []
 
-    # Take top N by position (EDHREC already sorts by relevance/date)
-    hashes = [entry["urlhash"] for entry in table[:page_size] if entry.get("urlhash")]
+    # Extract color identity from the container if available
+    container = data.get("container") or {}
+    jd = container.get("json_dict") or {}
+    card_info = jd.get("card") or {}
+    color_identity = _normalize_colors(card_info.get("color_identity") or [])
 
-    # Step 2: Fetch previews for each hash
     out: list[dict] = []
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        for h in hashes:
-            try:
-                resp = await client.get(
-                    f"https://edhrec.com/api/deckpreview/{h}",
-                    headers=HEADERS,
-                    timeout=TIMEOUT,
-                )
-                if resp.status_code != 200:
-                    continue
-                preview = resp.json()
-            except (httpx.HTTPError, ValueError):
-                continue
+    for entry in table[:page_size]:
+        h = entry.get("urlhash")
+        if not h:
+            continue
 
-            deck_lines = preview.get("deck") or []
-            card_count = len(deck_lines) if isinstance(deck_lines, list) else 0
-            commanders = preview.get("commanders") or []
-            cmd_name = commanders[0] if commanders else commander
-            colors = _normalize_colors(preview.get("coloridentity") or [])
-            source_url = preview.get("url") or ""
+        tags = entry.get("tags") or []
+        bracket = entry.get("bracket")
+        price = entry.get("price")
+        budget = entry.get("budget_label") or ""
+        # Build a descriptive name from tags + budget
+        name = _build_deck_name(commander, tags, budget, bracket)
+        # Estimate card count from type counts
+        card_count = sum(
+            entry.get(t, 0) or 0
+            for t in ("creature", "instant", "sorcery", "artifact",
+                      "enchantment", "battle", "planeswalker", "land")
+        )
 
-            # Determine the source from the URL
-            source = "edhrec"
-            if "archidekt.com" in source_url:
-                source = "archidekt"
-            elif "moxfield.com" in source_url:
-                source = "moxfield"
-
-            out.append({
-                "external_id": h,
-                "source": source,
-                "name": preview.get("header") or f"{cmd_name} Deck",
-                "owner": _owner_from_url(source_url),
-                "card_count": card_count,
-                "url": source_url or f"https://edhrec.com/deckpreview/{h}",
-                "commander_name": cmd_name,
-                "color_identity": colors,
-            })
+        out.append({
+            "external_id": h,
+            "source": "edhrec",
+            "name": name,
+            "owner": "EDHREC",
+            "card_count": card_count or 99,
+            "url": f"https://edhrec.com/deckpreview/{h}",
+            "commander_name": commander,
+            "color_identity": color_identity,
+            "bracket": bracket,
+            "price": round(price) if price else None,
+        })
 
     return out
+
+
+def _build_deck_name(commander: str, tags: list, budget: str, bracket) -> str:
+    """Build a descriptive deck name from EDHREC tags and metadata."""
+    # Use first name of commander for brevity
+    short = commander.split(",")[0].strip()
+    parts = []
+    if tags:
+        parts.append(" / ".join(tags[:2]))
+    if budget:
+        parts.append(budget.capitalize())
+    if parts:
+        return f"{short} — {', '.join(parts)}"
+    return f"{short} Deck"
 
 
 def _normalize_colors(colors: list) -> list[str]:
