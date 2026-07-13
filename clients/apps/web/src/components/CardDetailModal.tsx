@@ -249,11 +249,11 @@ export default function CardDetailModal({
               onTouchEnd={onTouchEnd}
             >
               <CardImage
-                key={current?.printing_key ?? "no-printing"}
+                key={current?.printing_key ?? `named:${card.name}`}
                 printing={current}
                 name={card.name}
-                typeLine={card.type_line}
-                manaCost={card.mana_cost}
+                typeLine={typeLine}
+                manaCost={manaCost}
                 className="aspect-[5/7] w-full"
               />
               {count > 1 && (
