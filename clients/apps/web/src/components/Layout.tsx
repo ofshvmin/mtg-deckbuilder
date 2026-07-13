@@ -65,27 +65,25 @@ export default function Layout() {
   const ctx: LayoutContext = { summary, refreshSummary, savedCount, refreshSaved };
   const initial = (user?.email?.trim()?.[0] ?? "?").toUpperCase();
 
+  const [mobileNav, setMobileNav] = useState(false);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-6">
-            {/* Brand — clickable, returns home */}
-            <Link to="/" className="group flex items-center gap-2.5" title="Home">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-4 sm:gap-6">
+            <Link to="/" className="group flex items-center gap-2" title="Home">
               <Logo className="h-7 w-7 text-[#d8b25c] transition group-hover:text-[#e6c877]" />
-              <span className="font-serif text-lg font-semibold tracking-tight text-slate-100 group-hover:text-white">
+              <span className="hidden font-serif text-lg font-semibold tracking-tight text-slate-100 group-hover:text-white sm:inline">
                 Grimoire
               </span>
             </Link>
-            <nav className="flex items-center gap-1">
-              <NavLink to="/collection" className={navClass}>
-                Collection
-              </NavLink>
-              <NavLink to="/build" className={navClass}>
-                Build
-              </NavLink>
+            {/* Desktop nav */}
+            <nav className="hidden items-center gap-1 sm:flex">
+              <NavLink to="/collection" className={navClass}>Collection</NavLink>
+              <NavLink to="/build" className={navClass}>Build</NavLink>
               <NavLink to="/decks" className={navClass}>
-                Saved Decks
+                Decks
                 {savedCount > 0 && (
                   <span className="ml-1.5 rounded-full bg-slate-700/70 px-1.5 py-0.5 text-xs tabular-nums text-slate-300">
                     {savedCount}
@@ -93,6 +91,16 @@ export default function Layout() {
                 )}
               </NavLink>
             </nav>
+            {/* Mobile hamburger */}
+            <button onClick={() => setMobileNav((o) => !o)}
+              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200 sm:hidden"
+              aria-label="Menu">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                {mobileNav
+                  ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  : <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />}
+              </svg>
+            </button>
           </div>
 
           {/* Account menu */}
@@ -107,36 +115,38 @@ export default function Layout() {
               {initial}
             </button>
             {menuOpen && (
-              <div
-                role="menu"
-                className="absolute right-0 top-full mt-2 w-56 overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-xl"
-              >
+              <div role="menu"
+                className="absolute right-0 top-full mt-2 w-52 overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-xl sm:w-56">
                 <div className="truncate border-b border-slate-800 px-4 py-3 text-xs text-slate-400">
                   Signed in as
                   <div className="truncate text-sm text-slate-200">{user?.email}</div>
                 </div>
-                <Link
-                  to="/settings"
-                  onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800"
-                  role="menuitem"
-                >
-                  ⚙ Settings
+                <Link to="/settings" onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800" role="menuitem">
+                  Settings
                 </Link>
-                <button
-                  onClick={() => { setMenuOpen(false); logout(); }}
-                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-800"
-                  role="menuitem"
-                >
-                  ↪ Sign out
+                <button onClick={() => { setMenuOpen(false); logout(); }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-800" role="menuitem">
+                  Sign out
                 </button>
               </div>
             )}
           </div>
         </div>
+
+        {/* Mobile nav dropdown */}
+        {mobileNav && (
+          <nav className="flex flex-col border-t border-slate-800 px-4 py-2 sm:hidden">
+            <NavLink to="/collection" className={navClass} onClick={() => setMobileNav(false)}>Collection</NavLink>
+            <NavLink to="/build" className={navClass} onClick={() => setMobileNav(false)}>Build</NavLink>
+            <NavLink to="/decks" className={navClass} onClick={() => setMobileNav(false)}>
+              Decks {savedCount > 0 && `(${savedCount})`}
+            </NavLink>
+          </nav>
+        )}
       </header>
 
-      <main className="mx-auto max-w-6xl px-6 py-10">
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         <Outlet context={ctx} />
       </main>
     </div>

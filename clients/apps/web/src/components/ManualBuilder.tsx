@@ -184,7 +184,7 @@ export default function ManualBuilder({
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter by name..."
-              className="w-48 rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-emerald-500"
+              className="w-32 rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-emerald-500 sm:w-48"
             />
           </div>
 
