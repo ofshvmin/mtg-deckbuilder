@@ -19,6 +19,7 @@ from ..models.responses import (
     CollectionSummary,
     ImportResultResponse,
 )
+from ..repositories import card_prints as card_prints_repo
 from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
 from ..services import csv_formats, importer
@@ -135,7 +136,11 @@ async def list_collection_cards(current_user: dict = Depends(get_current_user)):
     Powers the collection browser (distinct cards, not printing lines).
     """
     database = db.get_db()
-    return await collection_repo.list_collection_cards(database, current_user["_id"])
+    cards = await collection_repo.list_collection_cards(database, current_user["_id"])
+    await card_prints_repo.enrich_printings(
+        database, [(c["name"], c["printings"]) for c in cards]
+    )
+    return cards
 
 
 class AddCardRequest(BaseModel):

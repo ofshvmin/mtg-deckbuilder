@@ -44,19 +44,25 @@ export default function CardImage({
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  // Ordered fallback sources: server CDN url → constructed CDN url → API → named API.
+  // Ordered fallback sources:
+  //   DB CDN url (per-printing) → parent CDN url → constructed CDN url → API → named API.
   const sources = useMemo(() => {
+    const dbUrl = face === "back"
+      ? printing?.image_uris_back?.normal
+      : printing?.image_uris?.normal;
     const cdn = printing?.edition && printing.collector_number
       ? cdnImageUrl(printing.edition, printing.collector_number, "normal", face)
       : undefined;
     if (face === "back") {
       const list: string[] = [];
+      if (dbUrl) list.push(dbUrl);
       if (cdn) list.push(cdn);
       list.push(scryfallImageUrl(printing, name, "normal", "back"));
       list.push(scryfallNamedImageUrl(name, "normal", "back"));
       return [...new Set(list)];
     }
     const list: string[] = [];
+    if (dbUrl) list.push(dbUrl);
     if (imageUrl) list.push(imageUrl);
     if (cdn) list.push(cdn);
     list.push(scryfallImageUrl(printing, name, "normal", "front"));
