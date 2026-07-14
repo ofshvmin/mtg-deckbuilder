@@ -3,6 +3,7 @@ import type { Printing } from "@mtg/shared";
 import {
   scryfallImageUrl,
   scryfallNamedImageUrl,
+  cdnImageUrl,
   isDfc,
   type CardFace,
 } from "../lib/scryfall";
@@ -43,17 +44,21 @@ export default function CardImage({
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  // Ordered fallback sources for the current face. The back face has no CDN url,
-  // so it goes straight to the API endpoints.
+  // Ordered fallback sources: server CDN url → constructed CDN url → API → named API.
   const sources = useMemo(() => {
+    const cdn = printing?.edition && printing.collector_number
+      ? cdnImageUrl(printing.edition, printing.collector_number, "normal", face)
+      : undefined;
     if (face === "back") {
-      return [
-        scryfallImageUrl(printing, name, "normal", "back"),
-        scryfallNamedImageUrl(name, "normal", "back"),
-      ];
+      const list: string[] = [];
+      if (cdn) list.push(cdn);
+      list.push(scryfallImageUrl(printing, name, "normal", "back"));
+      list.push(scryfallNamedImageUrl(name, "normal", "back"));
+      return [...new Set(list)];
     }
     const list: string[] = [];
     if (imageUrl) list.push(imageUrl);
+    if (cdn) list.push(cdn);
     list.push(scryfallImageUrl(printing, name, "normal", "front"));
     list.push(scryfallNamedImageUrl(name, "normal", "front"));
     return [...new Set(list)];

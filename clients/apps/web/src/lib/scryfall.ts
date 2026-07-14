@@ -37,6 +37,16 @@ export function scryfallNamedImageUrl(
   )}&format=image&version=${size}${faceParam}`;
 }
 
+/** Deterministic CDN URL for a printing (not rate-limited, unlike the API). */
+export function cdnImageUrl(
+  set: string,
+  cn: string,
+  size: ScryfallImageSize = "normal",
+  face: CardFace = "front",
+): string {
+  return `https://cards.scryfall.io/${size}/${face}/${set.toLowerCase()}/${cn}.jpg`;
+}
+
 /** Heuristic: does this card have two faces (MDFC, transform, etc.)? */
 export function isDfc(typeLine?: string, manaCost?: string): boolean {
   return (typeLine?.includes(" // ") || manaCost?.includes(" // ")) ?? false;

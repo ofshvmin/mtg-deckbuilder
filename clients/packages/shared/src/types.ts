@@ -67,6 +67,7 @@ export interface CommanderOption {
   name: string;
   type_line: string;
   color_identity: Color[];
+  image_uris?: Record<string, string> | null;
 }
 
 export interface CardSummary {
@@ -77,6 +78,8 @@ export interface CardSummary {
   type_line: string;
   color_identity: Color[];
   oracle_text: string;
+  image_uris?: Record<string, string> | null;
+  image_uris_back?: Record<string, string> | null;
 }
 
 export interface PoolCard {
@@ -131,6 +134,8 @@ export interface CollectionCard {
   oracle_text: string;
   total_count: number;
   printings: Printing[];
+  image_uris?: Record<string, string> | null;
+  image_uris_back?: Record<string, string> | null;
 }
 
 export interface DeckCard {
@@ -148,6 +153,8 @@ export interface DeckCard {
   in_combo: boolean;
   printings?: Printing[]; // owned printings (absent/empty for basics + pre-existing saved decks)
   selected_printing_key?: string | null; // which owned copy this deck earmarks
+  image_uris?: Record<string, string> | null;
+  image_uris_back?: Record<string, string> | null;
 }
 
 export interface Combo {

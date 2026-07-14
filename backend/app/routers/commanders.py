@@ -29,6 +29,7 @@ async def search_commanders(
             name=d["name"],
             type_line=d.get("type_line", ""),
             color_identity=d.get("color_identity", []),
+            image_uris=d.get("image_uris"),
         )
         for d in docs
     ]

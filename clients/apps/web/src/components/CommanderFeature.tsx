@@ -16,6 +16,7 @@ export default function CommanderFeature({
   typeLine,
   manaCost,
   oracleText,
+  imageUris,
 }: {
   name: string;
   oracleId?: string;
@@ -23,6 +24,7 @@ export default function CommanderFeature({
   typeLine?: string;
   manaCost?: string;
   oracleText?: string;
+  imageUris?: Record<string, string> | null;
 }) {
   const [detail, setDetail] = useState<CardDetail | null>(null);
 
@@ -63,6 +65,7 @@ export default function CommanderFeature({
           name={name}
           typeLine={type}
           manaCost={mana}
+          imageUrl={imageUris?.normal}
           className="aspect-[745/1040] w-full shadow-lg ring-1 ring-black/40"
         />
       </div>

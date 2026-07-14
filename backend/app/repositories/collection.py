@@ -115,19 +115,22 @@ async def list_collection_cards(db: AsyncDatabase, user_id: str) -> list[dict]:
         card = cards.get(oracle_id)
         if card is None:
             continue
-        rows.append(
-            {
-                "oracle_id": oracle_id,
-                "name": card.get("name", ""),
-                "mana_cost": card.get("mana_cost", ""),
-                "cmc": card.get("cmc", 0.0),
-                "type_line": card.get("type_line", ""),
-                "color_identity": card.get("color_identity", []),
-                "oracle_text": card.get("oracle_text", ""),
-                "total_count": sum(u["count"] for u in units),
-                "printings": units,
-            }
-        )
+        row = {
+            "oracle_id": oracle_id,
+            "name": card.get("name", ""),
+            "mana_cost": card.get("mana_cost", ""),
+            "cmc": card.get("cmc", 0.0),
+            "type_line": card.get("type_line", ""),
+            "color_identity": card.get("color_identity", []),
+            "oracle_text": card.get("oracle_text", ""),
+            "total_count": sum(u["count"] for u in units),
+            "printings": units,
+        }
+        if card.get("image_uris"):
+            row["image_uris"] = card["image_uris"]
+        if card.get("image_uris_back"):
+            row["image_uris_back"] = card["image_uris_back"]
+        rows.append(row)
     rows.sort(key=lambda r: r["name"].lower())
     return rows
 

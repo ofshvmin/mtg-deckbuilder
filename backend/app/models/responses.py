@@ -7,6 +7,7 @@ class CommanderOption(BaseModel):
     name: str
     type_line: str
     color_identity: list[str]
+    image_uris: dict[str, str] | None = None
 
 
 class CardSummary(BaseModel):
@@ -17,6 +18,8 @@ class CardSummary(BaseModel):
     type_line: str
     color_identity: list[str]
     oracle_text: str = ""
+    image_uris: dict[str, str] | None = None
+    image_uris_back: dict[str, str] | None = None
 
 
 class PoolCard(BaseModel):
@@ -68,6 +71,8 @@ class CollectionCardOut(BaseModel):
     oracle_text: str = ""
     total_count: int
     printings: list[PrintingOut] = []
+    image_uris: dict[str, str] | None = None
+    image_uris_back: dict[str, str] | None = None
 
 
 class DeckCardOut(BaseModel):
@@ -85,6 +90,8 @@ class DeckCardOut(BaseModel):
     in_combo: bool = False
     printings: list[PrintingOut] = []          # owned printings (empty for basics)
     selected_printing_key: str | None = None   # which owned copy this deck earmarks
+    image_uris: dict[str, str] | None = None
+    image_uris_back: dict[str, str] | None = None
 
 
 class ComboOut(BaseModel):

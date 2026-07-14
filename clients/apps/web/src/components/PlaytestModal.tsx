@@ -33,18 +33,32 @@ function freshGame(lib: LibCard[]): Game {
   };
 }
 
-function cardImg(name: string): string { return scryfallNamedImageUrl(name, "normal"); }
+// Build a name→CDN URL map from deck card data (server-provided image_uris).
+// Falls back to Scryfall named API for cards without URLs.
+function buildImageMap(deck: GeneratedDeck): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const c of deck.cards) {
+    if (c.image_uris?.normal) m.set(c.name, c.image_uris.normal);
+  }
+  if (deck.commander.image_uris?.normal) m.set(deck.commander.name, deck.commander.image_uris.normal);
+  return m;
+}
+
+function makeCardImg(imageMap: Map<string, string>) {
+  return (name: string): string => imageMap.get(name) ?? scryfallNamedImageUrl(name, "normal");
+}
 
 // Selected card + its zone, for the action popup
 type Selection = { uid: string; zone: "hand" | "battlefield" | "command" } | null;
 
 function PlayCard({
   card, tapped, sick, highlight, onClick, onHover, onLeave, tall = false,
-  dragData,
+  dragData, cardImg,
 }: {
   card: LibCard; tapped?: boolean; sick?: boolean; highlight?: boolean;
   onClick?: () => void; onHover?: () => void; onLeave?: () => void; tall?: boolean;
   dragData?: string; // JSON-encoded {uid, zone} for drag transfer
+  cardImg: (name: string) => string;
 }) {
   const imgClass = tall ? "h-[180px] w-[129px]" : "h-[100px] w-[72px]";
   let transform = "";
@@ -100,8 +114,9 @@ function DropZone({ zone, onDrop, children, className = "" }: {
   );
 }
 
-function ZonePile({ cards, label, onClick, faceDown }: {
+function ZonePile({ cards, label, onClick, faceDown, cardImg }: {
   cards: LibCard[]; label: string; onClick?: () => void; faceDown?: boolean;
+  cardImg: (name: string) => string;
 }) {
   const empty = cards.length === 0;
   return (
@@ -129,11 +144,12 @@ function ZonePile({ cards, label, onClick, faceDown }: {
   );
 }
 
-function ZoneBrowser({ title, cards, onClose, actions, onHover, onLeave, extraButton }: {
+function ZoneBrowser({ title, cards, onClose, actions, onHover, onLeave, extraButton, cardImg }: {
   title: string; cards: LibCard[]; onClose: () => void;
   actions: (card: LibCard, idx: number) => { label: string; onClick: () => void }[];
   onHover: (name: string) => void; onLeave: () => void;
   extraButton?: { label: string; onClick: () => void };
+  cardImg: (name: string) => string;
 }) {
   return (
     <div className="absolute inset-0 z-10 overflow-auto bg-slate-950 p-3 shadow-xl sm:inset-auto sm:bottom-0 sm:right-20 sm:top-10 sm:w-72 sm:border-l sm:border-slate-700">
@@ -169,15 +185,16 @@ function ZoneBrowser({ title, cards, onClose, actions, onHover, onLeave, extraBu
 }
 
 // Card preview + action buttons: shows when a card is selected
-function CardActionOverlay({ cardName, actions, onClose }: {
+function CardActionOverlay({ cardName, actions, onClose, cardImg }: {
   cardName: string;
   actions: { label: string; color: string; onClick: () => void }[];
   onClose: () => void;
+  cardImg: (name: string) => string;
 }) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div className="flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
-        <img src={scryfallNamedImageUrl(cardName, "large")} alt={cardName}
+        <img src={cardImg(cardName)} alt={cardName}
           className="h-[420px] w-[300px] rounded-2xl border-2 border-slate-600 object-contain shadow-2xl" />
         <div className="flex flex-wrap justify-center gap-2">
           {actions.map((a) => (
@@ -199,6 +216,8 @@ type Sidebar = "library" | "graveyard" | "exile" | null;
 const MAX_UNDO = 50;
 
 export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; onClose: () => void }) {
+  const imageMap = useMemo(() => buildImageMap(deck), [deck]);
+  const cardImg = useMemo(() => makeCardImg(imageMap), [imageMap]);
   const library0 = useMemo(() => buildLibrary(deck.cards), [deck]);
   const [game, setGameRaw] = useState<Game>(() => freshGame(library0));
   const [history, setHistory] = useState<Game[]>([]);
@@ -531,7 +550,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
                       highlight={selected?.uid === c.uid}
                       dragData={JSON.stringify({ uid: c.uid, zone: "battlefield" })}
                       onClick={() => setSelected(selected?.uid === c.uid ? null : { uid: c.uid, zone: "battlefield" })}
-                      onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} />
+                      onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} cardImg={cardImg} />
                   ))}
                 </div>
               </div>
@@ -551,7 +570,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
                     highlight={selected?.uid === c.uid}
                     dragData={JSON.stringify({ uid: c.uid, zone: "battlefield" })}
                     onClick={() => setSelected(selected?.uid === c.uid ? null : { uid: c.uid, zone: "battlefield" })}
-                    onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} />
+                    onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} cardImg={cardImg} />
                 ))}
               </div>
             </div>
@@ -571,12 +590,12 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
             <span className="text-[10px] text-amber-500">Commander</span>
           </div>
           <div className="my-1 w-full border-t border-slate-800" />
-          <ZonePile cards={game.library} label="Library" faceDown onClick={() => toggleSidebar("library")} />
+          <ZonePile cards={game.library} label="Library" faceDown onClick={() => toggleSidebar("library")} cardImg={cardImg} />
           <DropZone zone="graveyard" onDrop={(uid, from) => moveCard(uid, from, "graveyard")}>
-            <ZonePile cards={game.graveyard} label="Graveyard" onClick={() => toggleSidebar("graveyard")} />
+            <ZonePile cards={game.graveyard} label="Graveyard" onClick={() => toggleSidebar("graveyard")} cardImg={cardImg} />
           </DropZone>
           <DropZone zone="exile" onDrop={(uid, from) => moveCard(uid, from, "exile")}>
-            <ZonePile cards={game.exile} label="Exile" onClick={() => toggleSidebar("exile")} />
+            <ZonePile cards={game.exile} label="Exile" onClick={() => toggleSidebar("exile")} cardImg={cardImg} />
           </DropZone>
         </div>
       </div>
@@ -598,7 +617,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
                   if (game.phase === "bottoming") toggleBottom(c.uid);
                   else setSelected(selected?.uid === c.uid ? null : { uid: c.uid, zone: "hand" });
                 }}
-                onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} />
+                onHover={() => setHoveredCard(c.name)} onLeave={() => setHoveredCard(null)} cardImg={cardImg} />
             );
           })}
           {game.hand.length === 0 && game.phase === "play" && <span className="py-6 text-sm text-slate-600">Empty hand</span>}
@@ -607,7 +626,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
 
       {/* Card action overlay: large preview + buttons */}
       {selected && game.phase === "play" && selectedCardName() && (
-        <CardActionOverlay cardName={selectedCardName()!} actions={selectedActions()} onClose={() => setSelected(null)} />
+        <CardActionOverlay cardName={selectedCardName()!} actions={selectedActions()} onClose={() => setSelected(null)} cardImg={cardImg} />
       )}
 
       {/* Zone browsers */}
@@ -615,6 +634,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
         <ZoneBrowser title="Library" cards={game.library} onClose={() => setSidebar(null)}
           onHover={setHoveredCard} onLeave={() => setHoveredCard(null)}
           extraButton={{ label: "Shuffle", onClick: shuffleLibrary }}
+          cardImg={cardImg}
           actions={(c) => [
             { label: "Hand", onClick: () => zoneToHand(c.uid, "library") },
             { label: "Play", onClick: () => zoneToBattlefield(c.uid, "library") },
@@ -625,6 +645,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
       {sidebar === "graveyard" && (
         <ZoneBrowser title="Graveyard" cards={game.graveyard} onClose={() => setSidebar(null)}
           onHover={setHoveredCard} onLeave={() => setHoveredCard(null)}
+          cardImg={cardImg}
           actions={(c) => [
             { label: "Hand", onClick: () => zoneToHand(c.uid, "graveyard") },
             { label: "Play", onClick: () => zoneToBattlefield(c.uid, "graveyard") },
@@ -634,6 +655,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
       {sidebar === "exile" && (
         <ZoneBrowser title="Exile" cards={game.exile} onClose={() => setSidebar(null)}
           onHover={setHoveredCard} onLeave={() => setHoveredCard(null)}
+          cardImg={cardImg}
           actions={(c) => [
             { label: "Hand", onClick: () => { setGame((g) => { const card = g.exile.find((x) => x.uid === c.uid); if (!card) return g; return { ...g, exile: g.exile.filter((x) => x.uid !== c.uid), hand: [...g.hand, card] }; }); } },
             { label: "Play", onClick: () => zoneToBattlefield(c.uid, "exile") },
@@ -643,7 +665,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
       {/* Hover zoom — shows when hovering, hidden when action overlay or sidebar is open */}
       {hoveredCard && !sidebar && !selected && (
         <div className="pointer-events-none fixed inset-0 z-30 flex items-center justify-center">
-          <img src={scryfallNamedImageUrl(hoveredCard, "large")} alt={hoveredCard}
+          <img src={cardImg(hoveredCard)} alt={hoveredCard}
             className="h-[480px] w-[344px] rounded-2xl border-2 border-slate-600 object-contain shadow-2xl shadow-black/80" />
         </div>
       )}

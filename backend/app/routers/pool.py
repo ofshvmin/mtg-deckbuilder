@@ -34,6 +34,8 @@ async def get_pool(
             type_line=c.get("type_line", ""),
             color_identity=c.get("color_identity", []),
             oracle_text=c.get("oracle_text", ""),
+            image_uris=c.get("image_uris"),
+            image_uris_back=c.get("image_uris_back"),
         ),
         color_identity=result.color_identity,
         pool_size=len(result.pool),

@@ -39,10 +39,36 @@ def _extract_mana_cost(card: dict) -> str:
     return " // ".join(f.get("mana_cost", "") for f in faces if f.get("mana_cost"))
 
 
+_IMAGE_SIZES = ("small", "normal", "art_crop")
+
+
+def _pick_image_uris(raw: dict | None) -> dict[str, str] | None:
+    """Extract the image sizes we care about from a Scryfall image_uris dict."""
+    if not raw:
+        return None
+    picked = {k: raw[k] for k in _IMAGE_SIZES if k in raw}
+    return picked or None
+
+
+def _extract_image_uris(card: dict) -> tuple[dict[str, str] | None, dict[str, str] | None]:
+    """Return (front_uris, back_uris) from a Scryfall card object.
+
+    Single-faced cards have top-level ``image_uris``. DFCs (transform,
+    modal_dfc, etc.) store them on ``card_faces[0]`` / ``card_faces[1]``.
+    """
+    if card.get("image_uris"):
+        return _pick_image_uris(card["image_uris"]), None
+    faces = card.get("card_faces") or []
+    front = _pick_image_uris(faces[0].get("image_uris")) if len(faces) > 0 else None
+    back = _pick_image_uris(faces[1].get("image_uris")) if len(faces) > 1 else None
+    return front, back
+
+
 def doc_from_card(card: dict) -> dict:
     """Transform one Scryfall card into a Mongo `cards` document."""
     name = card["name"]
-    return {
+    image_uris, image_uris_back = _extract_image_uris(card)
+    doc = {
         "_id": card["oracle_id"],
         "name": name,
         "name_normalized": normalize_name(name),
@@ -63,6 +89,11 @@ def doc_from_card(card: dict) -> dict:
         "released_at": card.get("released_at"),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if image_uris:
+        doc["image_uris"] = image_uris
+    if image_uris_back:
+        doc["image_uris_back"] = image_uris_back
+    return doc
 
 
 async def _get_json(client: httpx.AsyncClient, url: str):
