@@ -98,6 +98,8 @@ class PreconSummary(BaseModel):
     name: str
     code: str
     release_date: str
+    commander_name: str | None = None
+    color_identity: list[str] = []
     source: str = "precon"
 
 
@@ -122,6 +124,8 @@ async def search_precons(
             name=d.get("name", "Untitled"),
             code=d.get("code", ""),
             release_date=d.get("releaseDate", ""),
+            commander_name=d.get("commander_name"),
+            color_identity=d.get("color_identity", []),
         )
         for d in decks
     ]
