@@ -239,7 +239,7 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
 
     return _deck_response(
         result.commander, result.color_identity, deck, edhrec_available,
-        deck_combos, pool_near, bracket,
+        deck_combos, pool_near, bracket, pool_by_id=pool_by_id,
     )
 
 
@@ -337,19 +337,11 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(get_curren
     bracket = await _estimate_bracket(database, result.commander, deck, deck_combos, pool_by_id)
     deck_resp = _deck_response(
         result.commander, result.color_identity, deck, edhrec_available,
-        deck_combos, pool_near, bracket,
+        deck_combos, pool_near, bracket, pool_by_id=pool_by_id,
     )
 
     core_summaries = [
-        CardSummary(
-            oracle_id=pool_by_id[oid]["_id"],
-            name=pool_by_id[oid]["name"],
-            mana_cost=pool_by_id[oid].get("mana_cost", ""),
-            cmc=pool_by_id[oid].get("cmc", 0.0),
-            type_line=pool_by_id[oid].get("type_line", ""),
-            color_identity=pool_by_id[oid].get("color_identity", []),
-            oracle_text=pool_by_id[oid].get("oracle_text", ""),
-        )
+        _card_summary(pool_by_id[oid])
         for oid in core_ids
         if oid in deck_ids and oid in pool_by_id
     ]
@@ -406,7 +398,7 @@ async def compose_deck(body: ComposeRequest, current_user: dict = Depends(get_cu
 
     return _deck_response(
         result.commander, result.color_identity, deck, edhrec_available,
-        deck_combos, near_combos, bracket,
+        deck_combos, near_combos, bracket, pool_by_id=pool_by_id,
     )
 
 
@@ -510,6 +502,21 @@ async def _estimate_bracket(
     )
 
 
+def _card_summary(doc: dict) -> CardSummary:
+    """Build a CardSummary from a card document, including image URIs."""
+    return CardSummary(
+        oracle_id=doc["_id"],
+        name=doc["name"],
+        mana_cost=doc.get("mana_cost", ""),
+        cmc=doc.get("cmc", 0.0),
+        type_line=doc.get("type_line", ""),
+        color_identity=doc.get("color_identity", []),
+        oracle_text=doc.get("oracle_text", ""),
+        image_uris=doc.get("image_uris"),
+        image_uris_back=doc.get("image_uris_back"),
+    )
+
+
 def _deck_response(
     commander: dict,
     identity: list[str],
@@ -518,19 +525,12 @@ def _deck_response(
     deck_combos: list[dict],
     near_combos: list[dict],
     bracket: BracketOut | None = None,
+    pool_by_id: dict[str, dict] | None = None,
 ) -> GeneratedDeckResponse:
     """Assemble a GeneratedDeckResponse from a computed deck (shared by generate + compose)."""
     combo_card_ids = {oid for combo in deck_combos for oid in combo["cards"]}
     return GeneratedDeckResponse(
-        commander=CardSummary(
-            oracle_id=commander["_id"],
-            name=commander["name"],
-            mana_cost=commander.get("mana_cost", ""),
-            cmc=commander.get("cmc", 0.0),
-            type_line=commander.get("type_line", ""),
-            color_identity=commander.get("color_identity", []),
-            oracle_text=commander.get("oracle_text", ""),
-        ),
+        commander=_card_summary(commander),
         color_identity=identity,
         total=sum(dc.count for dc in deck.cards),
         land_count=deck.land_count,
@@ -563,6 +563,9 @@ def _deck_response(
                 in_combo=dc.oracle_id in combo_card_ids,
                 printings=[PrintingOut(**p) for p in dc.printings],
                 selected_printing_key=dc.selected_printing_key,
+                **({"image_uris": pool_by_id[dc.oracle_id].get("image_uris"),
+                    "image_uris_back": pool_by_id[dc.oracle_id].get("image_uris_back")}
+                   if pool_by_id and dc.oracle_id in pool_by_id else {}),
             )
             for dc in deck.cards
         ],

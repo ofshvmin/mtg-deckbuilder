@@ -10,22 +10,24 @@ export default function CommanderArt({
   className = "",
   children,
   position = "top",
+  artCropUrl,
 }: {
   name: string;
   className?: string;
   children?: ReactNode;
   // Card art usually has the character up top, so bias the crop there by default.
   position?: "top" | "center";
+  artCropUrl?: string;
 }) {
-  const [src, setSrc] = useState(() => scryfallNamedImageUrl(name, "art_crop"));
+  const [src, setSrc] = useState(() => artCropUrl || scryfallNamedImageUrl(name, "art_crop"));
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    setSrc(scryfallNamedImageUrl(name, "art_crop"));
+    setSrc(artCropUrl || scryfallNamedImageUrl(name, "art_crop"));
     setFailed(false);
     setLoaded(false);
-  }, [name]);
+  }, [name, artCropUrl]);
 
   return (
     <div className={"relative overflow-hidden bg-slate-800 " + className}>

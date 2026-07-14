@@ -208,6 +208,7 @@ export default function BuildPage() {
               typeLine={pool.commander.type_line}
               manaCost={pool.commander.mana_cost}
               oracleText={pool.commander.oracle_text}
+              imageUris={pool.commander.image_uris}
             />
           )}
 

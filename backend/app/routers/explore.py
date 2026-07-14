@@ -40,6 +40,7 @@ async def suggest_commanders(
             name=d["name"],
             type_line=d.get("type_line", ""),
             color_identity=d.get("color_identity", []),
+            image_uris=d.get("image_uris"),
         )
         for d in docs
     ]
@@ -498,6 +499,9 @@ async def _resolve_external_deck(
         else:
             unowned_count += dc.count
 
+    # Build a by-id lookup from the resolved docs for image_uris threading
+    card_by_id: dict[str, dict] = {doc["_id"]: doc for doc in docs_by_norm.values()}
+
     deck_response = GeneratedDeckResponse(
         commander=CardSummary(
             oracle_id=commander_doc["_id"],
@@ -507,6 +511,8 @@ async def _resolve_external_deck(
             type_line=commander_doc.get("type_line", ""),
             color_identity=commander_doc.get("color_identity", []),
             oracle_text=commander_doc.get("oracle_text", ""),
+            image_uris=commander_doc.get("image_uris"),
+            image_uris_back=commander_doc.get("image_uris_back"),
         ),
         color_identity=identity,
         total=sum(dc.count for dc in deck.cards),
@@ -528,6 +534,9 @@ async def _resolve_external_deck(
                 quality=dc.quality, in_combo=False,
                 printings=[PrintingOut(**p) for p in dc.printings],
                 selected_printing_key=dc.selected_printing_key,
+                **({"image_uris": card_by_id[dc.oracle_id].get("image_uris"),
+                    "image_uris_back": card_by_id[dc.oracle_id].get("image_uris_back")}
+                   if dc.oracle_id in card_by_id else {}),
             )
             for dc in deck.cards
         ],

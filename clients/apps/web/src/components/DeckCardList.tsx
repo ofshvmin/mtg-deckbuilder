@@ -6,7 +6,6 @@ import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import CardImage from "./CardImage";
 import ManaCost from "./ManaCost";
 import PrintingChips from "./PrintingChips";
-import { fetchPrices } from "../lib/scryfallPrices";
 
 // Deck cards grouped into role categories. Three views (Moxfield-style):
 //   text   — height-balanced masonry of text rows (default)
@@ -79,35 +78,10 @@ export default function DeckCardList({
     }
   }, [view]);
 
-  // Batch-fetch CDN image urls (cards.scryfall.io — not rate-limited) for the
-  // image views, so we don't fire ~99 throttled api.scryfall.com requests at once
-  // and drop the later cards. One /cards/collection call per 75 cards; CardImage
-  // holds a skeleton until these resolve (via `pending`).
-  const imageIdsKey = cards.map((c) => c.oracle_id).join(",");
-  const [imageUris, setImageUris] = useState<Map<string, string>>(new Map());
-  const [imagesReady, setImagesReady] = useState(false);
-  useEffect(() => {
-    if (view === "text") return;
-    setImagesReady(false);
-    let cancelled = false;
-    const ids = [...new Set(imageIdsKey ? imageIdsKey.split(",") : [])];
-    fetchPrices(ids)
-      .then((m) => {
-        if (cancelled) return;
-        const map = new Map<string, string>();
-        m.forEach((v, id) => {
-          if (v.imageUri) map.set(id, v.imageUri);
-        });
-        setImageUris(map);
-        setImagesReady(true);
-      })
-      .catch(() => {
-        if (!cancelled) setImagesReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [imageIdsKey, view]);
+  // Server-provided CDN image URLs from card data — no client-side batch fetch needed.
+  const imageUris = new Map<string, string>(
+    cards.filter((c) => c.image_uris?.normal).map((c) => [c.oracle_id, c.image_uris!.normal]),
+  );
 
   const groups = SLOTS.map((s) => ({ ...s, cards: cards.filter((c) => c.slot === s.key) })).filter(
     (g) => g.cards.length > 0,
@@ -185,7 +159,7 @@ export default function DeckCardList({
                     key={c.oracle_id}
                     card={c}
                     imageUrl={imageUris.get(c.oracle_id)}
-                    pending={!imagesReady}
+                    pending={false}
                     onClick={() => setModal(deckCardToModal(c))}
                     onRemove={onRemove}
                     locked={locked?.has(c.oracle_id)}
@@ -214,7 +188,7 @@ export default function DeckCardList({
                     <ImageCell
                       card={c}
                       imageUrl={imageUris.get(c.oracle_id)}
-                      pending={!imagesReady}
+                      pending={false}
                       onClick={() => setModal(deckCardToModal(c))}
                       onRemove={onRemove}
                       locked={locked?.has(c.oracle_id)}

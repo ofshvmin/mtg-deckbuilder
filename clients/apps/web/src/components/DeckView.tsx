@@ -201,6 +201,7 @@ export default function DeckView({
         typeLine={deck.commander.type_line}
         manaCost={deck.commander.mana_cost}
         oracleText={deck.commander.oracle_text}
+        imageUris={deck.commander.image_uris}
       />
 
       {/* Controls: name + save */}

@@ -1,6 +1,6 @@
 # Handoff — MTG Deck Builder
 
-Updated 2026-07-13. Self-contained onboarding for a fresh clone — the project's machine-local
+Updated 2026-07-14. Self-contained onboarding for a fresh clone — the project's machine-local
 memory and per-feature design plans (kept under `~/.claude/`, not in git) have been folded into
 this document.
 
@@ -13,7 +13,7 @@ The app is named **Grimoire** (an MTG Commander deck builder). Everything is **d
 - **Frontend:** React SPA on Vercel at `https://mtg-deckbuilder-bice.vercel.app`
 - **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K+ oracle cards, 96K+ combos
 - **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`
-- **Backend tests:** **120 passing** (`pytest`, excluding tests needing fastapi/pymongo in env)
+- **Backend tests:** **120+ passing** (`pytest`, excluding tests needing fastapi/pymongo in env)
 
 The app: import your card collection, pick a commander, and build a legal, mana-curved, synergy/
 combo-tuned 99-card Commander deck in one of **four ways** — auto-build, build by hand, **lock &
@@ -110,19 +110,31 @@ and a per-deck-card `selected_printing_key` — the seams for future value/image
   preview disabled on touch devices (`pointer: coarse`), zone browsers go full-screen on mobile.
 - **Card image fix**: retry named URL with cache-bust param when initial and fallback URLs are
   identical (fixes "No image found" on unowned combo cards).
-- **Explore page** (`/explore`, PR #32): two-tab layout for browsing external decks:
+- **Explore page** (`/explore`, PRs #32–#35): two-tab layout for browsing external decks:
   - **Precons tab** (default): ~190 official Commander preconstructed decks from MTGJSON, searchable
-    by name or set code. Deck list index cached in memory; individual decks fetched on demand.
-  - **Community tab**: EDHREC user decklists by commander name. Partial names auto-resolved via our
-    cards DB (e.g. "Caesar" → "Caesar, Legion's Emperor"). Results show EDHREC tags, bracket, and
-    price for differentiation. Single-request search (uses hash table directly, no N+1 preview calls).
-  - **Archidekt URL import**: paste a deck URL to fetch and resolve.
+    by name or set code. Tiles show face commander art from Scryfall (enriched via background batch
+    fetch of all MTGJSON deck files, cached in memory). Deck list index + commander names eagerly
+    cached on first request.
+  - **Community tab**: EDHREC user decklists by commander name. **Commander autocomplete** (debounced
+    typeahead, all legendary creatures from cards DB, with color pips). Partial names auto-resolved
+    (e.g. "Caesar" → "Caesar, Legion's Emperor"). Deck names built from card-type composition
+    (Creature-heavy, Enchantress, Artifacts, Spellslinger, Superfriends, Balanced) + price for
+    differentiation. Single-request search (uses hash table directly, no N+1 preview calls).
+  - **URL import**: paste any **EDHREC URL** (precon, commander page, deckpreview, average-decks) or
+    **Archidekt URL** to fetch and resolve. EDHREC pages fetched via `json.edhrec.com/pages/` with
+    structured deck extraction; commander pages fall back to EDHREC search.
   - **Ownership display**: unowned cards shown dimmed/italic (text view) or greyscale (image views).
   - **Save to My Decks**: saves with `source`/`source_url` fields. Source badge on deck tiles.
   - **Import Cards to Collection**: batch-add deck cards with "ignore duplicates" or "import all" mode.
 - **Compare Decks** (`/compare`, PR #32): select 2 saved decks on the Decks page → side-by-side
   stats (total, lands, avg MV, bracket), mana curves, shared cards grouped by slot, and cards
   unique to each deck. Selection mode with checkbox overlays + "Compare Selected" button.
+- **Commander art fix** (PR #35): crossover sets (Final Fantasy, Marvel) reprint commanders with
+  different art and a `flavor_name`. `CommanderFeature` now picks the newest non-reskinned printing
+  via `originalPrint()` helper (skips prints with `flavorName`).
+- **Commander type_line regex fix** (PR #35): `"Legendary Creature"` → `"Legendary.*Creature"` so
+  Legendary Artifact Creatures (e.g. Kilo, Apogee Mind), Legendary Enchantment Creatures, etc.
+  appear in commander search.
 
 ---
 
@@ -215,13 +227,15 @@ app/
     users.py
   routers/             — collection, commanders, pool, decks, explore
     decks.py           — /decks/generate (auto), /decks/compose (manual), saved-deck CRUD + export
-    explore.py         — /explore/search (EDHREC), /explore/precons + /explore/precon (MTGJSON),
-                         /explore/resolve (card list resolution), /explore/deck (Archidekt URL)
+    explore.py         — /explore/commanders (autocomplete), /explore/search (EDHREC),
+                         /explore/precons + /explore/precon (MTGJSON), /explore/resolve (card
+                         list resolution), /explore/deck (EDHREC + Archidekt URL import)
   services/
     csv_formats.py     — format detection / normalization / parse / export
     importer.py        — collection import (CSV/Excel → Mongo); stamps printing_key + added_at
     generator.py       — generate() greedy 99-card build; compose() analyze an exact card list
-    external_decks.py  — EDHREC search/preview, MTGJSON precon list/fetch, Archidekt deck fetch
+    external_decks.py  — EDHREC search/preview/page fetch, MTGJSON precon list/fetch (with
+                         eager commander enrichment), Archidekt deck fetch, URL parsing
     edhrec.py, spellbook.py, pool.py, roles.py, mana_math.py
   util.py              — normalize_name, strip_diacritics, printing_key, normalize_finish
 tests/                 — pytest (120): csv_formats, mana_math, roles, printings, compose, external_decks
@@ -229,8 +243,9 @@ tests/                 — pytest (120): csv_formats, mana_math, roles, printing
 
 Key endpoints: `POST /decks/generate` (auto), `POST /decks/compose` (manual — same
 `GeneratedDeckResponse` shape, built from a fixed `oracle_ids` list), `GET /collection/cards`
-(grouped-by-oracle browser data), `GET /explore/search` (EDHREC community decks),
-`GET /explore/precons` + `GET /explore/precon` (MTGJSON precons), `POST /explore/resolve`
+(grouped-by-oracle browser data), `GET /explore/commanders` (all-commanders autocomplete),
+`GET /explore/search` (EDHREC community decks), `GET /explore/precons` + `GET /explore/precon`
+(MTGJSON precons), `GET /explore/deck` (EDHREC/Archidekt URL import), `POST /explore/resolve`
 (resolve external card list against DB), `POST /collection/batch-add` (bulk import cards),
 plus auth / collection / pool / saved-deck CRUD + export.
 
@@ -262,6 +277,7 @@ apps/web/src/
   lib/
     api.ts             — singleton ApiClient (localStorage TokenStore)
     scryfall.ts        — per-printing card image URLs (Scryfall image API + name fallback)
+    scryfallPrints.ts  — fetch all printings by oracle_id; originalPrint() (skip reskinned), cheapestPrint()
     scryfallSets.ts    — /sets fetch (memoized, localStorage 24h) → code→{name, iconSvgUri}
     edhrec.ts          — client-side EDHREC helpers (slug conversion, hash list fetch)
     format.ts          — formatManaCost, COLOR_PIP, formatColorIdentity
