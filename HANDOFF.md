@@ -411,6 +411,52 @@ delete the throwaway user's `users` + `collection_items` + `decks` docs.
 
 ---
 
+## iOS / mobile app (React Native + Expo) — on branch `feature/mobile-app`
+
+A native mobile app lives at **`clients/apps/mobile`** (an `@mtg/mobile` workspace member), **not yet
+merged to `main`**. It reuses `@mtg/shared` (the `ApiClient` + types) unchanged against the live Fly
+API — the backend needs **no changes** (JWT Bearer + REST work for native; CORS is browser-only).
+
+**Stack:** Expo SDK 57 (managed) · React Native 0.86 · React 19.2 · **expo-router** (file-based routes)
+· **NativeWind** (Tailwind-for-RN) · **expo-image** (cached Scryfall images) · **expo-secure-store**
+(tokens). A `SecureTokenStore` implements `@mtg/shared`'s `TokenStore`; base URL is env-configurable
+(`EXPO_PUBLIC_API_BASE_URL`, defaults to Fly). A `metro.config.js` resolves the workspace packages.
+
+**Screens (MVP, all built):** auth (`login`/`register` + `AuthProvider`), a `(tabs)` group —
+**Home** (stats + quick actions + recent decks), **Collection** (image `FlatList` grid + filter →
+`CardDetailModal`), **Build** (commander search → auto-build with strategy/theme **or** the AI
+**Describe** brief **with conversational refinement** → save; the hero), **Decks** (commander-art
+tiles + bracket → full-screen `DeckDetailModal`, role-grouped with combos).
+
+**Status.** Phases 0–2 complete (auth + read + build). Recent fixes on the branch:
+- **AI-brief refinement** ported from web (transcript + "refine" input → rebuild via prior spec).
+- **Home** shows the true saved-deck count and opens a tapped recent deck directly.
+- **NativeWind was wired up** — it had been configured but never activated (no `babel.config.js`, Metro
+  not wrapped with `withNativeWind`), so `className` was inert and **every screen rendered unstyled**.
+  Now fixed (babel preset + `withNativeWind` + `darkMode: 'class'`); type-checking is clean.
+
+**Verified** (no Xcode yet, so via Expo **web** preview + a local backend + Playwright, driving the
+real UI with a seeded account): login, collection, auto-build (99 cards), save, the AI Describe brief
++ refine (real Claude), and the deck views all work end-to-end, correctly styled. The **iOS bundle
+exports cleanly** (`npx expo export --platform ios`).
+
+**To run it.** `cd clients/apps/mobile && npx expo start` (press `i` for the iOS Simulator — needs
+**Xcode** installed, Danko's action). For web preview, install `react-native-web` + `react-dom` and
+point `EXPO_PUBLIC_API_BASE_URL` at a local backend whose `CORS_ORIGINS` allows the Expo web origin
+(native has no CORS). **TestFlight** needs an **Apple Developer account ($99/yr)** + `eas.json`/EAS
+Build — not done yet.
+
+**Caveats.** The workspace's npm install **nests deps rather than hoisting** (two `react-native`
+copies; `expo`/`babel-preset-expo`/`react-native-css-interop` nested), which is why several config
+files resolve packages by explicit path. A proper monorepo hoisting cleanup would remove that class of
+papercuts. `expo-secure-store` is a no-op on web, so the web preview needs a temporary localStorage
+token shim (not committed).
+
+**Out of scope so far:** manual builder, lock & regenerate, the full playtest sim, Compare, Explore,
+the pull-list PDF (expo-print, not jsPDF), push notifications, offline caching, Android polish.
+
+---
+
 ## What to work on next
 
 The **original 6-phase plan is complete**, plus a large second wave (see *Shipped 2026-07-10 →
