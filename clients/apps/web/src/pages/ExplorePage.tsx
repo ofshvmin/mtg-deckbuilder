@@ -358,7 +358,7 @@ export default function ExplorePage() {
             <input type="text" value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleFetchByUrl()}
-              placeholder="Or paste an Archidekt URL…"
+              placeholder="Or paste an EDHREC or Archidekt URL…"
               className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500" />
             <button onClick={handleFetchByUrl} disabled={fetching || !urlInput.trim()}
               className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:opacity-50">

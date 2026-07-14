@@ -21,6 +21,7 @@ TIMEOUT = 15
 _ARCHIDEKT_URL_RE = re.compile(r"archidekt\.com/decks/(\d+)")
 _MOXFIELD_URL_RE = re.compile(r"moxfield\.com/decks/([\w-]+)")
 _EDHREC_HASH_RE = re.compile(r"edhrec\.com/deckpreview/([\w_-]+)")
+_EDHREC_PAGE_RE = re.compile(r"edhrec\.com/(commanders|average-decks|precon|precon-hierarchies)/([\w/-]+)")
 
 # EDHREC color letter map (they use full names in some endpoints).
 _COLOR_MAP = {"W": "W", "U": "U", "B": "B", "R": "R", "G": "G",
@@ -38,6 +39,10 @@ def parse_deck_url(url: str) -> tuple[str, str] | None:
     m = _EDHREC_HASH_RE.search(url)
     if m:
         return ("edhrec", m.group(1))
+    m = _EDHREC_PAGE_RE.search(url)
+    if m:
+        # Return the full path segment for json.edhrec.com lookup
+        return ("edhrec-page", f"{m.group(1)}/{m.group(2)}")
     return None
 
 
@@ -50,6 +55,16 @@ def commander_to_slug(name: str) -> str:
     slug = re.sub(r"[',.]", "", slug)
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     return slug.strip("-")
+
+
+def slug_to_name_hint(slug: str) -> str:
+    """Convert an EDHREC slug back to a rough commander name for DB lookup.
+
+    "caesar-legions-emperor" -> "caesar legions emperor"
+    Not an exact reverse of commander_to_slug (punctuation is lost), but
+    good enough for a substring search against our cards DB.
+    """
+    return slug.replace("-", " ")
 
 
 async def search_edhrec(commander: str, page_size: int = 20) -> list[dict]:
@@ -178,6 +193,46 @@ def _owner_from_url(url: str) -> str:
         return "Unknown"
     # Archidekt URLs sometimes have the username in the path but not reliably
     return "EDHREC"
+
+
+async def fetch_edhrec_page(path: str) -> dict:
+    """Fetch a JSON page from EDHREC (e.g. 'precon/counter-intelligence').
+
+    Returns the raw JSON dict from json.edhrec.com/pages/{path}.json.
+    """
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        resp = await client.get(
+            f"https://json.edhrec.com/pages/{path}.json",
+            headers=HEADERS,
+            timeout=TIMEOUT,
+        )
+        if resp.status_code in (403, 404):
+            return {}
+        resp.raise_for_status()
+        return resp.json()
+
+
+def extract_edhrec_page_cards(data: dict) -> list[dict]:
+    """Extract card entries from an EDHREC page (precon, average-deck, etc.).
+
+    EDHREC pages have a 'deck' dict with 'commander' list and 'cards' dict
+    grouped by type (Land, Creature, etc.), each containing [name, qty] pairs.
+    """
+    deck = data.get("deck")
+    if not deck or not isinstance(deck, dict):
+        return []
+    cards: list[dict] = []
+    for name in deck.get("commander") or []:
+        cards.append({"name": name, "quantity": 1, "categories": ["Commander"]})
+    card_groups = deck.get("cards") or {}
+    if isinstance(card_groups, dict):
+        for _type, entries in card_groups.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if isinstance(entry, list) and len(entry) >= 2:
+                    cards.append({"name": entry[0], "quantity": entry[1], "categories": []})
+    return cards
 
 
 async def fetch_edhrec_preview(deck_hash: str) -> dict:
@@ -335,10 +390,11 @@ async def get_precon_list() -> list[dict]:
     commander_decks.sort(key=lambda d: d.get("releaseDate", ""), reverse=True)
     _precon_cache = commander_decks
 
-    # Start background enrichment to fetch commander names
+    # Eagerly enrich with commander names before returning.
+    # ~190 decks at 8 concurrent ≈ 20s on first boot, then cached.
     if not _precon_enrichment_started:
         _precon_enrichment_started = True
-        asyncio.create_task(_enrich_precon_commanders())
+        await _enrich_precon_commanders()
 
     return _precon_cache
 

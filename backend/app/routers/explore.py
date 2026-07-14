@@ -244,10 +244,7 @@ async def fetch_deck(
     archidekt_id: str | None = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
-    """Fetch a full deck from Archidekt by URL or ID and resolve against our DB.
-
-    For Archidekt URLs only — EDHREC search/preview is done client-side.
-    """
+    """Fetch a deck by URL (Archidekt or EDHREC) and resolve against our DB."""
     source: str | None = None
     source_id: str | None = None
     source_url: str = ""
@@ -257,7 +254,7 @@ async def fetch_deck(
         if not parsed:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                "Unsupported URL. Supported: archidekt.com/decks/...",
+                "Unsupported URL. Supported: edhrec.com, archidekt.com/decks/...",
             )
         source, source_id = parsed
         source_url = url
@@ -278,7 +275,98 @@ async def fetch_deck(
             "Try searching by commander name instead.",
         )
 
-    if source not in ("archidekt",):
+    database = db.get_db()
+
+    # --- EDHREC page URL (precon, commanders, average-decks) ---
+    if source == "edhrec-page":
+        page_path = source_id  # e.g. "precon/counter-intelligence"
+        try:
+            page_data = await external_decks.fetch_edhrec_page(page_path)
+        except httpx.HTTPError:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "EDHREC unavailable.")
+
+        # Try extracting cards from the page's deck structure
+        card_entries = external_decks.extract_edhrec_page_cards(page_data)
+        if card_entries:
+            deck_name = (page_data.get("deck") or {}).get("name") or page_data.get("header") or "EDHREC Deck"
+            deck_response, unowned_count, owned_count = await _resolve_external_deck(
+                database, current_user["_id"], card_entries,
+            )
+            return ExternalDeckResponse(
+                source="edhrec",
+                source_url=source_url,
+                name=deck_name,
+                owner="EDHREC",
+                deck=deck_response,
+                unowned_count=unowned_count,
+                owned_count=owned_count,
+            )
+
+        # No inline deck — try as a commander search (commanders/ pages)
+        slug = page_path.rsplit("/", 1)[-1]
+        name_hint = external_decks.slug_to_name_hint(slug)
+        card = await cards_repo.find_by_normalized_name(database, name_hint)
+        if card is None:
+            docs = await cards_repo.search(database, name_hint, limit=5)
+            legendary = [d for d in docs if "Legendary" in d.get("type_line", "")]
+            card = legendary[0] if legendary else (docs[0] if docs else None)
+        search_name = card["name"] if card else name_hint
+        try:
+            results = await external_decks.search_edhrec(search_name, 1)
+        except httpx.HTTPError:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "EDHREC unavailable.")
+        if not results:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No EDHREC decks found for {search_name}.")
+        top_hash = results[0]["external_id"]
+        try:
+            preview = await external_decks.fetch_edhrec_preview(top_hash)
+        except httpx.HTTPError:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Failed to fetch EDHREC deck.")
+        if not preview or not preview.get("deck"):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "EDHREC deck preview is empty.")
+        card_entries = external_decks.extract_edhrec_cards(preview)
+        if not card_entries:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Could not extract cards from EDHREC deck.")
+        deck_response, unowned_count, owned_count = await _resolve_external_deck(
+            database, current_user["_id"], card_entries,
+        )
+        return ExternalDeckResponse(
+            source="edhrec",
+            source_url=source_url,
+            name=f"{search_name} — Average Deck",
+            owner="EDHREC",
+            deck=deck_response,
+            unowned_count=unowned_count,
+            owned_count=owned_count,
+        )
+
+    # --- EDHREC deckpreview hash URL ---
+    if source == "edhrec":
+        try:
+            preview = await external_decks.fetch_edhrec_preview(source_id)
+        except httpx.HTTPError:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Failed to fetch EDHREC deck.")
+        if not preview or not preview.get("deck"):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "EDHREC deck not found.")
+        card_entries = external_decks.extract_edhrec_cards(preview)
+        if not card_entries:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Could not extract cards from EDHREC deck.")
+        deck_response, unowned_count, owned_count = await _resolve_external_deck(
+            database, current_user["_id"], card_entries,
+        )
+        metadata = external_decks.extract_deck_metadata(preview, "edhrec")
+        return ExternalDeckResponse(
+            source="edhrec",
+            source_url=source_url,
+            name=metadata.get("name", "EDHREC Deck"),
+            owner="EDHREC",
+            deck=deck_response,
+            unowned_count=unowned_count,
+            owned_count=owned_count,
+        )
+
+    # --- Archidekt ---
+    if source != "archidekt":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unsupported source for direct fetch.")
 
     try:

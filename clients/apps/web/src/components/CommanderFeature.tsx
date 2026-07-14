@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Color } from "@mtg/shared";
-import { cheapestPrint, fetchCardDetail, type CardDetail } from "../lib/scryfallPrints";
+import { cheapestPrint, originalPrint, fetchCardDetail, type CardDetail } from "../lib/scryfallPrints";
 import CardImage from "./CardImage";
 import ColorPips from "./ColorPips";
 import ManaCost from "./ManaCost";
@@ -40,9 +40,9 @@ export default function CommanderFeature({
   const mana = manaCost || detail?.manaCost;
   const text = oracleText || detail?.oracleText;
 
-  // Use the newest printing's set+collector for a reliable direct image URL
-  // (the name-lookup endpoint redirects and is rate-limit-prone).
-  const art = detail?.prints?.[0];
+  // Use a non-reskinned printing for the image (skip crossover sets like
+  // Final Fantasy where Tymna appears as "Cecil Harvey" with different art).
+  const art = detail ? originalPrint(detail.prints) : undefined;
   const printing = art
     ? {
         printing_key: `feature:${art.set}:${art.collectorNumber}`,
