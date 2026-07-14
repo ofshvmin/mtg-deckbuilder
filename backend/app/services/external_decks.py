@@ -92,8 +92,8 @@ async def search_edhrec(commander: str, page_size: int = 20) -> list[dict]:
         bracket = entry.get("bracket")
         price = entry.get("price")
         budget = entry.get("budget_label") or ""
-        # Build a descriptive name from tags + budget
-        name = _build_deck_name(commander, tags, budget, bracket)
+        # Build a descriptive name from tags + card composition
+        name = _build_deck_name(commander, tags, budget, bracket, entry)
         # Estimate card count from type counts
         card_count = sum(
             entry.get(t, 0) or 0
@@ -117,15 +117,46 @@ async def search_edhrec(commander: str, page_size: int = 20) -> list[dict]:
     return out
 
 
-def _build_deck_name(commander: str, tags: list, budget: str, bracket) -> str:
-    """Build a descriptive deck name from EDHREC tags and metadata."""
-    # Use first name of commander for brevity
+def _build_deck_name(
+    commander: str, tags: list, budget: str, bracket, entry: dict | None = None,
+) -> str:
+    """Build a descriptive deck name from EDHREC tags and card composition."""
     short = commander.split(",")[0].strip()
-    parts = []
+    parts: list[str] = []
+
     if tags:
         parts.append(" / ".join(str(t) for t in tags[:2]))
-    if budget:
+
+    # Infer deck style from card-type breakdown when tags are empty
+    if not tags and entry:
+        creatures = entry.get("creature", 0) or 0
+        instants = entry.get("instant", 0) or 0
+        sorceries = entry.get("sorcery", 0) or 0
+        artifacts = entry.get("artifact", 0) or 0
+        enchantments = entry.get("enchantment", 0) or 0
+        planeswalkers = entry.get("planeswalker", 0) or 0
+        nonland = creatures + instants + sorceries + artifacts + enchantments + planeswalkers
+        if nonland > 0:
+            if planeswalkers >= 5:
+                parts.append("Superfriends")
+            elif artifacts / nonland > 0.25:
+                parts.append("Artifacts")
+            elif enchantments / nonland > 0.25:
+                parts.append("Enchantress")
+            elif (instants + sorceries) / nonland > 0.4:
+                parts.append("Spellslinger")
+            elif creatures / nonland > 0.55:
+                parts.append("Creature-heavy")
+            else:
+                parts.append("Balanced")
+
+    # Price as differentiator (always unique per deck)
+    price = (entry or {}).get("price")
+    if price:
+        parts.append(f"${round(price)}")
+    elif budget:
         parts.append(str(budget).capitalize())
+
     if parts:
         return f"{short} — {', '.join(parts)}"
     return f"{short} Deck"
