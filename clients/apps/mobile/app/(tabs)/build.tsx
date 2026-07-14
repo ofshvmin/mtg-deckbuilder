@@ -194,7 +194,7 @@ export default function BuildScreen() {
         {loadingPool && <Text className="mt-4 text-sm text-slate-400">Loading pool…</Text>}
         {poolError && <Text className="mt-4 text-sm text-rose-400">{poolError}</Text>}
 
-        {poolReady && commander && !deck && (
+        {poolReady && commander && (
           <View className="mt-6 gap-4">
             {/* Commander selected */}
             <View className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
@@ -291,7 +291,7 @@ export default function BuildScreen() {
                   )}
                 </TouchableOpacity>
               </View>
-            ) : (
+            ) : briefResult ? null : (
               <View className="gap-3">
                 <Text className="text-xs font-medium uppercase tracking-wider text-slate-400">
                   Describe the deck you want
