@@ -9,6 +9,7 @@ from .. import db
 from ..auth.deps import get_current_user
 from ..models.responses import (
     CardSummary,
+    CommanderOption,
     CurveBucket,
     DeckCardOut,
     ExternalDeckResponse,
@@ -22,6 +23,26 @@ from ..services.generator import compose
 from ..util import normalize_name, strip_diacritics
 
 router = APIRouter(prefix="/explore", tags=["explore"])
+
+
+@router.get("/commanders", response_model=list[CommanderOption])
+async def suggest_commanders(
+    q: str = Query("", min_length=2),
+    limit: int = Query(10, ge=1, le=30),
+    current_user: dict = Depends(get_current_user),
+):
+    """Autocomplete all commander-eligible cards (not just owned)."""
+    database = db.get_db()
+    docs = await cards_repo.search_all_commanders(database, query=q, limit=limit)
+    return [
+        CommanderOption(
+            oracle_id=d["_id"],
+            name=d["name"],
+            type_line=d.get("type_line", ""),
+            color_identity=d.get("color_identity", []),
+        )
+        for d in docs
+    ]
 
 
 class SearchSummary(BaseModel):

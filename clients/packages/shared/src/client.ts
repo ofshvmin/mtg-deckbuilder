@@ -238,6 +238,12 @@ export class ApiClient {
 
   // ---- Explore (external decks) ----
 
+  /** Autocomplete all commander-eligible cards (for Explore search). */
+  searchAllCommanders(query: string, limit = 10): Promise<CommanderOption[]> {
+    const qs = `?q=${encodeURIComponent(query)}&limit=${limit}`;
+    return this.request("GET", `/explore/commanders${qs}`);
+  }
+
   /** Search EDHREC for commander decklists (fully server-side). */
   searchExternalDecks(commander: string, pageSize = 20): Promise<{
     external_id: string; source: string; name: string; owner: string;

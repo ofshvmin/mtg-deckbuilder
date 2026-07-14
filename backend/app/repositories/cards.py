@@ -61,6 +61,23 @@ async def search_owned_commanders(
     return [doc async for doc in cursor]
 
 
+async def search_all_commanders(
+    db: AsyncDatabase, query: str = "", limit: int = 10
+) -> list[dict]:
+    """All commander-eligible cards matching a name substring (for Explore autocomplete)."""
+    mongo_query: dict = {
+        "legal_commander": "legal",
+        "$or": [
+            {"type_line": {"$regex": "Legendary Creature"}},
+            {"oracle_text": {"$regex": "[Cc]an be your commander"}},
+        ],
+    }
+    if query.strip():
+        mongo_query["name_normalized"] = {"$regex": _escape_regex(normalize_name(query))}
+    cursor = db.cards.find(mongo_query).sort("name", 1).limit(limit)
+    return [doc async for doc in cursor]
+
+
 async def get_legal_pool(
     db: AsyncDatabase,
     allowed_colors: list[str],
