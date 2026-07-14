@@ -11,6 +11,7 @@ export interface PrintOption {
   imageUri?: string;
   priceUsd?: number | null;
   priceUsdFoil?: number | null;
+  flavorName?: string;      // reskinned cards (e.g. "Cecil Harvey" for Tymna in FF set)
 }
 
 interface ScryfallCard {
@@ -25,6 +26,7 @@ interface ScryfallCard {
   oracle_text?: string;
   type_line?: string;
   mana_cost?: string;
+  flavor_name?: string;
 }
 
 export interface CardDetail {
@@ -41,6 +43,11 @@ function oracleTextOf(c: ScryfallCard): string | undefined {
   const faces = (c as { card_faces?: Array<{ oracle_text?: string }> }).card_faces;
   if (faces?.length) return faces.map((f) => f.oracle_text).filter(Boolean).join("\n//\n");
   return undefined;
+}
+
+/** Newest printing that isn't a reskin (no flavor_name). Falls back to newest overall. */
+export function originalPrint(prints: PrintOption[]): PrintOption | undefined {
+  return prints.find((p) => !p.flavorName) ?? prints[0];
 }
 
 /** Cheapest printing (by USD non-foil); falls back to the first if none priced. */
@@ -102,6 +109,7 @@ function toOption(c: ScryfallCard): PrintOption {
     imageUri: img,
     priceUsd: c.prices?.usd != null ? Number(c.prices.usd) : null,
     priceUsdFoil: c.prices?.usd_foil != null ? Number(c.prices.usd_foil) : null,
+    flavorName: c.flavor_name,
   };
 }
 
