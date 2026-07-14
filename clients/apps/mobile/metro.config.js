@@ -1,4 +1,5 @@
 const { getDefaultConfig } = require("expo/metro-config");
+const { withNativeWind } = require("nativewind/metro");
 const path = require("path");
 
 // Monorepo root: clients/
@@ -17,4 +18,18 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, "node_modules"),
 ];
 
-module.exports = config;
+// react-native-css-interop (NativeWind's runtime, incl. its jsx-runtime) is nested under
+// nativewind/node_modules in this workspace and isn't resolvable from every importer.
+// Map the bare name to its real location (resolved via nativewind, so this also works if
+// it's ever hoisted) so NativeWind's JSX transform resolves everywhere.
+const nativewindDir = path.dirname(require.resolve("nativewind/package.json"));
+const cssInteropDir = path.dirname(
+  require.resolve("react-native-css-interop/package.json", { paths: [nativewindDir] })
+);
+config.resolver.extraNodeModules = {
+  ...(config.resolver.extraNodeModules || {}),
+  "react-native-css-interop": cssInteropDir,
+};
+
+// Wire NativeWind's CSS pipeline (processes global.css / Tailwind for web + native).
+module.exports = withNativeWind(config, { input: "./global.css" });

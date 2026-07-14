@@ -7,6 +7,9 @@ module.exports = {
     "./index.ts",
   ],
   presets: [require("nativewind/preset")],
+  // Class-based dark mode: the app hardcodes its dark palette (no `dark:` variants), and
+  // NativeWind's web runtime throws if it tries to set the scheme under the default 'media'.
+  darkMode: "class",
   theme: {
     extend: {},
   },
