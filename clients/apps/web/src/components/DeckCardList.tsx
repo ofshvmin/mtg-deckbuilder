@@ -6,6 +6,7 @@ import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import CardImage from "./CardImage";
 import ManaCost from "./ManaCost";
 import PrintingChips from "./PrintingChips";
+import { fetchPrices } from "../lib/scryfallPrices";
 
 // Deck cards grouped into role categories. Three views (Moxfield-style):
 //   text   — height-balanced masonry of text rows (default)
@@ -77,6 +78,36 @@ export default function DeckCardList({
       /* ignore */
     }
   }, [view]);
+
+  // Batch-fetch CDN image urls (cards.scryfall.io — not rate-limited) for the
+  // image views, so we don't fire ~99 throttled api.scryfall.com requests at once
+  // and drop the later cards. One /cards/collection call per 75 cards; CardImage
+  // holds a skeleton until these resolve (via `pending`).
+  const imageIdsKey = cards.map((c) => c.oracle_id).join(",");
+  const [imageUris, setImageUris] = useState<Map<string, string>>(new Map());
+  const [imagesReady, setImagesReady] = useState(false);
+  useEffect(() => {
+    if (view === "text") return;
+    setImagesReady(false);
+    let cancelled = false;
+    const ids = [...new Set(imageIdsKey ? imageIdsKey.split(",") : [])];
+    fetchPrices(ids)
+      .then((m) => {
+        if (cancelled) return;
+        const map = new Map<string, string>();
+        m.forEach((v, id) => {
+          if (v.imageUri) map.set(id, v.imageUri);
+        });
+        setImageUris(map);
+        setImagesReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setImagesReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [imageIdsKey, view]);
 
   const groups = SLOTS.map((s) => ({ ...s, cards: cards.filter((c) => c.slot === s.key) })).filter(
     (g) => g.cards.length > 0,
@@ -153,6 +184,8 @@ export default function DeckCardList({
                   <ImageCell
                     key={c.oracle_id}
                     card={c}
+                    imageUrl={imageUris.get(c.oracle_id)}
+                    pending={!imagesReady}
                     onClick={() => setModal(deckCardToModal(c))}
                     onRemove={onRemove}
                     locked={locked?.has(c.oracle_id)}
@@ -180,6 +213,8 @@ export default function DeckCardList({
                   >
                     <ImageCell
                       card={c}
+                      imageUrl={imageUris.get(c.oracle_id)}
+                      pending={!imagesReady}
                       onClick={() => setModal(deckCardToModal(c))}
                       onRemove={onRemove}
                       locked={locked?.has(c.oracle_id)}
@@ -212,6 +247,8 @@ function ImageCell({
   locked,
   onToggleLock,
   unowned,
+  imageUrl,
+  pending,
 }: {
   card: DeckCard;
   onClick: () => void;
@@ -219,6 +256,8 @@ function ImageCell({
   locked?: boolean;
   onToggleLock?: (oracleId: string) => void;
   unowned?: boolean;
+  imageUrl?: string;
+  pending?: boolean;
 }) {
   const printing = displayPrinting(card);
   const highSynergy = card.quality >= 0.3;
@@ -231,6 +270,8 @@ function ImageCell({
           typeLine={card.type_line}
           manaCost={card.mana_cost}
           isFoil={printing?.finish === "foil"}
+          imageUrl={imageUrl}
+          pending={pending}
           className="aspect-[745/1040] w-full shadow-md ring-1 ring-black/40 transition group-hover:ring-emerald-500/60"
         />
       </button>

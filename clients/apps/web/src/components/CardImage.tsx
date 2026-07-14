@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Printing } from "@mtg/shared";
 import {
   scryfallImageUrl,
@@ -7,10 +7,14 @@ import {
   type CardFace,
 } from "../lib/scryfall";
 
-// A card image that resolves the exact owned printing, with a graceful chain:
-// per-printing (set/collector) -> name lookup -> text placeholder. Shows a
-// subtle skeleton while loading. Foil printings get a shimmer overlay; DFCs
-// get a flip button to toggle front/back.
+// A card image with a graceful source chain. When an `imageUrl` is supplied — a
+// direct cards.scryfall.io CDN url (e.g. batch-fetched by the deck grid) — it's
+// preferred for the front face. The CDN isn't rate-limited, unlike the
+// api.scryfall.com image endpoint, so bulk grids no longer drop later cards once
+// Scryfall starts throttling a burst of ~99 requests. It falls back to the
+// per-printing and named API endpoints, then a text placeholder. `pending` holds
+// the skeleton while a parent is still batch-fetching the CDN url, so we don't
+// fire the api.scryfall.com request that the batch exists to avoid.
 export default function CardImage({
   printing,
   name,
@@ -18,6 +22,8 @@ export default function CardImage({
   manaCost,
   className = "",
   isFoil = false,
+  imageUrl,
+  pending = false,
 }: {
   printing?: Printing;
   name: string;
@@ -25,48 +31,53 @@ export default function CardImage({
   manaCost?: string;
   className?: string;
   isFoil?: boolean;
+  imageUrl?: string;
+  pending?: boolean;
 }) {
   const foil = isFoil || printing?.finish === "foil";
   const dfc = isDfc(typeLine, manaCost);
   const printingKey = printing?.printing_key ?? "named";
 
   const [face, setFace] = useState<CardFace>("front");
-  const [src, setSrc] = useState(() => scryfallImageUrl(printing, name, "normal", "front"));
-  const [triedFallback, setTriedFallback] = useState(false);
+  const [srcIndex, setSrcIndex] = useState(0);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  // Reset face to front when the printing changes.
+  // Ordered fallback sources for the current face. The back face has no CDN url,
+  // so it goes straight to the API endpoints.
+  const sources = useMemo(() => {
+    if (face === "back") {
+      return [
+        scryfallImageUrl(printing, name, "normal", "back"),
+        scryfallNamedImageUrl(name, "normal", "back"),
+      ];
+    }
+    const list: string[] = [];
+    if (imageUrl) list.push(imageUrl);
+    list.push(scryfallImageUrl(printing, name, "normal", "front"));
+    list.push(scryfallNamedImageUrl(name, "normal", "front"));
+    return [...new Set(list)];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageUrl, printingKey, name, face]);
+
+  // Restart the source chain whenever the card, face, or resolved url changes.
+  useEffect(() => {
+    setSrcIndex(0);
+    setFailed(false);
+    setLoaded(false);
+  }, [printingKey, name, face, imageUrl]);
+
+  // Reset to the front face when the printing changes.
   const prevPrintingKey = useRef(printingKey);
   if (prevPrintingKey.current !== printingKey) {
     prevPrintingKey.current = printingKey;
     if (face !== "front") setFace("front");
   }
 
-  // Single effect: update image whenever printing or face changes.
-  useEffect(() => {
-    const currentFace = face;
-    setSrc(scryfallImageUrl(printing, name, "normal", currentFace));
-    setTriedFallback(false);
-    setFailed(false);
-    setLoaded(false);
-  }, [printingKey, name, face]); // eslint-disable-line react-hooks/exhaustive-deps
-
   function handleError() {
-    if (face === "back") {
-      setFailed(true);
-      return;
-    }
-    const named = scryfallNamedImageUrl(name);
-    if (!triedFallback) {
-      // If the initial URL was already the named URL (no printing data),
-      // retry it once with a cache-bust param in case of a transient error.
-      if (src === named) {
-        setSrc(named + (named.includes("?") ? "&" : "?") + "_r=1");
-      } else {
-        setSrc(named);
-      }
-      setTriedFallback(true);
+    if (srcIndex < sources.length - 1) {
+      setSrcIndex((i) => i + 1);
+      setLoaded(false);
     } else {
       setFailed(true);
     }
@@ -95,21 +106,28 @@ export default function CardImage({
     );
   }
 
+  // While a parent is still resolving the CDN url, hold the skeleton rather than
+  // hit api.scryfall.com (which the batch fetch exists to avoid).
+  const waiting = pending && !imageUrl && face === "front";
+  const src = waiting ? undefined : sources[srcIndex];
+
   return (
     <div className={"relative overflow-hidden rounded-xl " + className}>
-      {!loaded && <div className="absolute inset-0 animate-pulse bg-slate-800" />}
+      {(!loaded || waiting) && <div className="absolute inset-0 animate-pulse bg-slate-800" />}
       <div className={foil ? "foil-shimmer h-full w-full" : "h-full w-full"}>
-        <img
-          src={src}
-          alt={name}
-          loading="lazy"
-          onLoad={() => setLoaded(true)}
-          onError={handleError}
-          className={
-            "h-full w-full object-contain transition-opacity duration-200 " +
-            (loaded ? "opacity-100" : "opacity-0")
-          }
-        />
+        {src && (
+          <img
+            src={src}
+            alt={name}
+            loading="lazy"
+            onLoad={() => setLoaded(true)}
+            onError={handleError}
+            className={
+              "h-full w-full object-contain transition-opacity duration-200 " +
+              (loaded ? "opacity-100" : "opacity-0")
+            }
+          />
+        )}
       </div>
       {dfc && (
         <button
