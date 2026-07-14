@@ -18,6 +18,7 @@ _ph = PasswordHasher()
 
 ACCESS = "access"
 REFRESH = "refresh"
+RESET = "reset"
 
 
 def hash_password(password: str) -> str:
@@ -51,6 +52,10 @@ def create_access_token(sub: str) -> str:
 def create_refresh_token(sub: str) -> str:
     settings = get_settings()
     return _create_token(sub, REFRESH, timedelta(days=settings.refresh_token_days))
+
+
+def create_reset_token(sub: str) -> str:
+    return _create_token(sub, RESET, timedelta(hours=1))
 
 
 def decode_token(token: str) -> dict:

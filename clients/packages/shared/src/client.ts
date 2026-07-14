@@ -94,6 +94,22 @@ export class ApiClient {
     return this.request<User>("PATCH", "/auth/preferences", { body: prefs });
   }
 
+  forgotPassword(email: string): Promise<{ ok: boolean }> {
+    return this.request("POST", "/auth/forgot-password", {
+      auth: false,
+      body: { email },
+    });
+  }
+
+  async resetPassword(token: string, password: string): Promise<AuthTokens> {
+    const tokens = await this.request<AuthTokens>("POST", "/auth/reset-password", {
+      auth: false,
+      body: { token, password },
+    });
+    await this.tokens.setTokens(tokens.access_token, tokens.refresh_token);
+    return tokens;
+  }
+
   async logout(): Promise<void> {
     await this.tokens.clear();
   }
