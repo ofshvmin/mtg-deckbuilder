@@ -123,9 +123,9 @@ def _build_deck_name(commander: str, tags: list, budget: str, bracket) -> str:
     short = commander.split(",")[0].strip()
     parts = []
     if tags:
-        parts.append(" / ".join(tags[:2]))
+        parts.append(" / ".join(str(t) for t in tags[:2]))
     if budget:
-        parts.append(budget.capitalize())
+        parts.append(str(budget).capitalize())
     if parts:
         return f"{short} — {', '.join(parts)}"
     return f"{short} Deck"
