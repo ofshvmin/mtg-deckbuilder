@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Grimoire",
+    "slug": "grimoire-mtg",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "scheme": "grimoire",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.grimoire.mtg"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#020617",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.grimoire.mtg"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ]
+  }
+}
