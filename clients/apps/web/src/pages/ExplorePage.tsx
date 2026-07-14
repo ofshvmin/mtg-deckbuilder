@@ -10,6 +10,16 @@ import ImportCardsModal from "../components/ImportCardsModal";
 
 type Tab = "community" | "precons";
 
+/** Best-effort card name for Scryfall art when commander_name isn't available. */
+function preconArtName(p: { commander_name?: string; name: string }): string {
+  if (p.commander_name) return p.commander_name;
+  // Strip "Collector's Edition" and parenthetical suffixes like "(FINAL FANTASY X)"
+  return p.name
+    .replace(/\s*Collector'?s?\s*Edition\s*/i, " ")
+    .replace(/\s*\([^)]+\)\s*$/, "")
+    .trim();
+}
+
 interface SearchResult {
   external_id: string;
   source: string;
@@ -256,7 +266,7 @@ export default function ExplorePage() {
               {precons.map((p) => (
                 <button key={p.file_name} onClick={() => handleFetchPrecon(p)} disabled={fetching}
                   className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 text-left transition hover:border-slate-700 disabled:opacity-50">
-                  <CommanderArt name={p.commander_name || p.name} className="h-36">
+                  <CommanderArt name={preconArtName(p)} className="h-36">
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
                     <div className="absolute right-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-slate-200">
                       {p.code.toUpperCase()}
