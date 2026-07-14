@@ -3,6 +3,8 @@ import { AuthProvider } from "./auth/AuthContext";
 import ProtectedRoute from "./auth/ProtectedRoute";
 import LoginPage from "./auth/LoginPage";
 import RegisterPage from "./auth/RegisterPage";
+import ForgotPasswordPage from "./auth/ForgotPasswordPage";
+import ResetPasswordPage from "./auth/ResetPasswordPage";
 import Layout from "./components/Layout";
 import HomePage from "./pages/HomePage";
 import CollectionPage from "./pages/CollectionPage";
@@ -19,6 +21,8 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
               <Route path="/" element={<HomePage />} />

@@ -23,6 +23,16 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     cors_origin_regex: str = ""
 
+    # SMTP (for password reset emails). Empty host => reset emails disabled.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""           # "Grimoire <noreply@example.com>"
+
+    # The base URL of the frontend (for building reset links in emails).
+    frontend_url: str = "http://localhost:5173"
+
     # Anthropic API (for the AI deck-brief feature). Empty => feature disabled.
     claude_api: str = ""
     claude_model: str = "claude-sonnet-5"

@@ -65,6 +65,14 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           >
             {submitting ? "Please wait…" : isRegister ? "Create account" : "Sign in"}
           </button>
+
+          {!isRegister && (
+            <p className="text-center text-sm">
+              <Link to="/forgot-password" className="text-slate-400 hover:text-emerald-400 hover:underline">
+                Forgot your password?
+              </Link>
+            </p>
+          )}
         </form>
 
         <p className="mt-6 text-center text-sm text-slate-400">

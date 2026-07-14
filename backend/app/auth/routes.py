@@ -1,20 +1,24 @@
-"""Auth endpoints: register, login, refresh, me."""
+"""Auth endpoints: register, login, refresh, me, password reset."""
 from __future__ import annotations
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from .. import db
+from ..config import get_settings
 from ..models.user import (
+    ForgotPasswordRequest,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenResponse,
     UpdatePreferencesRequest,
     UserPreferences,
     UserResponse,
 )
 from ..repositories import users as users_repo
+from ..services import email as email_service
 from . import security
 from .deps import get_current_user
 
@@ -75,6 +79,43 @@ async def refresh(body: RefreshRequest):
         raise invalid
     # Rotate both tokens on refresh.
     return _tokens_for(user["_id"])
+
+
+@router.post("/forgot-password", status_code=status.HTTP_200_OK)
+async def forgot_password(body: ForgotPasswordRequest):
+    """Send a password-reset email. Always returns 200 to avoid leaking
+    whether an account exists for the given email.
+    """
+    database = db.get_db()
+    user = await users_repo.find_by_email(database, body.email)
+    if user and users_repo.local_identity(user):
+        token = security.create_reset_token(user["_id"])
+        settings = get_settings()
+        reset_url = f"{settings.frontend_url}/reset-password?token={token}"
+        email_service.send_reset_email(user["email"], reset_url)
+    return {"ok": True}
+
+
+@router.post("/reset-password", response_model=TokenResponse)
+async def reset_password(body: ResetPasswordRequest):
+    """Set a new password using a valid reset token. Returns auth tokens so
+    the user is logged in immediately after resetting.
+    """
+    invalid = HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired reset link.")
+    try:
+        payload = security.decode_token(body.token)
+    except jwt.PyJWTError:
+        raise invalid
+    if payload.get("type") != security.RESET:
+        raise invalid
+    user_id = payload.get("sub", "")
+    database = db.get_db()
+    user = await users_repo.find_by_id(database, user_id)
+    if user is None or users_repo.local_identity(user) is None:
+        raise invalid
+    new_hash = security.hash_password(body.password)
+    await users_repo.update_password(database, user_id, new_hash)
+    return _tokens_for(user_id)
 
 
 @router.get("/me", response_model=UserResponse)

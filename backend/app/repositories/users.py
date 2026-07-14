@@ -41,6 +41,15 @@ async def update_preferences(db: AsyncDatabase, user_id: str, prefs: dict) -> di
     )
 
 
+async def update_password(db: AsyncDatabase, user_id: str, password_hash: str) -> bool:
+    """Update the password hash on the user's local identity. Returns True if updated."""
+    result = await db.users.update_one(
+        {"_id": user_id, "identities.provider": "local"},
+        {"$set": {"identities.$.password_hash": password_hash}},
+    )
+    return result.modified_count > 0
+
+
 def local_identity(user: dict) -> dict | None:
     """Return the user's `local` identity (holds the password hash), if any."""
     for identity in user.get("identities", []):
