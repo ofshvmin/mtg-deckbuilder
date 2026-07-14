@@ -21,8 +21,7 @@ TIMEOUT = 15
 _ARCHIDEKT_URL_RE = re.compile(r"archidekt\.com/decks/(\d+)")
 _MOXFIELD_URL_RE = re.compile(r"moxfield\.com/decks/([\w-]+)")
 _EDHREC_HASH_RE = re.compile(r"edhrec\.com/deckpreview/([\w_-]+)")
-_EDHREC_COMMANDER_RE = re.compile(r"edhrec\.com/commanders/([\w-]+)")
-_EDHREC_AVERAGE_RE = re.compile(r"edhrec\.com/average-decks/([\w-]+)")
+_EDHREC_PAGE_RE = re.compile(r"edhrec\.com/(commanders|average-decks|precon|precon-hierarchies)/([\w/-]+)")
 
 # EDHREC color letter map (they use full names in some endpoints).
 _COLOR_MAP = {"W": "W", "U": "U", "B": "B", "R": "R", "G": "G",
@@ -40,12 +39,10 @@ def parse_deck_url(url: str) -> tuple[str, str] | None:
     m = _EDHREC_HASH_RE.search(url)
     if m:
         return ("edhrec", m.group(1))
-    m = _EDHREC_COMMANDER_RE.search(url)
+    m = _EDHREC_PAGE_RE.search(url)
     if m:
-        return ("edhrec-commander", m.group(1))
-    m = _EDHREC_AVERAGE_RE.search(url)
-    if m:
-        return ("edhrec-commander", m.group(1))
+        # Return the full path segment for json.edhrec.com lookup
+        return ("edhrec-page", f"{m.group(1)}/{m.group(2)}")
     return None
 
 
@@ -196,6 +193,46 @@ def _owner_from_url(url: str) -> str:
         return "Unknown"
     # Archidekt URLs sometimes have the username in the path but not reliably
     return "EDHREC"
+
+
+async def fetch_edhrec_page(path: str) -> dict:
+    """Fetch a JSON page from EDHREC (e.g. 'precon/counter-intelligence').
+
+    Returns the raw JSON dict from json.edhrec.com/pages/{path}.json.
+    """
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        resp = await client.get(
+            f"https://json.edhrec.com/pages/{path}.json",
+            headers=HEADERS,
+            timeout=TIMEOUT,
+        )
+        if resp.status_code in (403, 404):
+            return {}
+        resp.raise_for_status()
+        return resp.json()
+
+
+def extract_edhrec_page_cards(data: dict) -> list[dict]:
+    """Extract card entries from an EDHREC page (precon, average-deck, etc.).
+
+    EDHREC pages have a 'deck' dict with 'commander' list and 'cards' dict
+    grouped by type (Land, Creature, etc.), each containing [name, qty] pairs.
+    """
+    deck = data.get("deck")
+    if not deck or not isinstance(deck, dict):
+        return []
+    cards: list[dict] = []
+    for name in deck.get("commander") or []:
+        cards.append({"name": name, "quantity": 1, "categories": ["Commander"]})
+    card_groups = deck.get("cards") or {}
+    if isinstance(card_groups, dict):
+        for _type, entries in card_groups.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if isinstance(entry, list) and len(entry) >= 2:
+                    cards.append({"name": entry[0], "quantity": entry[1], "categories": []})
+    return cards
 
 
 async def fetch_edhrec_preview(deck_hash: str) -> dict:

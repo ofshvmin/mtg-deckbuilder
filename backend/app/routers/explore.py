@@ -277,11 +277,34 @@ async def fetch_deck(
 
     database = db.get_db()
 
-    # --- EDHREC commander page URL: resolve slug → search EDHREC ---
-    if source == "edhrec-commander":
-        slug = source_id
+    # --- EDHREC page URL (precon, commanders, average-decks) ---
+    if source == "edhrec-page":
+        page_path = source_id  # e.g. "precon/counter-intelligence"
+        try:
+            page_data = await external_decks.fetch_edhrec_page(page_path)
+        except httpx.HTTPError:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "EDHREC unavailable.")
+
+        # Try extracting cards from the page's deck structure
+        card_entries = external_decks.extract_edhrec_page_cards(page_data)
+        if card_entries:
+            deck_name = (page_data.get("deck") or {}).get("name") or page_data.get("header") or "EDHREC Deck"
+            deck_response, unowned_count, owned_count = await _resolve_external_deck(
+                database, current_user["_id"], card_entries,
+            )
+            return ExternalDeckResponse(
+                source="edhrec",
+                source_url=source_url,
+                name=deck_name,
+                owner="EDHREC",
+                deck=deck_response,
+                unowned_count=unowned_count,
+                owned_count=owned_count,
+            )
+
+        # No inline deck — try as a commander search (commanders/ pages)
+        slug = page_path.rsplit("/", 1)[-1]
         name_hint = external_decks.slug_to_name_hint(slug)
-        # Resolve to full commander name via our DB
         card = await cards_repo.find_by_normalized_name(database, name_hint)
         if card is None:
             docs = await cards_repo.search(database, name_hint, limit=5)
@@ -294,7 +317,6 @@ async def fetch_deck(
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, "EDHREC unavailable.")
         if not results:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"No EDHREC decks found for {search_name}.")
-        # Fetch the top deck preview and resolve it
         top_hash = results[0]["external_id"]
         try:
             preview = await external_decks.fetch_edhrec_preview(top_hash)
