@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
-import type { ExternalDeckResponse } from "@mtg/shared";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { CommanderOption, ExternalDeckResponse } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
 import type { Color } from "@mtg/shared";
+import ColorPips from "../components/ColorPips";
 import CommanderArt from "../components/CommanderArt";
 import DeckView from "../components/DeckView";
 import ImportCardsModal from "../components/ImportCardsModal";
@@ -47,6 +48,33 @@ export default function ExplorePage() {
   const [tab, setTab] = useState<Tab>("precons");
   const [commander, setCommander] = useState("");
   const [urlInput, setUrlInput] = useState("");
+
+  // Commander autocomplete
+  const [suggestions, setSuggestions] = useState<CommanderOption[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const suggestRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (commander.length < 2) { setSuggestions([]); return; }
+    const t = setTimeout(() => {
+      api.searchAllCommanders(commander, 8).then(setSuggestions).catch(() => setSuggestions([]));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [commander]);
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (suggestRef.current && !suggestRef.current.contains(e.target as Node)) setSuggestOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  function pickCommander(c: CommanderOption) {
+    setCommander(c.name);
+    setSuggestOpen(false);
+    setSuggestions([]);
+  }
 
   // Community (EDHREC) state
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -297,13 +325,31 @@ export default function ExplorePage() {
 
       {tab === "community" && (
         <div className="space-y-4">
-          <div className="flex gap-2">
-            <input type="text" value={commander}
-              onChange={(e) => setCommander(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              placeholder="Search by commander name…"
-              className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500" />
-            <button onClick={handleSearch} disabled={searching || !commander.trim()}
+          <div className="flex gap-2" ref={suggestRef}>
+            <div className="relative min-w-0 flex-1">
+              <input type="text" value={commander}
+                onChange={(e) => { setCommander(e.target.value); setSuggestOpen(true); }}
+                onFocus={() => suggestions.length > 0 && setSuggestOpen(true)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { setSuggestOpen(false); handleSearch(); }
+                  if (e.key === "Escape") setSuggestOpen(false);
+                }}
+                placeholder="Search by commander name…"
+                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500" />
+              {suggestOpen && suggestions.length > 0 && (
+                <div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-slate-700 bg-slate-900 shadow-xl">
+                  {suggestions.map((c) => (
+                    <button key={c.oracle_id}
+                      onClick={() => pickCommander(c)}
+                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-800">
+                      <span className="text-slate-100">{c.name}</span>
+                      <ColorPips colors={c.color_identity} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={() => { setSuggestOpen(false); handleSearch(); }} disabled={searching || !commander.trim()}
               className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50">
               {searching ? "Searching…" : "Search"}
             </button>
