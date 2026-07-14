@@ -26,6 +26,7 @@ from ..models.responses import (
     UpdateDeckRequest,
     UpgradeSuggestion,
 )
+from ..repositories import card_prints as card_prints_repo
 from ..repositories import collection as collection_repo
 from ..repositories import decks as decks_repo
 from ..services import ai_brief, brackets, csv_formats, edhrec, generator
@@ -44,6 +45,15 @@ class GenerateRequest(BaseModel):
     strategy: str | None = None
     theme: str | None = None
     locked: list[str] | None = None   # oracle_ids to keep and build around
+
+
+async def _enrich_pool_printings(database, result) -> None:
+    """Attach per-printing CDN image URLs to the pool's owned printings."""
+    name_map: dict[str, str] = {c["_id"]: c["name"] for c in result.pool}
+    name_map[result.commander["_id"]] = result.commander["name"]
+    await card_prints_repo.enrich_printings(
+        database, [(name_map.get(oid, ""), prints) for oid, prints in result.printings.items()]
+    )
 
 
 async def _basics_by_color(database) -> dict[str, dict]:
@@ -175,6 +185,7 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
             detail += " Did you mean: " + ", ".join(e.suggestions[:5])
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
 
+    await _enrich_pool_printings(database, result)
     basics = await _basics_by_color(database)
 
     # EDHREC quality signal: name-match the commander's recommended cards to the
@@ -276,6 +287,7 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(get_curren
             detail += " Did you mean: " + ", ".join(e.suggestions[:5])
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
 
+    await _enrich_pool_printings(database, result)
     basics = await _basics_by_color(database)
     score_map = await edhrec.get_score_map(database, result.commander)
     quality = {c["_id"]: score_map.get(c["name_normalized"], 0.0) for c in result.pool}
@@ -377,6 +389,8 @@ async def compose_deck(body: ComposeRequest, current_user: dict = Depends(get_cu
         if e.suggestions:
             detail += " Did you mean: " + ", ".join(e.suggestions[:5])
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+
+    await _enrich_pool_printings(database, result)
 
     # Keep only ids that are actually in this commander's legal owned pool.
     pool_by_id = {card["_id"]: card for card in result.pool}

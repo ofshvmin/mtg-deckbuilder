@@ -84,3 +84,8 @@ async def ensure_indexes(db: AsyncDatabase) -> None:
 
     await db.combos.create_index("cards")     # multikey — combo detection by owned oracle_ids
     await db.combos.create_index("identity")
+
+    # Per-printing image URLs (seeded from Scryfall default_cards bulk data).
+    await db.card_prints.create_index([("set", 1), ("collector_number", 1)])
+    await db.card_prints.create_index([("name_lower", 1), ("set", 1)])
+    await db.card_prints.create_index("oracle_id")

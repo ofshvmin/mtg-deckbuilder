@@ -120,6 +120,8 @@ export interface Printing {
   count: number;
   purchase_price?: number | null;
   added_at?: string | null; // ISO timestamp; present for items added after 2026-07
+  image_uris?: Record<string, string> | null; // per-printing CDN URLs from card_prints
+  image_uris_back?: Record<string, string> | null;
 }
 
 // One owned oracle card for the collection browser: oracle data + the physical
