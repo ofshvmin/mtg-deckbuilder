@@ -10,13 +10,17 @@ export default function HomeScreen() {
   const { user, logout } = useAuth();
   const [summary, setSummary] = useState<CollectionSummary | null>(null);
   const [recent, setRecent] = useState<SavedDeckSummary[]>([]);
+  const [deckCount, setDeckCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       api.collectionSummary().then(setSummary).catch(() => null),
       api.listSavedDecks()
-        .then((d) => setRecent([...d].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)).slice(0, 4)))
+        .then((d) => {
+          setDeckCount(d.length);
+          setRecent([...d].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)).slice(0, 4));
+        })
         .catch(() => []),
     ]).finally(() => setLoading(false));
   }, []);
@@ -36,7 +40,7 @@ export default function HomeScreen() {
           <View className="flex-row gap-3">
             <StatCard label="Cards" value={summary?.total_cards ?? 0} />
             <StatCard label="Unique" value={summary?.unique_cards ?? 0} />
-            <StatCard label="Decks" value={recent.length} />
+            <StatCard label="Decks" value={deckCount} />
           </View>
 
           {/* Quick actions */}
@@ -67,7 +71,7 @@ export default function HomeScreen() {
                 {recent.map((d) => (
                   <TouchableOpacity
                     key={d.id}
-                    onPress={() => router.push("/(tabs)/decks")}
+                    onPress={() => router.push({ pathname: "/(tabs)/decks", params: { open: d.id } })}
                     activeOpacity={0.7}
                     className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60"
                   >

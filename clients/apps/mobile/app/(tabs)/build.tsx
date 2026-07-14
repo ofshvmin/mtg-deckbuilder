@@ -8,6 +8,7 @@ import { api } from "../../src/lib/api";
 import DeckDetailModal from "../../src/components/DeckDetailModal";
 
 type Mode = "auto" | "brief";
+type BriefTurn = { role: "user" | "assistant"; text: string };
 
 export default function BuildScreen() {
   // Commander search
@@ -39,6 +40,9 @@ export default function BuildScreen() {
   const [briefing, setBriefing] = useState(false);
   const [briefError, setBriefError] = useState<string | null>(null);
   const [briefResult, setBriefResult] = useState<BriefDeckResponse | null>(null);
+  const [conversation, setConversation] = useState<BriefTurn[]>([]);
+  const [refineText, setRefineText] = useState("");
+  const [refining, setRefining] = useState(false);
 
   useEffect(() => {
     api.listStrategies().then(setStrategies).catch(() => {});
@@ -63,6 +67,7 @@ export default function BuildScreen() {
     setSuggestions([]);
     setDeck(null);
     setBriefResult(null);
+    setConversation([]);
     setPoolReady(false);
     setLoadingPool(true);
     setPoolError(null);
@@ -102,13 +107,45 @@ export default function BuildScreen() {
     setBriefError(null);
     setSaved(false);
     try {
-      const res = await api.briefDeck(commander.name, briefText.trim());
+      const request = briefText.trim();
+      const res = await api.briefDeck(commander.name, request);
       setBriefResult(res);
       setDeck(res.deck);
+      setConversation([
+        { role: "user", text: request },
+        { role: "assistant", text: res.rationale },
+      ]);
     } catch (e) {
       setBriefError(e instanceof Error ? e.message : "AI brief failed");
     } finally {
       setBriefing(false);
+    }
+  }
+
+  // Conversational refinement: adjust the current brief-built deck.
+  async function submitRefine() {
+    const instruction = refineText.trim();
+    if (!commander || !briefResult || refining || !instruction) return;
+    setRefining(true);
+    setRefineText("");
+    setSaved(false);
+    setConversation((c) => [...c, { role: "user", text: instruction }]);
+    try {
+      const priorSpec = {
+        ...briefResult.spec,
+        core_cards: briefResult.core_cards.map((c) => c.name),
+      };
+      const res = await api.briefDeck(commander.name, instruction, priorSpec);
+      setBriefResult(res);
+      setDeck(res.deck);
+      setConversation((c) => [...c, { role: "assistant", text: res.rationale }]);
+    } catch (e) {
+      setConversation((c) => [
+        ...c,
+        { role: "assistant", text: `Couldn't refine: ${e instanceof Error ? e.message : "error"}` },
+      ]);
+    } finally {
+      setRefining(false);
     }
   }
 
@@ -299,12 +336,40 @@ export default function BuildScreen() {
           <View className="mt-6 gap-4">
             {briefResult && (
               <View className="rounded-xl border border-indigo-800/40 bg-indigo-950/30 p-4">
-                <Text className="text-xs font-medium uppercase tracking-wider text-indigo-300">
-                  Claude's rationale
-                </Text>
-                <Text className="mt-2 text-sm leading-5 text-slate-300">
-                  {briefResult.rationale}
-                </Text>
+                {/* Conversation transcript */}
+                <View className="gap-3">
+                  {conversation.map((turn, i) => (
+                    <View key={i}>
+                      <Text className="text-xs font-medium uppercase tracking-wider text-indigo-300">
+                        {turn.role === "user" ? "You" : "Claude"}
+                      </Text>
+                      <Text className="mt-1 text-sm leading-5 text-slate-300">{turn.text}</Text>
+                    </View>
+                  ))}
+                  {refining && <ActivityIndicator size="small" color="#818cf8" />}
+                </View>
+
+                {/* Refine input */}
+                <View className="mt-4 flex-row items-center gap-2 border-t border-indigo-800/30 pt-3">
+                  <TextInput
+                    value={refineText}
+                    onChangeText={setRefineText}
+                    placeholder="Refine — e.g. lower the curve, cut combos…"
+                    placeholderTextColor="#64748b"
+                    editable={!refining}
+                    onSubmitEditing={submitRefine}
+                    returnKeyType="send"
+                    className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200"
+                  />
+                  <TouchableOpacity
+                    onPress={submitRefine}
+                    disabled={refining || !refineText.trim()}
+                    className="rounded-lg bg-indigo-600 px-3 py-2 disabled:opacity-50"
+                    activeOpacity={0.7}
+                  >
+                    <Text className="text-sm font-medium text-white">Send</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
 

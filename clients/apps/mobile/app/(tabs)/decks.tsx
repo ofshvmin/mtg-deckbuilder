@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
 import type { GeneratedDeck, SavedDeckSummary } from "@mtg/shared";
 import { api } from "../../src/lib/api";
 import { CommanderArtImage } from "../../src/components/CardImage";
@@ -11,13 +12,15 @@ export default function DecksScreen() {
   const [openDeck, setOpenDeck] = useState<{ id: string; name: string; deck: GeneratedDeck } | null>(null);
   const [opening, setOpening] = useState(false);
 
+  const { open } = useLocalSearchParams<{ open?: string }>();
+
   const loadDecks = useCallback(() => {
     api.listSavedDecks().then(setDecks).catch(() => setDecks([])).finally(() => setLoading(false));
   }, []);
 
   useEffect(loadDecks, [loadDecks]);
 
-  async function openDeckById(id: string) {
+  const openDeckById = useCallback(async (id: string) => {
     setOpening(true);
     try {
       const saved = await api.getSavedDeck(id);
@@ -27,7 +30,16 @@ export default function DecksScreen() {
     } finally {
       setOpening(false);
     }
-  }
+  }, []);
+
+  // Opened from Home ("recent decks" tap) with an `open` deck id — show it, then
+  // clear the param so the same deck can be reopened later.
+  useEffect(() => {
+    if (open) {
+      openDeckById(open);
+      router.setParams({ open: undefined });
+    }
+  }, [open, openDeckById]);
 
   if (loading) {
     return (
