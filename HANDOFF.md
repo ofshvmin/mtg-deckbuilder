@@ -11,9 +11,9 @@ this document.
 The app is named **Grimoire** (an MTG Commander deck builder). Everything is **deployed and working**:
 - **Backend:** FastAPI on Fly.io at `https://mtg-deckbuilder-api.fly.dev`
 - **Frontend:** React SPA on Vercel at `https://mtg-deckbuilder-bice.vercel.app`
-- **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K+ oracle cards, 96K+ combos
+- **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K+ oracle cards, 113K+ per-printing images, 96K+ combos
 - **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`
-- **Backend tests:** **120+ passing** (`pytest`, excluding tests needing fastapi/pymongo in env)
+- **Backend tests:** **137+ passing** (`pytest`, excluding tests needing fastapi/pymongo in env)
 
 The app: import your card collection, pick a commander, and build a legal, mana-curved, synergy/
 combo-tuned 99-card Commander deck in one of **four ways** — auto-build, build by hand, **lock &
@@ -110,6 +110,18 @@ and a per-deck-card `selected_printing_key` — the seams for future value/image
   preview disabled on touch devices (`pointer: coarse`), zone browsers go full-screen on mobile.
 - **Card image fix**: retry named URL with cache-bust param when initial and fallback URLs are
   identical (fixes "No image found" on unowned combo cards).
+- **Per-printing image cache** (PR #41): `card_prints` MongoDB collection (~113K docs) seeded from
+  Scryfall's `default_cards` bulk export. Stores per-printing CDN image URLs (UUID-based, not rate-
+  limited). Backend enriches every printing in collection + deck API responses with DB-resolved CDN
+  URLs (2 queries max regardless of collection size). Also backfills missing `collector_number` on
+  printings that only have edition. Frontend `CardImage` source chain: DB CDN URL → constructed CDN
+  → Scryfall API (last resort). Virtually eliminates runtime Scryfall API dependency for images.
+- **Per-printing image fix** (PR #39): set-filtered Scryfall named lookup (`&set=xxx`) for printings
+  with edition but no collector_number, so CardDetailModal shows correct art per set tab.
+- **Self-service password reset** (PR #40): "Forgot password?" flow — user enters email → receives
+  a time-limited JWT reset link via SMTP → sets new password. Backend: `/auth/forgot-password` +
+  `/auth/reset-password` endpoints, `services/email.py` (configurable SMTP). Frontend:
+  `ForgotPasswordPage` + `ResetPasswordPage`. Non-existent emails don't leak user existence.
 - **Explore page** (`/explore`, PRs #32–#35): two-tab layout for browsing external decks:
   - **Precons tab** (default): ~190 official Commander preconstructed decks from MTGJSON, searchable
     by name or set code. Tiles show face commander art from Scryfall (enriched via background batch
@@ -218,10 +230,11 @@ app/
   main.py              — FastAPI app, lifespan, CORS, router mounts; /livez + /health
   db.py                — AsyncMongoClient (PyMongo native async, NOT Motor), connect/ensure_indexes
   config.py            — Pydantic settings (env vars)
-  auth/                — JWT auth (argon2 + PyJWT): register/login/refresh/me, get_current_user
+  auth/                — JWT auth (argon2 + PyJWT): register/login/refresh/me/forgot/reset, get_current_user
   models/responses.py  — Pydantic response schemas (incl. PrintingOut, CollectionCardOut)
   repositories/        — Data access:
     cards.py           — Scryfall reference cards; get_legal_pool (color-identity subset query)
+    card_prints.py     — per-printing image lookup + enrich_printings (batch CDN URL resolution)
     collection.py      — owned_counts, owned_printings, list_collection_cards
     decks.py           — saved-deck CRUD
     users.py
@@ -236,9 +249,12 @@ app/
     generator.py       — generate() greedy 99-card build; compose() analyze an exact card list
     external_decks.py  — EDHREC search/preview/page fetch, MTGJSON precon list/fetch (with
                          eager commander enrichment), Archidekt deck fetch, URL parsing
+    card_prints.py     — download Scryfall default_cards bulk data, seed card_prints collection
+    email.py           — SMTP email sending (password reset)
     edhrec.py, spellbook.py, pool.py, roles.py, mana_math.py
   util.py              — normalize_name, strip_diacritics, printing_key, normalize_finish
-tests/                 — pytest (120): csv_formats, mana_math, roles, printings, compose, external_decks
+scripts/               — sync_scryfall.py, sync_card_prints.py, sync_spellbook.py, seed_collection.py
+tests/                 — pytest (137): csv_formats, mana_math, roles, printings, compose, external_decks
 ```
 
 Key endpoints: `POST /decks/generate` (auto), `POST /decks/compose` (manual — same
@@ -256,7 +272,7 @@ packages/shared/src/
   client.ts  — framework-agnostic ApiClient w/ token refresh (composeDeck, listCollectionCards, …)
 
 apps/web/src/
-  App.tsx                    — routes: /login, /register, Layout → /, /build, /explore, /decks, /compare
+  App.tsx                    — routes: /login, /register, /forgot-password, /reset-password, Layout → /, /build, /explore, /decks, /compare
   components/Layout.tsx      — header + NavLinks + Outlet context (summary, saved count)
   pages/
     CollectionPage.tsx       — import/export/add + CollectionGrid (landing)
@@ -284,8 +300,12 @@ apps/web/src/
 ```
 
 ### Database collections
-- `cards` — Scryfall **oracle** cards (one doc per oracle_id; no per-printing data). Indexed:
-  name_normalized, color_identity, legal_commander, cmc.
+- `cards` — Scryfall **oracle** cards (one doc per oracle_id; includes card-level `image_uris`).
+  Indexed: name_normalized, color_identity, legal_commander, cmc.
+- `card_prints` — per-printing CDN image URLs (~113K docs, seeded from Scryfall `default_cards`
+  bulk export). Each doc: scryfall_id, oracle_id, name_lower, set, collector_number, image_uris,
+  image_uris_back. Indexed: (set, collector_number), (name_lower, set), oracle_id. Seed:
+  `python scripts/sync_card_prints.py`.
 - `users` — auth (email unique).
 - `collection_items` — one doc per owned printing line: oracle_id, name, count, edition,
   collector_number, foil, finish, condition, language, purchase_price, printing_key, added_at.
@@ -298,10 +318,13 @@ apps/web/src/
 ## Data model: printings & the Scryfall client-side approach
 
 - **Owned-now, catalog-later.** We only know about printings the user *owns* (from their import).
-  The `cards` collection is Scryfall **oracle_cards** — it has no set list, prices, or images.
-- **Card images + set metadata are fetched CLIENT-SIDE from Scryfall**, not stored: images via
-  `cards/{set}/{collector}?format=image` (name fallback), set name+logo via `/sets` (cached in
-  localStorage). This keeps the DB lean; a server-side printing catalog is a future upgrade.
+  The `cards` collection is Scryfall **oracle_cards** — one doc per unique card, with card-level
+  `image_uris` (CDN URLs from the oracle bulk data).
+- **Per-printing images are DB-first.** The `card_prints` collection (seeded from Scryfall's
+  `default_cards` bulk export) stores CDN image URLs for ~113K printings. The API enriches every
+  printing in collection + deck responses with these URLs (2 queries max). Frontend tries DB CDN
+  URLs first, falls back to constructed CDN, then Scryfall API as last resort. Set metadata (name +
+  logo) is still fetched client-side via Scryfall `/sets` (cached in localStorage).
 - **`printing_key` = `set|collector|finish`** is the stable identity every future feature hangs off:
   a catalog FK, a price/image lookup key, and the target of deck→copy **allocation**. Deck cards
   carry `selected_printing_key`. Danko's north star includes **inventory allocation** (a physical
@@ -331,9 +354,11 @@ apps/web/src/
 
 ## Maintenance & data freshness
 
-- Re-sync reference data periodically (~weekly): `backend/scripts/sync_scryfall.py` (cards) and
-  `backend/scripts/sync_spellbook.py` (combos). `edhrec_cache` auto-refreshes per commander on a
-  7-day TTL.
+- Re-sync reference data periodically (~weekly or when new sets drop):
+  - `backend/scripts/sync_scryfall.py` — oracle cards (38K)
+  - `backend/scripts/sync_card_prints.py` — per-printing images (113K, from `default_cards` bulk)
+  - `backend/scripts/sync_spellbook.py` — combos (96K)
+- `edhrec_cache` auto-refreshes per commander on a 7-day TTL.
 
 ---
 
@@ -345,7 +370,9 @@ cd backend && flyctl deploy
 ```
 - App `mtg-deckbuilder-api`, region `iad`, shared-cpu-1x / 512MB, auto-stop when idle (cold-start
   on request). Fly auth = `superdanko@gmail.com`.
-- Secrets: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `CORS_ORIGIN_REGEX=https://.*\.vercel\.app`.
+- Secrets: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `CORS_ORIGIN_REGEX=https://.*\.vercel\.app`,
+  `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `FROM_EMAIL`, `FRONTEND_URL` (for
+  password reset emails).
 - Health: `/livez` (dependency-free), `/health` (DB check). Config: `backend/fly.toml`.
 - Quirk: the CLI may print `net/http: request canceled` on the health-check wait but the deploy
   usually still applies — verify with `flyctl status` and `curl .../livez`.
@@ -411,8 +438,9 @@ delete the throwaway user's `users` + `collection_items` + `decks` docs.
 - Backend redeploy is manual — no CI/CD for Fly yet.
 - Collection grid renders a flat list capped at 400 rows; large collections want pagination/virtualization.
 - `mana-font`'s shipped CSS references `woff` (not `woff2`) → ~408KB one-time cached font download.
-- Client-side Scryfall image/set lookups depend on real set codes + collector numbers in the import
-  (name-based fallback otherwise); no offline/catalog fallback yet.
+- Per-printing images are now DB-first (via `card_prints`), but cards not in the bulk data (very new
+  printings, tokens) still fall back to Scryfall API (rate-limited). Re-run `sync_card_prints.py`
+  after new set releases.
 - `openpyxl` handles `.xlsx` only (not legacy `.xls`); reads the active sheet only.
 - Some backend tests (`test_brackets`, `test_combo_finishers`, `test_upgrades`, `test_preferences`)
   require fastapi/pymongo installed — they fail with import errors in the base test env. Run with
@@ -481,8 +509,8 @@ The **original 6-phase plan is complete**, plus a large second wave (see *Shippe
 - **AI deck brief — Phase 2:** conversational refinement ("lower the curve / cut the combos / more
   draw" adjusts the spec and rebuilds), unowned "acquire" suggestions from the brief (max-price
   capped), streaming the rationale, tool-use grounding (`search_owned_pool`), a *hard* combo-avoid.
-- **Server-side printing catalog** — ingest Scryfall prices/images so market value, deck totals, and
-  card images don't depend on per-client Scryfall calls.
+- **Server-side printing catalog — Phase 2** — `card_prints` handles images; next add **prices** so
+  market value and deck totals don't depend on per-client Scryfall calls.
 - **Inventory allocation** — which physical copies are committed to which decks (the fleet model).
 - **Collection performance** — pagination/virtualization (grid caps at 400 rows today).
 - **CI/CD** for the Fly backend (deploys are manual `flyctl deploy`).
