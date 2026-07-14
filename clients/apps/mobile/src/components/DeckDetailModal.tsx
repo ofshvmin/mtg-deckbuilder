@@ -58,7 +58,7 @@ export default function DeckDetailModal({
         {/* Card list grouped by slot */}
         <SectionList
           sections={sections}
-          keyExtractor={(item) => item.oracle_id}
+          keyExtractor={(item, index) => `${item.oracle_id}-${index}`}
           contentContainerStyle={{ paddingBottom: 40 }}
           renderSectionHeader={({ section }) => (
             <View className="flex-row items-center gap-2 bg-slate-950 px-4 py-2">
