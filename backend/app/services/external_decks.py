@@ -8,6 +8,7 @@ Follows the httpx + descriptive User-Agent pattern from scryfall.py.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 
 import httpx
@@ -271,11 +272,16 @@ def extract_moxfield_cards(raw: dict) -> list[dict]:
 
 # In-memory cache for the deck list (fetched once per process lifetime).
 _precon_cache: list[dict] | None = None
+_precon_enrichment_started = False
 
 
 async def get_precon_list() -> list[dict]:
-    """Fetch and cache the MTGJSON Commander Deck list."""
-    global _precon_cache
+    """Fetch and cache the MTGJSON Commander Deck list.
+
+    On first call, fetches the deck index and starts a background task
+    to enrich entries with commander names (from individual deck files).
+    """
+    global _precon_cache, _precon_enrichment_started
     if _precon_cache is not None:
         return _precon_cache
 
@@ -297,7 +303,44 @@ async def get_precon_list() -> list[dict]:
     # Sort by release date descending (newest first)
     commander_decks.sort(key=lambda d: d.get("releaseDate", ""), reverse=True)
     _precon_cache = commander_decks
+
+    # Start background enrichment to fetch commander names
+    if not _precon_enrichment_started:
+        _precon_enrichment_started = True
+        asyncio.create_task(_enrich_precon_commanders())
+
     return _precon_cache
+
+
+async def _enrich_precon_commanders() -> None:
+    """Background task: fetch each precon deck to extract commander name + colors."""
+    if not _precon_cache:
+        return
+    sem = asyncio.Semaphore(8)
+    async with httpx.AsyncClient(
+        follow_redirects=True, headers=HEADERS, timeout=15
+    ) as client:
+
+        async def _fetch_one(deck: dict) -> None:
+            fn = deck.get("fileName", "")
+            if not fn or deck.get("commander_name"):
+                return
+            async with sem:
+                try:
+                    resp = await client.get(
+                        f"https://mtgjson.com/api/v5/decks/{fn}.json"
+                    )
+                    if resp.status_code != 200:
+                        return
+                    deck_data = resp.json().get("data", {})
+                    cmds = deck_data.get("commander") or []
+                    if cmds:
+                        deck["commander_name"] = cmds[0].get("name", "")
+                        deck["color_identity"] = cmds[0].get("colorIdentity") or []
+                except Exception:
+                    pass
+
+        await asyncio.gather(*(_fetch_one(d) for d in _precon_cache))
 
 
 async def search_precons(query: str, limit: int = 20) -> list[dict]:

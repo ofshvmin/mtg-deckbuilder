@@ -10,6 +10,16 @@ import ImportCardsModal from "../components/ImportCardsModal";
 
 type Tab = "community" | "precons";
 
+/** Best-effort card name for Scryfall art when commander_name isn't available. */
+function preconArtName(p: { commander_name?: string; name: string }): string {
+  if (p.commander_name) return p.commander_name;
+  // Strip "Collector's Edition" and parenthetical suffixes like "(FINAL FANTASY X)"
+  return p.name
+    .replace(/\s*Collector'?s?\s*Edition\s*/i, " ")
+    .replace(/\s*\([^)]+\)\s*$/, "")
+    .trim();
+}
+
 interface SearchResult {
   external_id: string;
   source: string;
@@ -28,6 +38,8 @@ interface PreconResult {
   name: string;
   code: string;
   release_date: string;
+  commander_name?: string;
+  color_identity?: string[];
 }
 
 export default function ExplorePage() {
@@ -250,14 +262,29 @@ export default function ExplorePage() {
           </div>
           {preconsError && <p className="text-sm text-rose-400">{preconsError}</p>}
           {precons.length > 0 && (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {precons.map((p) => (
                 <button key={p.file_name} onClick={() => handleFetchPrecon(p)} disabled={fetching}
-                  className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-left transition hover:border-slate-700 disabled:opacity-50">
-                  <h3 className="font-semibold text-white">{p.name}</h3>
-                  <p className="mt-1 text-xs text-slate-400">
-                    {p.code.toUpperCase()} · {p.release_date}
-                  </p>
+                  className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 text-left transition hover:border-slate-700 disabled:opacity-50">
+                  <CommanderArt name={preconArtName(p)} className="h-36">
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+                    <div className="absolute right-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-slate-200">
+                      {p.code.toUpperCase()}
+                    </div>
+                    <div className="absolute inset-x-0 bottom-0 p-3">
+                      <h3 className="truncate text-sm font-semibold text-white drop-shadow transition group-hover:text-emerald-300">
+                        {p.name}
+                      </h3>
+                    </div>
+                  </CommanderArt>
+                  <div className="px-3 py-2">
+                    <p className="truncate text-xs text-slate-400">
+                      {p.commander_name
+                        ? <>{p.commander_name} · {formatColorIdentity((p.color_identity || []) as Color[])} · </>
+                        : null}
+                      {p.release_date}
+                    </p>
+                  </div>
                 </button>
               ))}
             </div>

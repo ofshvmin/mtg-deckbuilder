@@ -259,6 +259,7 @@ export class ApiClient {
   /** Search MTGJSON Commander precon decks. */
   searchPrecons(query = "", limit = 30): Promise<{
     file_name: string; name: string; code: string; release_date: string;
+    commander_name?: string; color_identity?: string[];
   }[]> {
     const qs = `?q=${encodeURIComponent(query)}&limit=${limit}`;
     return this.request("GET", `/explore/precons${qs}`);
