@@ -22,7 +22,23 @@ export function scryfallImageUrl(
     const faceParam = face === "back" ? "&face=back" : "";
     return `https://api.scryfall.com/cards/${set}/${cn}?format=image&version=${size}${faceParam}`;
   }
+  if (printing?.edition) {
+    return scryfallSetNamedImageUrl(cardName, printing.edition, size, face);
+  }
   return scryfallNamedImageUrl(cardName, size, face);
+}
+
+/** Named lookup constrained to a specific set (for printings missing collector_number). */
+export function scryfallSetNamedImageUrl(
+  cardName: string,
+  set: string,
+  size: ScryfallImageSize = "normal",
+  face: CardFace = "front",
+): string {
+  const faceParam = face === "back" ? "&face=back" : "";
+  return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(
+    cardName,
+  )}&set=${encodeURIComponent(set.toLowerCase())}&format=image&version=${size}${faceParam}`;
 }
 
 /** Fallback: a representative image looked up by exact card name. */
