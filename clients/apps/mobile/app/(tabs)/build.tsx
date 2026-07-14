@@ -83,6 +83,21 @@ export default function BuildScreen() {
     }
   }
 
+  // Clear the commander field and reset the build back to a clean state.
+  function resetCommander() {
+    setQuery("");
+    setCommander(null);
+    setSuggestions([]);
+    setPoolReady(false);
+    setPoolError(null);
+    setDeck(null);
+    setBriefResult(null);
+    setConversation([]);
+    setSaved(false);
+    setBuildError(null);
+    setBriefError(null);
+  }
+
   async function buildDeck() {
     if (!commander) return;
     setBuilding(true);
@@ -164,13 +179,20 @@ export default function BuildScreen() {
       <ScrollView className="flex-1 px-4 py-4" keyboardShouldPersistTaps="handled">
         {/* Commander search */}
         <Text className="mb-2 text-sm font-medium text-slate-300">Commander</Text>
-        <TextInput
-          value={query}
-          onChangeText={(t) => { setQuery(t); if (commander) setCommander(null); }}
-          placeholder="Search your commanders…"
-          placeholderTextColor="#64748b"
-          className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-slate-200"
-        />
+        <View className="flex-row items-center gap-2">
+          <TextInput
+            value={query}
+            onChangeText={(t) => { setQuery(t); if (commander) setCommander(null); }}
+            placeholder="Search your commanders…"
+            placeholderTextColor="#64748b"
+            className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-slate-200"
+          />
+          {query.length > 0 && (
+            <TouchableOpacity onPress={resetCommander} hitSlop={8} className="px-2 py-2" activeOpacity={0.6}>
+              <Text className="text-lg text-slate-400">✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         {searching && <ActivityIndicator size="small" color="#64748b" className="mt-2" />}
 
         {suggestions.length > 0 && !commander && (
@@ -348,6 +370,25 @@ export default function BuildScreen() {
                   ))}
                   {refining && <ActivityIndicator size="small" color="#818cf8" />}
                 </View>
+
+                {/* Core cards Claude locked in */}
+                {briefResult.core_cards.length > 0 && (
+                  <View className="mt-4 border-t border-indigo-800/30 pt-3">
+                    <Text className="mb-2 text-xs font-medium uppercase tracking-wider text-indigo-300">
+                      Core cards ({briefResult.core_cards.length})
+                    </Text>
+                    <View className="flex-row flex-wrap gap-1.5">
+                      {briefResult.core_cards.map((c) => (
+                        <View
+                          key={c.name}
+                          className="rounded-md border border-indigo-800/50 bg-indigo-900/30 px-2 py-1"
+                        >
+                          <Text className="text-xs text-slate-200">{c.name}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
 
                 {/* Refine input */}
                 <View className="mt-4 flex-row items-center gap-2 border-t border-indigo-800/30 pt-3">
