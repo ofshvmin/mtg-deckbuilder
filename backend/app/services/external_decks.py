@@ -21,6 +21,8 @@ TIMEOUT = 15
 _ARCHIDEKT_URL_RE = re.compile(r"archidekt\.com/decks/(\d+)")
 _MOXFIELD_URL_RE = re.compile(r"moxfield\.com/decks/([\w-]+)")
 _EDHREC_HASH_RE = re.compile(r"edhrec\.com/deckpreview/([\w_-]+)")
+_EDHREC_COMMANDER_RE = re.compile(r"edhrec\.com/commanders/([\w-]+)")
+_EDHREC_AVERAGE_RE = re.compile(r"edhrec\.com/average-decks/([\w-]+)")
 
 # EDHREC color letter map (they use full names in some endpoints).
 _COLOR_MAP = {"W": "W", "U": "U", "B": "B", "R": "R", "G": "G",
@@ -38,6 +40,12 @@ def parse_deck_url(url: str) -> tuple[str, str] | None:
     m = _EDHREC_HASH_RE.search(url)
     if m:
         return ("edhrec", m.group(1))
+    m = _EDHREC_COMMANDER_RE.search(url)
+    if m:
+        return ("edhrec-commander", m.group(1))
+    m = _EDHREC_AVERAGE_RE.search(url)
+    if m:
+        return ("edhrec-commander", m.group(1))
     return None
 
 
@@ -50,6 +58,16 @@ def commander_to_slug(name: str) -> str:
     slug = re.sub(r"[',.]", "", slug)
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     return slug.strip("-")
+
+
+def slug_to_name_hint(slug: str) -> str:
+    """Convert an EDHREC slug back to a rough commander name for DB lookup.
+
+    "caesar-legions-emperor" -> "caesar legions emperor"
+    Not an exact reverse of commander_to_slug (punctuation is lost), but
+    good enough for a substring search against our cards DB.
+    """
+    return slug.replace("-", " ")
 
 
 async def search_edhrec(commander: str, page_size: int = 20) -> list[dict]:
