@@ -390,10 +390,11 @@ async def get_precon_list() -> list[dict]:
     commander_decks.sort(key=lambda d: d.get("releaseDate", ""), reverse=True)
     _precon_cache = commander_decks
 
-    # Start background enrichment to fetch commander names
+    # Eagerly enrich with commander names before returning.
+    # ~190 decks at 8 concurrent ≈ 20s on first boot, then cached.
     if not _precon_enrichment_started:
         _precon_enrichment_started = True
-        asyncio.create_task(_enrich_precon_commanders())
+        await _enrich_precon_commanders()
 
     return _precon_cache
 

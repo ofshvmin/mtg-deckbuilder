@@ -51,7 +51,7 @@ async def search_owned_commanders(
         "_id": {"$in": owned_ids},
         "legal_commander": "legal",
         "$or": [
-            {"type_line": {"$regex": "Legendary Creature"}},
+            {"type_line": {"$regex": "Legendary.*Creature"}},
             {"oracle_text": {"$regex": "[Cc]an be your commander"}},
         ],
     }
@@ -68,7 +68,7 @@ async def search_all_commanders(
     mongo_query: dict = {
         "legal_commander": "legal",
         "$or": [
-            {"type_line": {"$regex": "Legendary Creature"}},
+            {"type_line": {"$regex": "Legendary.*Creature"}},
             {"oracle_text": {"$regex": "[Cc]an be your commander"}},
         ],
     }
