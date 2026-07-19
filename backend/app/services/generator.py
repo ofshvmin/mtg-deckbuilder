@@ -22,6 +22,7 @@ import re
 from dataclasses import dataclass, field
 
 from . import mana_math, roles
+from .formats import FormatSpec, get_format
 from .strategies import Strategy, get_strategy
 
 COLOR_ORDER = ["W", "U", "B", "R", "G"]
@@ -125,7 +126,7 @@ def _deck_card(
 
 
 def generate(
-    commander: dict,
+    commander: dict | None,
     pool: list[dict],
     identity: list[str],
     basics_by_color: dict[str, dict],
@@ -139,8 +140,11 @@ def generate(
     locked_ids: set[str] | None = None,
     avoid_combos: bool = False,
     jitter: float = 0.0,
+    spec: FormatSpec | None = None,
+    locked_counts: dict[str, int] | None = None,
 ) -> GeneratedDeck:
-    strat = strategy or get_strategy(None)
+    fmt = spec or get_format(None)
+    strat = strategy or get_strategy(None, fmt)
     # Explicit params override strategy defaults
     effective_land_count = land_count if land_count is not None else strat.land_count
     effective_quotas = {**strat.quotas, **(quotas or {})}
@@ -157,6 +161,7 @@ def generate(
     theme_matches = theme_matches or set()
     printings = printings or {}
     locked_ids = locked_ids or set()
+    locked_counts = locked_counts or {}
     max_quality = max(quality.values()) if quality else 0.0
     deck = GeneratedDeck(land_count=effective_land_count)
 
@@ -171,41 +176,56 @@ def generate(
     nonlands = [(d, r) for d, r in tagged if roles.LAND not in r]
     owned_lands = [(d, r) for d, r in tagged if roles.LAND in r]
 
-    nonland_slots = max(0, 99 - effective_land_count)
+    nonland_slots = max(0, fmt.deck_size - effective_land_count)
 
     # ---- Greedy nonland fill ----
     role_remaining = dict(effective_quotas)
-    curve_remaining = {b: round(effective_curve[b] * nonland_slots) for b in range(8)}
+    curve_remaining = {b: round(effective_curve.get(b, 0.0) * nonland_slots) for b in range(8)}
     chosen: list[DeckCard] = []
-    used: set[str] = set()
+    # Copies of each card already placed. Under Commander (max_copies=1) the guard
+    # `counts[id] < cap` is exactly the old `id not in used` membership test.
+    counts: dict[str, int] = {}
 
-    # Pre-place locked nonlands (kept from a previous build), counting them
-    # against role/curve budgets so the greedy fill builds *around* them.
+    def cap(doc: dict) -> int:
+        """How many copies of this card may go in the deck."""
+        return min(doc.get("copies_owned", 1) or 1, fmt.max_copies)
+
+    # Pre-place locked nonlands (kept from a previous build, or an AI-chosen core),
+    # counting them against role/curve budgets so the greedy fill builds *around*
+    # them. `locked_counts` lets a lock ask for several copies; anything not listed
+    # there is a single copy, which is all Commander can ever have.
+    placed = 0
     for doc, rset in nonlands:
-        if doc["_id"] not in locked_ids or len(chosen) >= nonland_slots:
+        if doc["_id"] not in locked_ids or placed >= nonland_slots:
             continue
-        used.add(doc["_id"])
-        curve_remaining[_bucket(doc.get("cmc", 0))] -= 1
+        want = min(locked_counts.get(doc["_id"], 1), cap(doc), nonland_slots - placed)
+        if want < 1:
+            continue
+        counts[doc["_id"]] = counts.get(doc["_id"], 0) + want
+        placed += want
+        curve_remaining[_bucket(doc.get("cmc", 0))] -= want
         role = next(
             (r for r in ROLE_FILL_ORDER if r in rset and role_remaining.get(r, 0) > 0),
             None,
         )
         if role:
-            role_remaining[role] -= 1
+            role_remaining[role] -= want
             slot = role
             reason = f"Kept · fills {roles.ROLE_LABELS[role].lower()} slot"
         else:
             slot, reason = "game_plan", "Kept (locked)"
-        chosen.append(
-            _deck_card(doc, rset, slot, reason, quality=q(doc["_id"]), printings=printings)
-        )
+        card = _deck_card(doc, rset, slot, reason, quality=q(doc["_id"]), printings=printings)
+        card.count = want
+        chosen.append(card)
 
-    for _ in range(nonland_slots - len(chosen)):
+    # Iterate on copies placed, not entries: a pre-placed 4-of already filled four
+    # slots even though it is a single entry in `chosen`.
+    for _ in range(nonland_slots - placed):
         best = None
         best_score = float("-inf")
         best_role = None
         for doc, rset in nonlands:
-            if doc["_id"] in used:
+            if counts.get(doc["_id"], 0) >= cap(doc):
                 continue
             score = 0.0
             fills = None
@@ -218,6 +238,11 @@ def generate(
             if curve_remaining.get(b, 0) > 0:
                 score += 1.5
             score += QUALITY_WEIGHT * q_norm(doc["_id"])  # EDHREC community signal
+            # Rising bonus for going deeper on a card already in the deck: the 2nd copy
+            # of the best card outbids the 1st copy of the 10th-best, which is what
+            # makes 60-card output a spine of playsets rather than a singleton pile.
+            # Zero under Commander, so this term vanishes there.
+            score += fmt.copy_bonus * counts.get(doc["_id"], 0)
             if doc["_id"] in combo_pieces:
                 score += effective_combo_weight  # piece of an assemblable combo
             if doc["_id"] in theme_matches:
@@ -234,7 +259,8 @@ def generate(
         if best is None:
             break
         doc, rset = best
-        used.add(doc["_id"])
+        copy_index = counts.get(doc["_id"], 0)
+        counts[doc["_id"]] = copy_index + 1
         b = _bucket(doc.get("cmc", 0))
         curve_remaining[b] = curve_remaining.get(b, 0) - 1
         if best_role:
@@ -246,10 +272,23 @@ def generate(
         elif doc["_id"] in theme_matches:
             slot, reason = "game_plan", "Theme pick"
         elif q_norm(doc["_id"]) >= 0.5:
-            slot, reason = "game_plan", "High-synergy pick (popular with this commander)"
+            slot, reason = "game_plan", (
+                "High-synergy pick (popular with this commander)"
+                if fmt.supports_quality
+                else "High-value pick"
+            )
         else:
             slot, reason = "game_plan", f"Game plan / curve filler (MV {b if b < 7 else '7+'})"
-        chosen.append(_deck_card(doc, rset, slot, reason, quality=q(doc["_id"]), printings=printings))
+        if copy_index > 0:
+            # Additional copy of a card already picked — bump its count instead of
+            # emitting a second entry, matching how basics are represented. Under
+            # Commander this branch is unreachable (cap is always 1).
+            existing = next(c for c in chosen if c.oracle_id == doc["_id"])
+            existing.count += 1
+        else:
+            chosen.append(
+                _deck_card(doc, rset, slot, reason, quality=q(doc["_id"]), printings=printings)
+            )
 
     # ---- Mana base: owned nonbasic lands first, then basics by pip demand ----
     nonbasic = [(d, r) for d, r in owned_lands if not d.get("is_basic_land")]
@@ -261,13 +300,23 @@ def generate(
             dr[0].get("name") or "",
         )
     )
+    # Take up to `cap` copies of each nonbasic before moving on, so a 60-card manabase
+    # gets playsets of its duals instead of a pile of distinct one-ofs. Under Commander
+    # cap is 1, making this exactly the old `nonbasic[:effective_land_count]` slice.
     land_cards: list[DeckCard] = []
-    for doc, rset in nonbasic[:effective_land_count]:
-        land_cards.append(
-            _deck_card(doc, rset, "land", "Mana base (owned nonbasic land)", printings=printings)
+    placed_lands = 0
+    for doc, rset in nonbasic:
+        if placed_lands >= effective_land_count:
+            break
+        take = min(cap(doc), effective_land_count - placed_lands)
+        card = _deck_card(
+            doc, rset, "land", "Mana base (owned nonbasic land)", printings=printings
         )
+        card.count = take
+        land_cards.append(card)
+        placed_lands += take
 
-    remaining_lands = effective_land_count - len(land_cards)
+    remaining_lands = effective_land_count - placed_lands
     if remaining_lands > 0:
         demand = {c: 0 for c in COLOR_ORDER}
         for dc in chosen:
@@ -301,19 +350,23 @@ def generate(
             )
 
     deck.cards = land_cards + chosen
-    deck.nonland_count = len(chosen)
+    # Count copies, not entries — a 4-of is four cards. Identical under Commander,
+    # where every entry is a singleton.
+    deck.nonland_count = sum(c.count for c in chosen)
     actual_lands = sum(c.count for c in land_cards)
     deck.land_count = actual_lands
 
     # ---- Stats ----
+    # Copies, not entries: a 4-of contributes four cards to its role and curve bucket.
+    # Identical under Commander, where every nonland entry is a singleton.
     role_counts: dict[str, int] = {}
     for c in chosen:
-        role_counts[c.slot] = role_counts.get(c.slot, 0) + 1
+        role_counts[c.slot] = role_counts.get(c.slot, 0) + c.count
     deck.role_counts = role_counts
 
     curve_hist = {b: 0 for b in range(8)}
     for c in chosen:
-        curve_hist[_bucket(c.cmc)] += 1
+        curve_hist[_bucket(c.cmc)] += c.count
     deck.curve = [{"cmc": b, "count": curve_hist[b]} for b in range(8)]
 
     # Color sources: lands + ramp that can make each color (within identity).
@@ -335,10 +388,10 @@ def generate(
     # Consistency via Phase 2 mana math.
     deck.stats = {
         "p_2plus_lands_opening": round(
-            mana_math.hypergeometric_at_least(99, actual_lands, 7, 2) * 100, 1
+            mana_math.hypergeometric_at_least(fmt.deck_size, actual_lands, 7, 2) * 100, 1
         ),
         "p_3plus_lands_opening": round(
-            mana_math.hypergeometric_at_least(99, actual_lands, 7, 3) * 100, 1
+            mana_math.hypergeometric_at_least(fmt.deck_size, actual_lands, 7, 3) * 100, 1
         ),
         "avg_nonland_mv": round(
             sum(c.cmc for c in chosen) / len(chosen), 2
@@ -354,10 +407,10 @@ def generate(
 
     # Warnings for unmet quotas / short pool.
     total = sum(c.count for c in deck.cards)
-    if total < 99:
+    if total < fmt.deck_size:
         deck.warnings.append(
-            f"Only {total} cards — your pool is short {99 - total} of a full 99 "
-            "(not enough eligible owned cards)."
+            f"Only {total} cards — your pool is short {fmt.deck_size - total} of a full "
+            f"{fmt.deck_size} (not enough eligible owned cards)."
         )
     for role, left in role_remaining.items():
         if left > 0:
@@ -373,12 +426,14 @@ def compose(
     identity: list[str],
     quality: dict[str, float] | None = None,
     printings: dict[str, list[dict]] | None = None,
+    spec: FormatSpec | None = None,
 ) -> GeneratedDeck:
     """Analyze an *exact* user-chosen set of cards into the same deck shape as
     ``generate`` — same role categories, curve, color sources and mana-math
     stats — but with no greedy fill and no auto-added basics. Powers the manual
     builder: whatever the user has added so far, computed live.
     """
+    fmt = spec or get_format(None)
     quality = quality or {}
     printings = printings or {}
     max_quality = max(quality.values()) if quality else 0.0
@@ -408,19 +463,21 @@ def compose(
         chosen.append(_deck_card(doc, rset, slot, reason, quality=q(doc["_id"]), printings=printings))
 
     deck.cards = land_cards + chosen
-    deck.nonland_count = len(chosen)
+    deck.nonland_count = sum(c.count for c in chosen)
     actual_lands = sum(c.count for c in land_cards)
     deck.land_count = actual_lands
     total = sum(c.count for c in deck.cards)
 
+    # Copies, not entries: a 4-of contributes four cards to its role and curve bucket.
+    # Identical under Commander, where every nonland entry is a singleton.
     role_counts: dict[str, int] = {}
     for c in chosen:
-        role_counts[c.slot] = role_counts.get(c.slot, 0) + 1
+        role_counts[c.slot] = role_counts.get(c.slot, 0) + c.count
     deck.role_counts = role_counts
 
     curve_hist = {b: 0 for b in range(8)}
     for c in chosen:
-        curve_hist[_bucket(c.cmc)] += 1
+        curve_hist[_bucket(c.cmc)] += c.count
     deck.curve = [{"cmc": b, "count": curve_hist[b]} for b in range(8)]
 
     sources = {c: 0 for c in COLOR_ORDER if c in identity}
@@ -451,9 +508,10 @@ def compose(
             "avg_nonland_mv": round(sum(c.cmc for c in chosen) / len(chosen), 2) if chosen else 0.0,
         }
 
-    if total < 99:
-        deck.warnings.append(f"{total}/99 cards — add {99 - total} more to complete the deck.")
-    elif total > 99:
-        deck.warnings.append(f"{total} cards — {total - 99} over the 99-card limit.")
+    size = fmt.deck_size
+    if total < size:
+        deck.warnings.append(f"{total}/{size} cards — add {size - total} more to complete the deck.")
+    elif total > size:
+        deck.warnings.append(f"{total} cards — {total - size} over the {size}-card limit.")
 
     return deck
