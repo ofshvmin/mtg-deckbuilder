@@ -40,7 +40,7 @@ function buildImageMap(deck: GeneratedDeck): Map<string, string> {
   for (const c of deck.cards) {
     if (c.image_uris?.normal) m.set(c.name, c.image_uris.normal);
   }
-  if (deck.commander.image_uris?.normal) m.set(deck.commander.name, deck.commander.image_uris.normal);
+  if (deck.commander?.image_uris?.normal) m.set(deck.commander.name, deck.commander.image_uris.normal);
   return m;
 }
 
@@ -339,12 +339,13 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
   }
 
   function castCommander() {
-    if (!game.commandZone) return;
+    const commander = deck.commander;
+    if (!game.commandZone || !commander) return;
     setGame((g) => {
-      const isCre = /\bCreature\b/i.test(deck.commander.type_line);
+      const isCre = /\bCreature\b/i.test(commander.type_line);
       const cmd: BfCard = {
-        uid: "commander", oracle_id: deck.commander.oracle_id, name: deck.commander.name,
-        mana_cost: deck.commander.mana_cost, cmc: deck.commander.cmc, type_line: deck.commander.type_line,
+        uid: "commander", oracle_id: commander.oracle_id, name: commander.name,
+        mana_cost: commander.mana_cost, cmc: commander.cmc, type_line: commander.type_line,
         isLand: false, isCreature: isCre, etbTapped: false, tapped: false, summoningSick: isCre, enteredTurn: g.turn,
       };
       return { ...g, battlefield: [...g.battlefield, cmd], commandZone: false };
@@ -450,7 +451,7 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
   // Get selected card name for the overlay
   function selectedCardName(): string | null {
     if (!selected) return null;
-    if (selected.zone === "command") return deck.commander.name;
+    if (selected.zone === "command") return deck.commander?.name ?? null;
     const zone = selected.zone === "hand" ? game.hand : game.battlefield;
     return zone.find((c) => c.uid === selected.uid)?.name ?? null;
   }
@@ -480,7 +481,9 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
       {/* Top bar */}
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-950 px-3 py-2 sm:px-4">
         <div className="flex items-center gap-2 sm:gap-4">
-          <h2 className="text-xs font-semibold text-slate-100 sm:text-sm">{deck.commander.name}</h2>
+          <h2 className="text-xs font-semibold text-slate-100 sm:text-sm">
+            {deck.commander?.name ?? `${deck.format.charAt(0).toUpperCase()}${deck.format.slice(1)} deck`}
+          </h2>
           <div className="flex items-center gap-2 text-[10px] text-slate-400 sm:gap-3 sm:text-xs">
             <span>T<b className="text-slate-200">{game.phase === "play" ? game.turn : "—"}</b></span>
             <span>Lib <b className="text-slate-300">{game.library.length}</b></span>
@@ -579,17 +582,22 @@ export default function PlaytestModal({ deck, onClose }: { deck: GeneratedDeck; 
 
         {/* Side zones */}
         <div className="flex w-20 shrink-0 flex-col items-center gap-2 border-l border-slate-800 bg-slate-900/30 p-2 pt-3">
-          <div className="flex flex-col items-center gap-1">
-            <div className={"relative cursor-pointer " + (!game.commandZone ? "opacity-40" : "")}
-              onClick={() => { if (game.commandZone) setSelected(selected?.zone === "command" ? null : { uid: "commander", zone: "command" }); }}
-              onMouseEnter={() => setHoveredCard(deck.commander.name)} onMouseLeave={() => setHoveredCard(null)}>
-              <img src={cardImg(deck.commander.name)} alt={deck.commander.name} loading="lazy"
-                className={"h-[80px] w-[57px] rounded-lg border object-contain bg-slate-900 " +
-                  (selected?.zone === "command" ? "border-sky-400" : "border-amber-700")} />
-            </div>
-            <span className="text-[10px] text-amber-500">Commander</span>
-          </div>
-          <div className="my-1 w-full border-t border-slate-800" />
+          {/* Command zone exists only in Commander. */}
+          {deck.commander && (
+            <>
+              <div className="flex flex-col items-center gap-1">
+                <div className={"relative cursor-pointer " + (!game.commandZone ? "opacity-40" : "")}
+                  onClick={() => { if (game.commandZone) setSelected(selected?.zone === "command" ? null : { uid: "commander", zone: "command" }); }}
+                  onMouseEnter={() => setHoveredCard(deck.commander!.name)} onMouseLeave={() => setHoveredCard(null)}>
+                  <img src={cardImg(deck.commander.name)} alt={deck.commander.name} loading="lazy"
+                    className={"h-[80px] w-[57px] rounded-lg border object-contain bg-slate-900 " +
+                      (selected?.zone === "command" ? "border-sky-400" : "border-amber-700")} />
+                </div>
+                <span className="text-[10px] text-amber-500">Commander</span>
+              </div>
+              <div className="my-1 w-full border-t border-slate-800" />
+            </>
+          )}
           <ZonePile cards={game.library} label="Library" faceDown onClick={() => toggleSidebar("library")} cardImg={cardImg} />
           <DropZone zone="graveyard" onDrop={(uid, from) => moveCard(uid, from, "graveyard")}>
             <ZonePile cards={game.graveyard} label="Graveyard" onClick={() => toggleSidebar("graveyard")} cardImg={cardImg} />

@@ -71,10 +71,12 @@ export default function DecksPage() {
 
   // "Edit cards" on a saved deck → open the manual editor seeded with its cards.
   function editInBuilder(deck: GeneratedDeck) {
-    if (!openDeck) return;
+    // The manual builder still assumes a commander (and a singleton selection
+    // model), so editing is Commander-only until that lands.
+    if (!openDeck || !deck.commander) return;
     navigate("/build", {
       state: {
-        editCommander: deck.commander.name,
+        editCommander: deck.commander!.name,
         editSelected: deck.cards
           .filter((c) => !c.oracle_id.startsWith("basic:"))
           .map((c) => c.oracle_id),

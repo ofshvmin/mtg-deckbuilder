@@ -16,6 +16,7 @@ import type {
   CollectionItem,
   CollectionSummary,
   CommanderOption,
+  DeckFormat,
   ExternalDeckResponse,
   GeneratedDeck,
   HealthStatus,
@@ -194,15 +195,31 @@ export class ApiClient {
     return this.request<CommanderOption[]>("GET", `/commanders${qs}`);
   }
 
-  getPool(commanderName: string): Promise<PoolResponse> {
-    return this.request<PoolResponse>(
-      "GET",
-      `/pool?commander=${encodeURIComponent(commanderName)}`,
-    );
+  /** The user's legal owned pool.
+   *
+   *  Accepts a bare commander name (the original signature, kept so existing call
+   *  sites compile unchanged) or an options object. Constructed formats need no
+   *  commander at all — that's what makes zero-input auto-generate work — and the
+   *  pool comes back unfiltered by color so colors can be retoggled without a refetch.
+   */
+  getPool(arg: string | { commander?: string; format?: string }): Promise<PoolResponse> {
+    const opts = typeof arg === "string" ? { commander: arg } : arg;
+    const params = new URLSearchParams();
+    if (opts.commander) params.set("commander", opts.commander);
+    if (opts.format) params.set("format", opts.format);
+    return this.request<PoolResponse>("GET", `/pool?${params.toString()}`);
   }
 
-  listStrategies(): Promise<StrategyOption[]> {
-    return this.request<StrategyOption[]>("GET", "/decks/strategies");
+  /** Formats the build UI can offer. */
+  listFormats(): Promise<DeckFormat[]> {
+    return this.request<DeckFormat[]>("GET", "/decks/formats");
+  }
+
+  listStrategies(format = "commander"): Promise<StrategyOption[]> {
+    return this.request<StrategyOption[]>(
+      "GET",
+      `/decks/strategies?format=${encodeURIComponent(format)}`,
+    );
   }
 
   /** EDHREC-recommended cards the user doesn't own for a commander (budget upgrades). */
@@ -212,13 +229,16 @@ export class ApiClient {
   }
 
   generateDeck(
-    commanderName: string,
+    commanderName: string | null,
     opts?: {
       land_count?: number;
       quotas?: Record<string, number>;
       strategy?: string;
       theme?: string;
       locked?: string[];
+      format?: string;
+      colors?: string[];
+      auto_fill_colors?: boolean;
     },
   ): Promise<GeneratedDeck> {
     return this.request<GeneratedDeck>("POST", "/decks/generate", {
@@ -229,19 +249,24 @@ export class ApiClient {
   /** Interpret a natural-language deck request with Claude, then build the deck.
    *  Pass `priorSpec` (last spec + core card names) to refine an existing build. */
   briefDeck(
-    commanderName: string,
+    commanderName: string | null,
     brief: string,
     priorSpec?: Record<string, unknown>,
+    format = "commander",
   ): Promise<BriefDeckResponse> {
     return this.request<BriefDeckResponse>("POST", "/decks/brief", {
-      body: { commander: commanderName, brief, prior_spec: priorSpec },
+      body: { commander: commanderName, brief, prior_spec: priorSpec, format },
     });
   }
 
   /** Analyze an exact chosen card list into deck categories + stats (manual builder). */
-  composeDeck(commanderName: string, oracleIds: string[]): Promise<GeneratedDeck> {
+  composeDeck(
+    commanderName: string | null,
+    oracleIds: string[],
+    format = "commander",
+  ): Promise<GeneratedDeck> {
     return this.request<GeneratedDeck>("POST", "/decks/compose", {
-      body: { commander: commanderName, oracle_ids: oracleIds },
+      body: { commander: commanderName, oracle_ids: oracleIds, format },
     });
   }
 

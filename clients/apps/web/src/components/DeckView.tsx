@@ -47,7 +47,12 @@ export default function DeckView({
   const maxPrice = user?.preferences?.max_card_price ?? null;
   // The deck is held in local state so "Regenerate unlocked" can replace it.
   const [deck, setDeck] = useState<GeneratedDeck>(initialDeck);
-  const [name, setName] = useState(deckName ?? `${initialDeck.commander.name} Deck`);
+  // Commander decks default to the commander's name. Other formats start blank and
+  // stay unsaveable until named — Save is already disabled on an empty name below,
+  // so requiring one needs no extra validation.
+  const [name, setName] = useState(
+    deckName ?? (initialDeck.commander ? `${initialDeck.commander.name} Deck` : ""),
+  );
   const [saving, setSaving] = useState(false);
   const [savedAs, setSavedAs] = useState<string | null>(deckName ?? null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -106,7 +111,7 @@ export default function DeckView({
       };
       if (deck.strategy && deck.strategy !== "Balanced") opts.strategy = deck.strategy;
       if (deck.theme) opts.theme = deck.theme;
-      const next = await api.generateDeck(deck.commander.name, opts);
+      const next = await api.generateDeck(deck.commander?.name ?? null, { ...opts, format: deck.format });
       setDeck(next);
       setDirty(true);
     } catch (e) {
@@ -153,7 +158,7 @@ export default function DeckView({
   async function handleScavenger() {
     setScavenging(true);
     try {
-      const title = savedAs || name || `${deck.commander.name} Deck`;
+      const title = savedAs || name || untitledName;
       const data = await buildScavengerData(deck, title);
       await downloadScavengerPdf(data);
     } catch {
@@ -174,7 +179,10 @@ export default function DeckView({
           return price == null || price <= maxPrice; // keep if unknown/loading or affordable
         });
   const hasCombos = deck.combos.length > 0 || visibleNear.length > 0;
-  const title = savedAs ?? deckName ?? `${deck.commander.name} Deck`;
+  const untitledName = deck.commander
+    ? `${deck.commander.name} Deck`
+    : `Untitled ${deck.format.charAt(0).toUpperCase()}${deck.format.slice(1)} Deck`;
+  const title = savedAs ?? deckName ?? untitledName;
 
   return (
     <div className="space-y-6">
@@ -183,26 +191,31 @@ export default function DeckView({
         <div className="min-w-0">
           <h2 className="text-2xl font-bold sm:text-3xl">{title}</h2>
           <p className="mt-1 text-sm text-slate-400">
-            {deck.commander.name} · {formatColorIdentity(deck.color_identity)} ·{" "}
-            {deck.commander.type_line}
+            {deck.commander
+              ? `${deck.commander.name} · ${formatColorIdentity(deck.color_identity)} · ${deck.commander.type_line}`
+              : `${deck.format.charAt(0).toUpperCase()}${deck.format.slice(1)} · ${formatColorIdentity(deck.color_identity)}`}
           </p>
         </div>
         <div className="shrink-0 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-1.5 text-right">
           <div className="text-2xl font-bold tabular-nums text-white">{deck.total}</div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-400">+ commander</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+            {deck.commander ? "+ commander" : "cards"}
+          </div>
         </div>
       </div>
 
-      {/* Featured commander — full card + details */}
-      <CommanderFeature
-        name={deck.commander.name}
-        oracleId={deck.commander.oracle_id}
-        colorIdentity={deck.color_identity}
-        typeLine={deck.commander.type_line}
-        manaCost={deck.commander.mana_cost}
-        oracleText={deck.commander.oracle_text}
-        imageUris={deck.commander.image_uris}
-      />
+      {/* Featured commander — full card + details. Absent for constructed formats. */}
+      {deck.commander && (
+        <CommanderFeature
+          name={deck.commander.name}
+          oracleId={deck.commander.oracle_id}
+          colorIdentity={deck.color_identity}
+          typeLine={deck.commander.type_line}
+          manaCost={deck.commander.mana_cost}
+          oracleText={deck.commander.oracle_text}
+          imageUris={deck.commander.image_uris}
+        />
+      )}
 
       {/* Controls: name + save */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -227,7 +240,7 @@ export default function DeckView({
       </div>
       {/* Secondary actions */}
       <div className="flex flex-wrap items-center gap-2">
-        {onEdit && (
+        {onEdit && deck.commander && (
           <button onClick={() => onEdit(deck)}
             className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800 sm:text-sm sm:py-2">
             Edit cards
@@ -264,7 +277,10 @@ export default function DeckView({
 
       {/* Top-level stats */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatTile label="Deck size" value={`${deck.total} + CMD`} />
+        <StatTile
+          label="Deck size"
+          value={deck.commander ? `${deck.total} + CMD` : `${deck.total}`}
+        />
         <StatTile label="Lands" value={deck.land_count} />
         <StatTile label="Avg nonland MV" value={deck.stats.avg_nonland_mv ?? "—"} />
         <StatTile label="2+ lands (opener)" value={`${deck.stats.p_2plus_lands_opening ?? "—"}%`} />
@@ -340,19 +356,23 @@ export default function DeckView({
         )}
       </div>
 
-      {/* Combo finishers — cards that complete a combo with this deck */}
-      <DeckComboFinishers
-        commanderName={deck.commander.name}
-        deckCardIds={deck.cards.map((c) => c.oracle_id)}
-        maxPrice={maxPrice}
-      />
+      {/* Combo finishers and budget upgrades are both derived from Commander-only
+          data sources (Spellbook, EDHREC), so they're hidden for other formats. */}
+      {deck.commander && (
+        <DeckComboFinishers
+          commanderName={deck.commander.name}
+          deckCardIds={deck.cards.map((c) => c.oracle_id)}
+          maxPrice={maxPrice}
+        />
+      )}
 
-      {/* Budget upgrades — cards you don't own that EDHREC recommends */}
-      <DeckUpgrades
-        commanderName={deck.commander.name}
-        deckCardIds={deck.cards.map((c) => c.oracle_id)}
-        maxPrice={maxPrice}
-      />
+      {deck.supports_upgrades && deck.commander && (
+        <DeckUpgrades
+          commanderName={deck.commander.name}
+          deckCardIds={deck.cards.map((c) => c.oracle_id)}
+          maxPrice={maxPrice}
+        />
+      )}
 
       {playtesting && <PlaytestModal deck={deck} onClose={() => setPlaytesting(false)} />}
 
@@ -387,8 +407,12 @@ export default function DeckView({
         ) : (
           <>
             {!deck.strategy && !deck.theme && "C"}
-            {(deck.strategy || deck.theme) && "c"}ards fill role quotas and the mana curve, ranked by curve fit and efficiency (no EDHREC
-            data for this commander).
+            {(deck.strategy || deck.theme) && "c"}ards fill role quotas and the mana curve,
+            ranked by curve fit and efficiency
+            {deck.commander
+              ? " (no EDHREC data for this commander)"
+              : ` (no community ranking data exists for ${deck.format}, so copies owned and role coverage decide)`}
+            .
           </>
         )}
       </div>
