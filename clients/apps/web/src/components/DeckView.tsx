@@ -106,11 +106,24 @@ export default function DeckView({
     setRegenerating(true);
     setSaveError(null);
     try {
-      const opts: { locked: string[]; strategy?: string; theme?: string } = {
+      const opts: {
+        locked: string[];
+        strategy?: string;
+        theme?: string;
+        colors?: string[];
+        auto_fill_colors?: boolean;
+      } = {
         locked: [...locked],
       };
       if (deck.strategy && deck.strategy !== "Balanced") opts.strategy = deck.strategy;
       if (deck.theme) opts.theme = deck.theme;
+      // Constructed decks carry their own colors; without this the backend would
+      // re-auto-pick them from scratch and a UB deck comes back GW. Commander derives
+      // colors from the commander, so it ignores these.
+      if (deck.format !== "commander") {
+        opts.colors = deck.colors;
+        opts.auto_fill_colors = false;
+      }
       const next = await api.generateDeck(deck.commander?.name ?? null, { ...opts, format: deck.format });
       setDeck(next);
       setDirty(true);
