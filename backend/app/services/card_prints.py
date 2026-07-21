@@ -42,6 +42,19 @@ async def fetch_default_cards() -> list[dict]:
         return await _get_json(client, uri)
 
 
+def _price(raw: dict | None, key: str) -> float | None:
+    """Parse one Scryfall price string (e.g. "0.35") to a float, or None."""
+    if not raw:
+        return None
+    val = raw.get(key)
+    if val in (None, ""):
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
 def print_doc(card: dict) -> dict:
     """Transform one Scryfall card into a `card_prints` document."""
     image_uris, image_uris_back = _extract_image_uris(card)
@@ -56,6 +69,16 @@ def print_doc(card: dict) -> dict:
         doc["image_uris"] = image_uris
     if image_uris_back:
         doc["image_uris_back"] = image_uris_back
+    # Per-printing market price, seeded here so the app never has to call Scryfall
+    # live for prices (mirrors how images are served from the DB). Stored only when
+    # present to keep documents small.
+    prices = card.get("prices")
+    usd = _price(prices, "usd")
+    usd_foil = _price(prices, "usd_foil")
+    if usd is not None:
+        doc["price_usd"] = usd
+    if usd_foil is not None:
+        doc["price_usd_foil"] = usd_foil
     return doc
 
 

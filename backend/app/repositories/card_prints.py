@@ -1,6 +1,7 @@
-"""Data access for `card_prints` (per-printing Scryfall CDN image URLs)."""
+"""Data access for `card_prints` (per-printing Scryfall CDN image URLs + prices)."""
 from __future__ import annotations
 
+from pymongo import ReplaceOne
 from pymongo.asynchronous.database import AsyncDatabase
 
 
@@ -9,10 +10,27 @@ async def count(db: AsyncDatabase) -> int:
 
 
 async def replace_all(db: AsyncDatabase, docs: list[dict], batch_size: int = 5000) -> int:
-    """Replace the entire card_prints collection with fresh data."""
-    await db.card_prints.delete_many({})
+    """Replace the entire card_prints collection with fresh data.
+
+    Batched upserts keyed on `_id`, then prune of any printing ids no longer in the
+    bulk file. Not delete-then-insert: that leaves the collection empty during the
+    sync, so image/price enrichment returns nothing for every in-flight request.
+    """
+    if not docs:
+        return await count(db)
+
     for i in range(0, len(docs), batch_size):
-        await db.card_prints.insert_many(docs[i : i + batch_size], ordered=False)
+        batch = docs[i : i + batch_size]
+        await db.card_prints.bulk_write(
+            [ReplaceOne({"_id": d["_id"]}, d, upsert=True) for d in batch],
+            ordered=False,
+        )
+
+    fresh_ids = {d["_id"] for d in docs}
+    existing_ids = {d["_id"] async for d in db.card_prints.find({}, {"_id": 1})}
+    stale = existing_ids - fresh_ids
+    if stale:
+        await db.card_prints.delete_many({"_id": {"$in": list(stale)}})
     return await count(db)
 
 
@@ -84,6 +102,12 @@ async def enrich_printings(
                 p["image_uris"] = doc["image_uris"]
             if doc.get("image_uris_back"):
                 p["image_uris_back"] = doc["image_uris_back"]
+            # Per-printing market price, so the client shows it without a live
+            # Scryfall call. Attached here alongside images since it's the same match.
+            if doc.get("price_usd") is not None:
+                p["price_usd"] = doc["price_usd"]
+            if doc.get("price_usd_foil") is not None:
+                p["price_usd_foil"] = doc["price_usd_foil"]
             # Backfill missing collector_number so CDN URLs work next time.
             if not p.get("collector_number") and doc.get("collector_number"):
                 p["collector_number"] = doc["collector_number"]

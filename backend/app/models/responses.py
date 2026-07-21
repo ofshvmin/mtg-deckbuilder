@@ -86,6 +86,8 @@ class PrintingOut(BaseModel):
     added_at: str | None = None    # ISO timestamp; stamped on import/add going forward
     image_uris: dict[str, str] | None = None        # per-printing CDN URLs from card_prints
     image_uris_back: dict[str, str] | None = None
+    price_usd: float | None = None                  # per-printing market price from card_prints
+    price_usd_foil: float | None = None
 
 
 class CollectionCardOut(BaseModel):
