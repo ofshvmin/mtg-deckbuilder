@@ -151,6 +151,8 @@ export interface Printing {
   added_at?: string | null; // ISO timestamp; present for items added after 2026-07
   image_uris?: Record<string, string> | null; // per-printing CDN URLs from card_prints
   image_uris_back?: Record<string, string> | null;
+  price_usd?: number | null; // per-printing market price from card_prints (no live Scryfall call)
+  price_usd_foil?: number | null;
 }
 
 // One owned oracle card for the collection browser: oracle data + the physical

@@ -102,8 +102,17 @@ export default function CardDetailModal({
   const count = printings.length;
   const current: Printing | undefined = printings[index];
 
-  // Market (Scryfall) price for the focused printing — matched by set + collector.
+  // Market price for the focused printing. Prefer the price the backend already
+  // attached to the owned printing (seeded into card_prints from Scryfall bulk data,
+  // so it needs no live API call and renders instantly). Fall back to the Scryfall
+  // detail fetch for unowned printings or any the DB is missing.
   const marketUsd: number | null = (() => {
+    if (current) {
+      const owned = current.finish === "foil"
+        ? current.price_usd_foil ?? current.price_usd
+        : current.price_usd;
+      if (owned != null) return owned;
+    }
     if (!detail || !current) return null;
     const hit = detail.prints.find(
       (p) => p.set.toLowerCase() === (current.edition ?? "").toLowerCase() &&
