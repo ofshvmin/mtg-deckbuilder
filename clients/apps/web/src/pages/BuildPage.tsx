@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import type { BriefDeckResponse, CommanderOption, GeneratedDeck, PoolResponse, StrategyOption } from "@mtg/shared";
+import type { BriefDeckResponse, ColorRationale, CommanderOption, DeckFormat, GeneratedDeck, PoolResponse, StrategyOption } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
@@ -10,6 +10,7 @@ import CommanderPicker from "../components/CommanderPicker";
 import DeckView from "../components/DeckView";
 import ManaCurve from "../components/ManaCurve";
 import ManualBuilder from "../components/ManualBuilder";
+import ColorPicker from "../components/ColorPicker";
 import PoolTable from "../components/PoolTable";
 import StatTile from "../components/StatTile";
 
@@ -38,10 +39,32 @@ export default function BuildPage() {
   const [briefError, setBriefError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<BriefTurn[]>([]);
   const [refining, setRefining] = useState(false);
+  const [formats, setFormats] = useState<DeckFormat[]>([]);
+  const [format, setFormat] = useState("commander");
+  const [colors, setColors] = useState<string[]>([]);
+  const [autoFillColors, setAutoFillColors] = useState(true);
+  // Kept separately from `deck` because the color picker lives on the build screen,
+  // where `deck` is null — the rationale has to outlive the deck that produced it.
+  const [colorRationale, setColorRationale] = useState<ColorRationale | null>(null);
+
+  const spec = formats.find((f) => f.key === format);
+  const needsCommander = spec ? spec.requires_commander : true;
 
   useEffect(() => {
-    api.listStrategies().then(setStrategies).catch(() => {});
+    api.listFormats().then(setFormats).catch(() => {});
   }, []);
+
+  // Strategy tables differ per format (Commander is EDH-tuned, constructed is not),
+  // so refetch and reset the selection whenever the format changes.
+  useEffect(() => {
+    api
+      .listStrategies(format)
+      .then((list) => {
+        setStrategies(list);
+        setSelectedStrategy(list[0]?.name ?? "");
+      })
+      .catch(() => {});
+  }, [format]);
 
   // Editing an existing saved deck: DecksPage navigates here with router state.
   useEffect(() => {
@@ -70,6 +93,37 @@ export default function BuildPage() {
       }
     })();
   }, [location.state]);
+
+  function resetBuild() {
+    setPool(null);
+    setDeck(null);
+    setEditSeed(null);
+    setBriefResult(null);
+    setConversation([]);
+    setBriefText("");
+    setDeckError(null);
+  }
+
+  // Switching format loads the pool straight away for formats that need no
+  // commander — that's the zero-input requirement: pick Standard, get a deck.
+  async function selectFormat(key: string) {
+    setFormat(key);
+    setColors([]);
+    setColorRationale(null);
+    setMode("auto");
+    resetBuild();
+    const next = formats.find((f) => f.key === key);
+    if (!next || next.requires_commander) return;
+    setLoadingPool(true);
+    setPoolError(null);
+    try {
+      setPool(await api.getPool({ format: key }));
+    } catch (e) {
+      setPoolError(e instanceof Error ? e.message : "Could not load pool");
+    } finally {
+      setLoadingPool(false);
+    }
+  }
 
   async function selectCommander(c: CommanderOption) {
     setLoadingPool(true);
@@ -103,17 +157,35 @@ export default function BuildPage() {
     setDeck(null);
   }
 
-  async function buildDeck() {
+  async function buildDeck(override?: { colors?: string[]; autoFill?: boolean }) {
     if (!pool) return;
     setBuildingDeck(true);
     setDeckError(null);
     setBriefResult(null);
     setConversation([]);
     try {
-      const opts: { strategy?: string; theme?: string } = {};
-      if (selectedStrategy && selectedStrategy !== "Balanced") opts.strategy = selectedStrategy;
+      const opts: {
+        strategy?: string; theme?: string; format?: string;
+        colors?: string[]; auto_fill_colors?: boolean;
+      } = { format };
+      if (selectedStrategy && selectedStrategy !== strategies[0]?.name) {
+        opts.strategy = selectedStrategy;
+      }
       if (theme.trim()) opts.theme = theme.trim();
-      setDeck(await api.generateDeck(pool.commander.name, opts));
+      if (!needsCommander) {
+        opts.colors = override?.colors ?? colors;
+        opts.auto_fill_colors = override?.autoFill ?? autoFillColors;
+      }
+      const built = await api.generateDeck(pool.commander?.name ?? null, opts);
+      setDeck(built);
+      // An explicit color choice comes back with no alternates (nothing was
+      // searched), so keep the last set that had them — otherwise picking one
+      // alternate strands you there with no way to try the others.
+      setColorRationale((prev) => {
+        const next = built.color_rationale ?? null;
+        if (next && next.alternates.length > 0) return next;
+        return prev ?? next;
+      });
     } catch (e) {
       setDeckError(e instanceof Error ? e.message : "Could not build deck");
     } finally {
@@ -127,7 +199,7 @@ export default function BuildPage() {
     setBriefing(true);
     setBriefError(null);
     try {
-      const res = await api.briefDeck(pool.commander.name, request);
+      const res = await api.briefDeck(pool.commander?.name ?? null, request, undefined, format);
       setBriefResult(res);
       setDeck(res.deck);
       setConversation([
@@ -151,7 +223,7 @@ export default function BuildPage() {
         ...briefResult.spec,
         core_cards: briefResult.core_cards.map((c) => c.name),
       };
-      const res = await api.briefDeck(pool.commander.name, instruction, priorSpec);
+      const res = await api.briefDeck(pool.commander?.name ?? null, instruction, priorSpec, format);
       setBriefResult(res);
       setDeck(res.deck);
       setConversation((c) => [...c, { role: "assistant", text: res.rationale }]);
@@ -179,12 +251,32 @@ export default function BuildPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <label className="text-sm font-medium text-slate-300">Commander</label>
-        <div className="mt-2 max-w-lg">
-          <CommanderPicker onSelect={selectCommander} />
+      {formats.length > 0 && (
+        <div>
+          <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Format</label>
+          <div className="mt-2 inline-flex rounded-lg border border-slate-700 p-0.5">
+            {formats.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => selectFormat(f.key)}
+                className={toggleClass(format === f.key)}
+                title={`${f.deck_size} cards · up to ${f.max_copies} cop${f.max_copies === 1 ? "y" : "ies"} of each`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {needsCommander && (
+        <div>
+          <label className="text-sm font-medium text-slate-300">Commander</label>
+          <div className="mt-2 max-w-lg">
+            <CommanderPicker onSelect={selectCommander} />
+          </div>
+        </div>
+      )}
 
       {loadingPool && <p className="text-slate-400">Building your legal pool…</p>}
       {poolError && <p className="text-rose-400">{poolError}</p>}
@@ -200,7 +292,7 @@ export default function BuildPage() {
                 ← Back to build
               </button>
             </div>
-          ) : (
+          ) : pool.commander ? (
             <CommanderFeature
               name={pool.commander.name}
               oracleId={pool.commander.oracle_id}
@@ -210,11 +302,33 @@ export default function BuildPage() {
               oracleText={pool.commander.oracle_text}
               imageUris={pool.commander.image_uris}
             />
-          )}
+          ) : null}
 
           {deck ? (
             <>
               {deckError && <p className="text-rose-400">{deckError}</p>}
+              {!needsCommander && (
+                <ColorPicker
+                  colors={colors}
+                  onChange={(next) => {
+                    setColors(next);
+                    void buildDeck({ colors: next, autoFill: autoFillColors });
+                  }}
+                  autoFill={autoFillColors}
+                  onAutoFillChange={(next) => {
+                    setAutoFillColors(next);
+                    void buildDeck({ colors, autoFill: next });
+                  }}
+                  maxColors={spec?.max_deck_colors ?? 3}
+                  rationale={colorRationale}
+                  onPickAlternate={(next) => {
+                    setColors(next);
+                    setAutoFillColors(false);
+                    void buildDeck({ colors: next, autoFill: false });
+                  }}
+                  busy={buildingDeck}
+                />
+              )}
               {briefResult && (
                 <AiPlanPanel
                   result={briefResult}
@@ -256,6 +370,25 @@ export default function BuildPage() {
                 </div>
               )}
 
+              {/* Colors — a generation knob, so it lives with strategy and theme and
+                  shares their instant-regenerate behavior. Kept visible in brief mode
+                  (unlike the strategy chips) so Claude's color choice stays editable. */}
+              {!needsCommander && (
+                <ColorPicker
+                  colors={colors}
+                  onChange={setColors}
+                  autoFill={autoFillColors}
+                  onAutoFillChange={setAutoFillColors}
+                  maxColors={spec?.max_deck_colors ?? 3}
+                  rationale={colorRationale}
+                  onPickAlternate={(next) => {
+                    setColors(next);
+                    setAutoFillColors(false);
+                    void buildDeck({ colors: next, autoFill: false });
+                  }}
+                />
+              )}
+
               {/* Theme input — not shown for the AI-brief mode */}
               {mode !== "brief" && (
                 <div className="space-y-2">
@@ -279,20 +412,22 @@ export default function BuildPage() {
                   <button onClick={() => setMode("auto")} className={toggleClass(mode === "auto")}>
                     Auto-build
                   </button>
-                  <button onClick={() => setMode("manual")} className={toggleClass(mode === "manual")}>
-                    Build manually
-                  </button>
+                  {needsCommander && (
+                    <button onClick={() => setMode("manual")} className={toggleClass(mode === "manual")}>
+                      Build manually
+                    </button>
+                  )}
                   <button onClick={() => setMode("brief")} className={toggleClass(mode === "brief")}>
                     ✨ Describe
                   </button>
                 </div>
                 {mode === "auto" && (
                   <button
-                    onClick={buildDeck}
+                    onClick={() => buildDeck()}
                     disabled={buildingDeck}
                     className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
                   >
-                    {buildingDeck ? "Building…" : "Build 99-card deck"}
+                    {buildingDeck ? "Building…" : `Build ${spec?.deck_size ?? 99}-card deck`}
                   </button>
                 )}
               </div>
@@ -335,7 +470,16 @@ export default function BuildPage() {
                     <StatTile label="Legal pool" value={pool.pool_size.toLocaleString()} />
                     <StatTile label="Lands" value={pool.land_count} />
                     <StatTile label="Nonlands" value={pool.pool_size - pool.land_count} />
-                    <StatTile label="Colors" value={formatColorIdentity(pool.color_identity)} />
+                    <StatTile
+                      label="Colors"
+                      value={
+                        needsCommander
+                          ? formatColorIdentity(pool.color_identity)
+                          : colors.length
+                            ? formatColorIdentity(colors as never)
+                            : "Auto"
+                      }
+                    />
                   </div>
                   <ManaCurve curve={pool.curve} />
                   <PoolTable pool={pool.pool} />
@@ -344,7 +488,7 @@ export default function BuildPage() {
                 <ManualBuilder
                   key={editSeed?.deckId ?? (editSeed ? "edit" : "new")}
                   pool={pool}
-                  commanderName={pool.commander.name}
+                  commanderName={pool.commander?.name ?? ""}
                   strategy={selectedStrategy}
                   theme={theme}
                   onSaved={refreshSaved}

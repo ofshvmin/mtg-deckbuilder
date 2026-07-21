@@ -1,0 +1,438 @@
+{
+  "cards": [
+    {
+      "count": 1,
+      "oracle_id": "land0",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land1",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land10",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land11",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land12",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land13",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land14",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land2",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land3",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land4",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land5",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land6",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land7",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land8",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "land9",
+      "slot": "land"
+    },
+    {
+      "count": 22,
+      "oracle_id": "basic:G",
+      "slot": "land"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp0",
+      "slot": "ramp"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp1",
+      "slot": "ramp"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp2",
+      "slot": "ramp"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp3",
+      "slot": "ramp"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp4",
+      "slot": "ramp"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp5",
+      "slot": "ramp"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp6",
+      "slot": "ramp"
+    },
+    {
+      "count": 1,
+      "oracle_id": "remove0",
+      "slot": "removal"
+    },
+    {
+      "count": 1,
+      "oracle_id": "remove1",
+      "slot": "removal"
+    },
+    {
+      "count": 1,
+      "oracle_id": "remove2",
+      "slot": "removal"
+    },
+    {
+      "count": 1,
+      "oracle_id": "remove3",
+      "slot": "removal"
+    },
+    {
+      "count": 1,
+      "oracle_id": "remove4",
+      "slot": "removal"
+    },
+    {
+      "count": 1,
+      "oracle_id": "remove5",
+      "slot": "removal"
+    },
+    {
+      "count": 1,
+      "oracle_id": "remove6",
+      "slot": "removal"
+    },
+    {
+      "count": 1,
+      "oracle_id": "remove7",
+      "slot": "removal"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw0",
+      "slot": "card_draw"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw1",
+      "slot": "card_draw"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw2",
+      "slot": "card_draw"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw3",
+      "slot": "card_draw"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw4",
+      "slot": "card_draw"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw5",
+      "slot": "card_draw"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw6",
+      "slot": "card_draw"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw7",
+      "slot": "card_draw"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw8",
+      "slot": "card_draw"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw9",
+      "slot": "card_draw"
+    },
+    {
+      "count": 1,
+      "oracle_id": "wipe0",
+      "slot": "board_wipe"
+    },
+    {
+      "count": 1,
+      "oracle_id": "wipe1",
+      "slot": "board_wipe"
+    },
+    {
+      "count": 1,
+      "oracle_id": "wipe2",
+      "slot": "board_wipe"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp7",
+      "slot": "ramp"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp8",
+      "slot": "ramp"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp9",
+      "slot": "ramp"
+    },
+    {
+      "count": 1,
+      "oracle_id": "cat0",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "cat1",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "cat2",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "cat3",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "cat4",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "cat5",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "beast0",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "beast1",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "beast2",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "beast3",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "beast4",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw10",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "draw11",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "wipe3",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "wipe4",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "wipe5",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "wipe6",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp10",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp11",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp12",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp13",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp14",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp15",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp16",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp17",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp18",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "ramp19",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "cat6",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "cat7",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "cat8",
+      "slot": "game_plan"
+    },
+    {
+      "count": 1,
+      "oracle_id": "cat9",
+      "slot": "game_plan"
+    }
+  ],
+  "curve": [
+    {
+      "cmc": 0,
+      "count": 0
+    },
+    {
+      "cmc": 1,
+      "count": 20
+    },
+    {
+      "cmc": 2,
+      "count": 18
+    },
+    {
+      "cmc": 3,
+      "count": 12
+    },
+    {
+      "cmc": 4,
+      "count": 0
+    },
+    {
+      "cmc": 5,
+      "count": 7
+    },
+    {
+      "cmc": 6,
+      "count": 5
+    },
+    {
+      "cmc": 7,
+      "count": 0
+    }
+  ],
+  "land_count": 37,
+  "nonland_count": 62,
+  "role_counts": {
+    "board_wipe": 3,
+    "card_draw": 10,
+    "game_plan": 31,
+    "ramp": 10,
+    "removal": 8
+  },
+  "warnings": []
+}

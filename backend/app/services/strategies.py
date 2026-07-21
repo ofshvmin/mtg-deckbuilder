@@ -102,13 +102,63 @@ STRATEGIES: dict[str, Strategy] = {
 }
 
 
-def get_strategy(name: str | None) -> Strategy:
-    """Return the named strategy, falling back to Balanced for None/unknown."""
+# 60-card constructed presets (Standard, Legacy). Same dataclass, same scorer
+# functions — only the numbers differ, since the EDH values above assume a 99-card
+# singleton deck. Curves are steeper and land counts far lower.
+CONSTRUCTED_STRATEGIES: dict[str, Strategy] = {
+    "midrange": Strategy(
+        name="Midrange",
+        description="Efficient threats and answers; the default shape.",
+        quotas={roles.RAMP: 2, roles.CARD_DRAW: 5, roles.REMOVAL: 8, roles.BOARD_WIPE: 2},
+        land_count=24,
+        curve_weights={0: 0.01, 1: 0.15, 2: 0.25, 3: 0.22, 4: 0.18, 5: 0.12, 6: 0.05, 7: 0.02},
+    ),
+    "aggro": Strategy(
+        name="Aggro",
+        description="Fast creatures, low curve, get in early.",
+        quotas={roles.RAMP: 0, roles.CARD_DRAW: 3, roles.REMOVAL: 6, roles.BOARD_WIPE: 0},
+        land_count=22,
+        curve_weights={0: 0.02, 1: 0.26, 2: 0.30, 3: 0.22, 4: 0.12, 5: 0.05, 6: 0.02, 7: 0.01},
+        extra_scorers=[_creature_bonus],
+    ),
+    "control": Strategy(
+        name="Control",
+        description="Answers, card advantage, grind them out.",
+        quotas={roles.RAMP: 2, roles.CARD_DRAW: 8, roles.REMOVAL: 10, roles.BOARD_WIPE: 4},
+        land_count=26,
+        curve_weights={0: 0.01, 1: 0.10, 2: 0.20, 3: 0.22, 4: 0.20, 5: 0.15, 6: 0.08, 7: 0.04},
+        extra_scorers=[_counterspell_protection_bonus],
+    ),
+    "ramp": Strategy(
+        name="Ramp",
+        description="Big mana, big payoffs.",
+        quotas={roles.RAMP: 8, roles.CARD_DRAW: 5, roles.REMOVAL: 6, roles.BOARD_WIPE: 2},
+        land_count=25,
+        curve_weights={0: 0.01, 1: 0.10, 2: 0.22, 3: 0.18, 4: 0.16, 5: 0.15, 6: 0.11, 7: 0.07},
+        extra_scorers=[_high_cmc_bonus],
+    ),
+}
+
+
+def _table_for(spec=None) -> tuple[dict[str, Strategy], str]:
+    """(strategy table, default key) for a format spec. None => Commander."""
+    if spec is None or spec.key == "commander":
+        return STRATEGIES, "balanced"
+    return CONSTRUCTED_STRATEGIES, "midrange"
+
+
+def get_strategy(name: str | None, spec=None) -> Strategy:
+    """Return the named strategy for this format, falling back to the format's default.
+
+    `spec` defaults to None (Commander), so existing callers are unaffected.
+    """
+    table, default = _table_for(spec)
     if not name:
-        return STRATEGIES["balanced"]
-    return STRATEGIES.get(name.lower(), STRATEGIES["balanced"])
+        return table[default]
+    return table.get(name.lower(), table[default])
 
 
-def list_strategies() -> list[dict[str, str]]:
-    """Return all strategies as simple dicts for the API."""
-    return [{"name": s.name, "description": s.description} for s in STRATEGIES.values()]
+def list_strategies(spec=None) -> list[dict[str, str]]:
+    """Return this format's strategies as simple dicts for the API."""
+    table, _ = _table_for(spec)
+    return [{"name": s.name, "description": s.description} for s in table.values()]

@@ -23,6 +23,10 @@ class Card(BaseModel):
     loyalty: str | None = None
     layout: str | None = None
     legal_commander: str = "not_legal"
+    legal_standard: str = "not_legal"
+    legal_legacy: str = "not_legal"
+    legalities: dict[str, str] = {}
+    rarity: str | None = None
     is_basic_land: bool = False
     released_at: str | None = None
 

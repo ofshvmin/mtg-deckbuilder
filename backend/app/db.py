@@ -74,6 +74,8 @@ async def ensure_indexes(db: AsyncDatabase) -> None:
     await db.cards.create_index("name_normalized")
     await db.cards.create_index("color_identity")   # multikey — color-identity subset queries
     await db.cards.create_index("legal_commander")
+    await db.cards.create_index("legal_standard")
+    await db.cards.create_index("legal_legacy")
     await db.cards.create_index("cmc")
 
     await db.users.create_index("email", unique=True)

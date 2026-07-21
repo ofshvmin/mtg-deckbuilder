@@ -7,12 +7,13 @@ now user-scoped and served from Mongo.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pymongo.asynchronous.database import AsyncDatabase
 
 from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
+from .formats import FormatSpec, get_format
 
 COLOR_ORDER = ["W", "U", "B", "R", "G"]
 
@@ -26,11 +27,17 @@ class CommanderNotFound(Exception):
 
 @dataclass
 class Pool:
-    commander: dict
+    # None for formats without a commander (Standard, Legacy).
+    commander: dict | None
     color_identity: list[str]
     pool: list[dict]
     # oracle_id -> list of owned printing units (see collection_repo.owned_printings)
     printings: dict[str, list[dict]] = None  # type: ignore[assignment]
+    format_key: str = "commander"
+    # For non-Commander formats this is the FULL legal pool, unfiltered by color —
+    # the colors below are the generator's filter, not the pool's.
+    colors: list[str] = field(default_factory=list)
+    color_choice: object | None = None
 
 
 def format_color_identity(colors: list[str]) -> str:
@@ -68,4 +75,48 @@ async def get_pool(db: AsyncDatabase, user_id: str, commander_name: str) -> Pool
     pool = await cards_repo.get_legal_pool(
         db, allowed_colors=identity, owned_counts=owned, exclude_oracle_id=commander["_id"]
     )
-    return Pool(commander=commander, color_identity=identity, pool=pool, printings=printings)
+    return Pool(
+        commander=commander,
+        color_identity=identity,
+        pool=pool,
+        printings=printings,
+        format_key="commander",
+        colors=identity,
+    )
+
+
+async def get_pool_for_format(
+    db: AsyncDatabase,
+    user_id: str,
+    spec: FormatSpec | None = None,
+    commander_name: str | None = None,
+) -> Pool:
+    """Format-aware pool loader.
+
+    Commander delegates to `get_pool` verbatim — that path is untouched.
+
+    Constructed formats fetch the whole legality-filtered owned pool with NO color
+    filter. Colors are decided at generation time instead, so the client can retoggle
+    them without a refetch and the color knob behaves like the strategy and theme
+    knobs sitting next to it.
+    """
+    fmt = spec or get_format(None)
+
+    if fmt.requires_commander:
+        if not commander_name:
+            raise ValueError(f"{fmt.label} requires a commander")
+        return await get_pool(db, user_id, commander_name)
+
+    owned = await collection_repo.owned_counts(db, user_id)
+    printings = await collection_repo.owned_printings(db, user_id)
+    pool = await cards_repo.get_constructed_pool(
+        db, legality_field=fmt.legality_field, owned_counts=owned
+    )
+    return Pool(
+        commander=None,
+        color_identity=[],
+        pool=pool,
+        printings=printings,
+        format_key=fmt.key,
+        colors=[],
+    )

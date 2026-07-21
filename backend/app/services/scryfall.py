@@ -15,7 +15,7 @@ import httpx
 from pymongo.asynchronous.database import AsyncDatabase
 
 from ..repositories import cards as cards_repo
-from ..util import normalize_name
+from ..util import colors_in_cost, normalize_name
 
 BULK_DATA_INDEX_URL = "https://api.scryfall.com/bulk-data"
 USER_AGENT = "MTGDeckBuilder/0.1 (personal project; contact: daniel.g.mathews@gmail.com)"
@@ -37,6 +37,48 @@ def _extract_mana_cost(card: dict) -> str:
         return card["mana_cost"]
     faces = card.get("card_faces") or []
     return " // ".join(f.get("mana_cost", "") for f in faces if f.get("mana_cost"))
+
+
+def _is_declared_colorless(card: dict) -> bool:
+    """True for cards that are colorless *by rule* despite a colored mana cost.
+
+    Devoid covers almost all of them; Ghostfire predates the keyword and says so in
+    its text instead. Both must keep `colors == []` — inferring color from their
+    cost would be wrong.
+    """
+    if "Devoid" in (card.get("keywords") or []):
+        return True
+    return "is colorless" in (_extract_faces_text(card) or "").lower()
+
+
+def _extract_colors(card: dict) -> list[str]:
+    """A card's colors, which Scryfall records inconsistently across layouts.
+
+    Three sources, in order of trust:
+      1. Top-level `colors` — normal cards.
+      2. `card_faces[].colors` — transform / modal-DFC, where the top level is absent.
+         Missing these recorded every DFC as colorless, and the empty set is a subset
+         of every color filter, so they leaked into decks of any color.
+      3. The mana cost — a handful of adventure and MDFC entries report no colors at
+         any level (Ishgard, the Holy See has `colors: []` and faces with `colors: None`,
+         yet costs {3}{W}{W}).
+
+    Step 3 is guarded by `_is_declared_colorless`, because a devoid card is genuinely
+    colorless while still costing colored mana — inferring from its cost would be wrong.
+
+    Note this is the card's *color*, not its castability. Color filtering uses
+    `util.card_castable_in`, which reads the mana cost and so is unaffected by all of
+    the above.
+    """
+    if card.get("colors"):
+        return card["colors"]
+    faces = card.get("card_faces") or []
+    from_faces = {c for face in faces for c in (face.get("colors") or [])}
+    if from_faces:
+        return sorted(from_faces)
+    if _is_declared_colorless(card):
+        return []
+    return sorted(colors_in_cost(_extract_mana_cost(card)))
 
 
 _IMAGE_SIZES = ("small", "normal", "art_crop")
@@ -76,7 +118,7 @@ def doc_from_card(card: dict) -> dict:
         "cmc": card.get("cmc", 0.0),
         "type_line": card.get("type_line", ""),
         "oracle_text": _extract_faces_text(card),
-        "colors": card.get("colors", []),
+        "colors": _extract_colors(card),
         "color_identity": card.get("color_identity", []),
         "keywords": card.get("keywords", []),
         "produced_mana": card.get("produced_mana"),  # list or None
@@ -84,7 +126,14 @@ def doc_from_card(card: dict) -> dict:
         "toughness": card.get("toughness"),
         "loyalty": card.get("loyalty"),
         "layout": card.get("layout"),
+        # Full legality map, so adding a format later is a FORMATS entry rather than
+        # another full re-sync. The three denormalized fields below are the ones we
+        # index and query directly.
+        "legalities": card.get("legalities", {}),
         "legal_commander": card.get("legalities", {}).get("commander", "not_legal"),
+        "legal_standard": card.get("legalities", {}).get("standard", "not_legal"),
+        "legal_legacy": card.get("legalities", {}).get("legacy", "not_legal"),
+        "rarity": card.get("rarity"),
         "is_basic_land": name.lower() in BASIC_LAND_NAMES,
         "released_at": card.get("released_at"),
         "updated_at": datetime.now(timezone.utc).isoformat(),

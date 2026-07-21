@@ -43,7 +43,8 @@ export default function DeckDetailModal({
           </View>
           <Text className="mt-2 text-xl font-bold text-white">{name}</Text>
           <Text className="mt-0.5 text-sm text-slate-400">
-            {deck.commander.name} · {deck.color_identity.join("") || "C"} · {deck.total} cards
+            {deck.commander ? `${deck.commander.name} · ` : ""}
+            {deck.color_identity.join("") || "C"} · {deck.total} cards
           </Text>
         </View>
 

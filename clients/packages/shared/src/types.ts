@@ -98,13 +98,42 @@ export interface CurveBucket {
   count: number;
 }
 
+export interface DeckFormat {
+  key: string;
+  label: string;
+  deck_size: number;
+  max_copies: number;
+  requires_commander: boolean;
+  max_deck_colors: number;
+}
+
+export interface ColorAlternate {
+  colors: Color[];
+  score: number;
+}
+
+/** Why the generator chose these colors, plus the runners-up. */
+export interface ColorRationale {
+  colors: Color[];
+  score: number;
+  components: Record<string, number>;
+  alternates: ColorAlternate[];
+  short_pool: boolean;
+}
+
 export interface PoolResponse {
-  commander: CardSummary;
+  /** null for formats without a commander (Standard, Legacy). */
+  commander: CardSummary | null;
   color_identity: Color[];
   pool_size: number;
   land_count: number;
   curve: CurveBucket[];
   pool: PoolCard[];
+  format: string;
+  colors: Color[];
+  deck_size: number;
+  max_copies: number;
+  supports_upgrades: boolean;
 }
 
 // One owned printing (physical inventory unit) of a card: which set it's from,
@@ -168,7 +197,8 @@ export interface Combo {
 }
 
 export interface GeneratedDeck {
-  commander: CardSummary;
+  /** null for formats without a commander (Standard, Legacy). */
+  commander: CardSummary | null;
   color_identity: Color[];
   total: number;
   land_count: number;
@@ -182,6 +212,12 @@ export interface GeneratedDeck {
   combos: Combo[];
   near_combos: Combo[];
   cards: DeckCard[];
+  format: string;
+  colors: Color[];
+  deck_size: number;
+  max_copies: number;
+  supports_upgrades: boolean;
+  color_rationale?: ColorRationale | null;
   strategy?: string | null;
   theme?: string | null;
   theme_count?: number;

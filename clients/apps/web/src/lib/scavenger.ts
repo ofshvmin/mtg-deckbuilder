@@ -253,7 +253,7 @@ export async function buildScavengerData(deck: GeneratedDeck, deckName: string):
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  return { deckName, commander: deck.commander.name, total: deck.total, rareSets, commonSets, multiples };
+  return { deckName, commander: deck.commander?.name ?? "", total: deck.total, rareSets, commonSets, multiples };
 }
 
 // ---- PDF rendering ----

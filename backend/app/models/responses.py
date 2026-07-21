@@ -38,13 +38,39 @@ class CurveBucket(BaseModel):
     count: int
 
 
+class ColorAlternate(BaseModel):
+    colors: list[str]
+    score: float
+
+
+class ColorRationale(BaseModel):
+    """Why the generator chose these colors, plus the runners-up.
+
+    Alternates are first-class rather than a footnote: with an even collection the
+    top few combinations score within a hair of each other, so the runner-ups are
+    the useful control, not trivia.
+    """
+    colors: list[str]
+    score: float
+    components: dict[str, float] = {}
+    alternates: list[ColorAlternate] = []
+    short_pool: bool = False
+
+
 class PoolResponse(BaseModel):
-    commander: CardSummary
+    # None for formats without a commander (Standard, Legacy).
+    commander: CardSummary | None = None
     color_identity: list[str]
     pool_size: int
     land_count: int
     curve: list[CurveBucket]
     pool: list[PoolCard]
+    # All defaulted so pre-format clients and stored documents still validate.
+    format: str = "commander"
+    colors: list[str] = []
+    deck_size: int = 100
+    max_copies: int = 1
+    supports_upgrades: bool = True
 
 
 class PrintingOut(BaseModel):
@@ -121,7 +147,8 @@ class BracketOut(BaseModel):
 
 
 class GeneratedDeckResponse(BaseModel):
-    commander: CardSummary
+    # None for formats without a commander (Standard, Legacy).
+    commander: CardSummary | None = None
     color_identity: list[str]
     total: int
     land_count: int
@@ -139,6 +166,13 @@ class GeneratedDeckResponse(BaseModel):
     theme: str | None = None
     theme_count: int = 0
     bracket: BracketOut | None = None
+    # All defaulted so saved decks written before formats existed still deserialize.
+    format: str = "commander"
+    colors: list[str] = []
+    deck_size: int = 100
+    max_copies: int = 1
+    supports_upgrades: bool = True
+    color_rationale: ColorRationale | None = None
 
 
 class ComboFinisher(BaseModel):
@@ -179,12 +213,19 @@ class UpgradeSuggestion(BaseModel):
 
 
 class BriefSpecOut(BaseModel):
-    """The build knobs Claude derived from the request (for display/refinement)."""
+    """The build knobs Claude derived from the request (for display/refinement).
+
+    Refinement is stateless — the client echoes this back as `prior_spec` — so
+    anything omitted here is invisible on the next turn. `colors` is included for
+    exactly that reason: without it, asking for "more removal" let Claude silently
+    re-pick the deck's colors.
+    """
     strategy: str | None = None
     theme: str | None = None
     avoid_combos: bool = False
     land_count: int | None = None
     quota_overrides: dict[str, int] = {}
+    colors: list[str] = []
 
 
 class BriefDeckResponse(BaseModel):

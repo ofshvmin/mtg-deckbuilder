@@ -14,6 +14,8 @@ from ..models.responses import (
     BriefDeckResponse,
     BriefSpecOut,
     CardSummary,
+    ColorAlternate,
+    ColorRationale,
     ComboFinisher,
     ComboOut,
     CurveBucket,
@@ -29,7 +31,7 @@ from ..models.responses import (
 from ..repositories import card_prints as card_prints_repo
 from ..repositories import collection as collection_repo
 from ..repositories import decks as decks_repo
-from ..services import ai_brief, brackets, csv_formats, edhrec, generator
+from ..services import ai_brief, brackets, color_select, csv_formats, edhrec, formats, generator
 from ..services import pool as pool_service
 from ..services import roles as roles_service
 from ..services import spellbook, strategies, themes
@@ -39,7 +41,12 @@ router = APIRouter(prefix="/decks", tags=["decks"])
 
 
 class GenerateRequest(BaseModel):
-    commander: str
+    # Optional because non-Commander formats have none. `format` defaulting to
+    # "commander" is what keeps every pre-format client working unchanged.
+    commander: str | None = None
+    format: str = "commander"
+    colors: list[str] | None = None      # user-locked colors; None/[] => auto
+    auto_fill_colors: bool = True        # fill remaining colors around the locks
     land_count: int | None = None
     quotas: dict[str, int] | None = None
     strategy: str | None = None
@@ -47,10 +54,40 @@ class GenerateRequest(BaseModel):
     locked: list[str] | None = None   # oracle_ids to keep and build around
 
 
+async def _resolve_pool(database, user_id: str, body):
+    """Load the pool for a request's format, raising the right HTTP errors.
+
+    Branches early on `requires_commander` rather than threading an optional
+    commander through the shared helpers, so there's no chance of a None deref.
+    """
+    spec = formats.get_format(getattr(body, "format", None))
+    if spec.requires_commander:
+        if not body.commander:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"{spec.label} requires a commander."
+            )
+        try:
+            result = await pool_service.get_pool(database, user_id, body.commander)
+        except pool_service.CommanderNotFound as e:
+            detail = f"No card found matching '{e.name}'."
+            if e.suggestions:
+                detail += " Did you mean: " + ", ".join(e.suggestions[:5])
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+    else:
+        result = await pool_service.get_pool_for_format(database, user_id, spec)
+        if not result.pool:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"No {spec.label}-legal cards in your collection.",
+            )
+    return spec, result
+
+
 async def _enrich_pool_printings(database, result) -> None:
     """Attach per-printing CDN image URLs to the pool's owned printings."""
     name_map: dict[str, str] = {c["_id"]: c["name"] for c in result.pool}
-    name_map[result.commander["_id"]] = result.commander["name"]
+    if result.commander:
+        name_map[result.commander["_id"]] = result.commander["name"]
     await card_prints_repo.enrich_printings(
         database, [(name_map.get(oid, ""), prints) for oid, prints in result.printings.items()]
     )
@@ -65,9 +102,17 @@ async def _basics_by_color(database) -> dict[str, dict]:
     return result
 
 
+@router.get("/formats")
+async def list_formats():
+    """Formats the build UI can offer. Drives the format picker."""
+    return formats.list_formats()
+
+
 @router.get("/strategies")
-async def list_strategies():
-    return strategies.list_strategies()
+async def list_strategies(format: str = Query("commander")):
+    """Strategy presets for a format. Commander's are EDH-tuned (34-39 lands);
+    constructed formats get their own table (22-26)."""
+    return strategies.list_strategies(formats.get_format(format))
 
 
 _ROLE_LABELS = {
@@ -139,6 +184,7 @@ def _build_upgrades(
 @router.get("/upgrades", response_model=list[UpgradeSuggestion])
 async def deck_upgrades(
     commander: str = Query(...),
+    format: str = Query("commander"),
     limit: int = Query(40, ge=1, le=100),
     current_user: dict = Depends(get_current_user),
 ):
@@ -147,7 +193,17 @@ async def deck_upgrades(
     Powers budget-upgrade suggestions. Excludes owned cards and the commander,
     keeps only cards inside the commander's color identity, and ranks by EDHREC
     quality score. Prices/images are fetched client-side.
+
+    Commander-only: the entire ranking comes from EDHREC, which is keyed by
+    commander slug and has no constructed-format equivalent.
     """
+    spec = formats.get_format(format)
+    if not spec.supports_upgrades:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Upgrade suggestions aren't available for {spec.label} — they're derived "
+            "from EDHREC, which only covers Commander.",
+        )
     database = db.get_db()
     try:
         result = await pool_service.get_pool(database, current_user["_id"], commander)
@@ -177,36 +233,59 @@ async def deck_upgrades(
 @router.post("/generate", response_model=GeneratedDeckResponse)
 async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_current_user)):
     database = db.get_db()
-    try:
-        result = await pool_service.get_pool(database, current_user["_id"], body.commander)
-    except pool_service.CommanderNotFound as e:
-        detail = f"No card found matching '{e.name}'."
-        if e.suggestions:
-            detail += " Did you mean: " + ", ".join(e.suggestions[:5])
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+    spec, result = await _resolve_pool(database, current_user["_id"], body)
 
     await _enrich_pool_printings(database, result)
     basics = await _basics_by_color(database)
 
     # EDHREC quality signal: name-match the commander's recommended cards to the
     # user's pool, keyed by oracle_id. Empty if EDHREC is unavailable.
-    score_map = await edhrec.get_score_map(database, result.commander)
-    quality = {
-        card["_id"]: score_map.get(card["name_normalized"], 0.0) for card in result.pool
-    }
-    edhrec_available = any(v > 0 for v in quality.values())
+    # Commander-only — there is no equivalent data source for constructed formats.
+    quality: dict[str, float] = {}
+    edhrec_available = False
+    if spec.supports_quality:
+        score_map = await edhrec.get_score_map(database, result.commander)
+        quality = {
+            card["_id"]: score_map.get(card["name_normalized"], 0.0) for card in result.pool
+        }
+        edhrec_available = any(v > 0 for v in quality.values())
 
     # Commander Spellbook: combos assemblable from the pool (incl. the commander).
-    pool_ids = {card["_id"] for card in result.pool} | {result.commander["_id"]}
-    pool_full, pool_near = await spellbook.detect(database, pool_ids, result.color_identity)
-    combo_pieces = {oid for combo in pool_full for oid in combo["cards"]}
+    pool_full: list[dict] = []
+    pool_near: list[dict] = []
+    combo_pieces: set[str] = set()
+    if spec.supports_combos:
+        pool_ids = {card["_id"] for card in result.pool} | {result.commander["_id"]}
+        pool_full, pool_near = await spellbook.detect(database, pool_ids, result.color_identity)
+        combo_pieces = {oid for combo in pool_full for oid in combo["cards"]}
 
     # Resolve strategy and theme
-    strat = strategies.get_strategy(body.strategy)
+    strat = strategies.get_strategy(body.strategy, spec)
     theme_matches = themes.compute_theme_matches(result.pool, body.theme)
 
+    # Colors. Commander takes them from the commander's identity; constructed formats
+    # either use what the user locked or search for the best combination by building
+    # a deck for each candidate. The pool stays unfiltered so the client can retoggle
+    # colors without refetching — the filter is applied here instead.
+    color_choice = None
+    identity = result.color_identity
+    pool_cards = result.pool
+    if not spec.requires_commander:
+        color_choice = color_select.select_colors(
+            result.pool, spec, strat, basics,
+            theme_matches=theme_matches,
+            locked_colors=body.colors,
+            auto_fill=body.auto_fill_colors,
+        )
+        identity = color_choice.colors
+        allowed = set(identity)
+        pool_cards = [c for c in result.pool if color_select._castable_in(c, allowed)]
+        if theme_matches is not None:
+            pool_ids_in_colors = {c["_id"] for c in pool_cards}
+            theme_matches = theme_matches & pool_ids_in_colors
+
     # Locked cards to keep and build around (only those actually in the pool).
-    pool_id_set = {card["_id"] for card in result.pool}
+    pool_id_set = {card["_id"] for card in pool_cards}
     locked_ids = {oid for oid in (body.locked or []) if oid in pool_id_set}
 
     # Add jitter when regenerating (locked cards present) so the unlocked
@@ -216,8 +295,8 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
 
     deck = generator.generate(
         result.commander,
-        result.pool,
-        result.color_identity,
+        pool_cards,
+        identity,
         basics,
         land_count=body.land_count,
         quotas=body.quotas,
@@ -228,13 +307,19 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         theme_matches=theme_matches,
         locked_ids=locked_ids,
         jitter=use_jitter,
+        spec=spec,
     )
     # Attach theme string so frontend can display it
     deck.theme = body.theme if body.theme and body.theme.strip() else None
 
-    if not edhrec_available:
+    if spec.supports_quality and not edhrec_available:
         deck.warnings.append(
             "EDHREC data unavailable for this commander — ranked by curve and role fit only."
+        )
+    elif not spec.supports_quality:
+        deck.warnings.append(
+            f"{spec.label} has no community ranking data — cards chosen by role, curve "
+            "and how many copies you own."
         )
     if theme_matches is not None and len(theme_matches) == 0:
         deck.warnings.append(
@@ -242,20 +327,28 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         )
 
     # Which of the pool's combos actually assembled in the final deck?
-    deck_ids = {dc.oracle_id for dc in deck.cards} | {result.commander["_id"]}
+    deck_ids = {dc.oracle_id for dc in deck.cards}
+    if result.commander:
+        deck_ids |= {result.commander["_id"]}
     deck_combos = [c for c in pool_full if set(c["cards"]) <= deck_ids]
 
-    pool_by_id = {card["_id"]: card for card in result.pool}
-    bracket = await _estimate_bracket(database, result.commander, deck, deck_combos, pool_by_id)
+    pool_by_id = {card["_id"]: card for card in pool_cards}
+    bracket = None
+    if spec.supports_brackets:
+        bracket = await _estimate_bracket(
+            database, result.commander, deck, deck_combos, pool_by_id
+        )
 
     return _deck_response(
-        result.commander, result.color_identity, deck, edhrec_available,
+        result.commander, identity, deck, edhrec_available,
         deck_combos, pool_near, bracket, pool_by_id=pool_by_id,
+        spec=spec, color_choice=color_choice,
     )
 
 
 class BriefRequest(BaseModel):
-    commander: str
+    commander: str | None = None
+    format: str = "commander"
     brief: str
     # When refining an existing brief-built deck: the prior spec + core card names,
     # so Claude adjusts the current build instead of starting over.
@@ -279,30 +372,35 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(get_curren
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Describe the deck you want to build.")
 
     database = db.get_db()
-    try:
-        result = await pool_service.get_pool(database, current_user["_id"], body.commander)
-    except pool_service.CommanderNotFound as e:
-        detail = f"No card found matching '{e.name}'."
-        if e.suggestions:
-            detail += " Did you mean: " + ", ".join(e.suggestions[:5])
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+    fmt, result = await _resolve_pool(database, current_user["_id"], body)
 
     await _enrich_pool_printings(database, result)
     basics = await _basics_by_color(database)
-    score_map = await edhrec.get_score_map(database, result.commander)
-    quality = {c["_id"]: score_map.get(c["name_normalized"], 0.0) for c in result.pool}
-    edhrec_available = any(v > 0 for v in quality.values())
 
-    pool_ids = {c["_id"] for c in result.pool} | {result.commander["_id"]}
-    pool_full, pool_near = await spellbook.detect(database, pool_ids, result.color_identity)
-    combo_pieces = {oid for combo in pool_full for oid in combo["cards"]}
+    quality: dict[str, float] = {}
+    edhrec_available = False
+    if fmt.supports_quality:
+        score_map = await edhrec.get_score_map(database, result.commander)
+        quality = {c["_id"]: score_map.get(c["name_normalized"], 0.0) for c in result.pool}
+        edhrec_available = any(v > 0 for v in quality.values())
 
-    # Ask Claude for a build spec, then sanitize it.
-    shortlist = ai_brief.build_shortlist(result.pool, quality, combo_pieces)
-    strat_names = [s["name"] for s in strategies.list_strategies()]
+    pool_full: list[dict] = []
+    pool_near: list[dict] = []
+    combo_pieces: set[str] = set()
+    if fmt.supports_combos:
+        pool_ids = {c["_id"] for c in result.pool} | {result.commander["_id"]}
+        pool_full, pool_near = await spellbook.detect(database, pool_ids, result.color_identity)
+        combo_pieces = {oid for combo in pool_full for oid in combo["cards"]}
+
+    # Ask Claude for a build spec, then sanitize it. For constructed formats the
+    # shortlist is ranked structurally (rarity, copies owned, role, curve) since
+    # there's no community quality signal to sort by.
+    shortlist = ai_brief.build_shortlist(result.pool, quality, combo_pieces, spec=fmt)
+    strat_names = [s["name"] for s in strategies.list_strategies(fmt)]
     try:
         raw_spec = await ai_brief.interpret_brief(
-            result.commander, brief, shortlist, strat_names, prior_spec=body.prior_spec
+            result.commander, brief, shortlist, strat_names,
+            prior_spec=body.prior_spec, spec=fmt,
         )
     except ai_brief.BriefUnavailable as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
@@ -310,22 +408,46 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(get_curren
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"AI deck brief failed: {e}")
 
     spec = ai_brief.validate_spec(
-        raw_spec, {c["name"] for c in result.pool}, set(strat_names)
+        raw_spec, {c["name"] for c in result.pool}, set(strat_names), fmt=fmt
     )
 
-    # Resolve core card names to owned oracle_ids.
-    name_to_id = {normalize_name(c["name"]): c["_id"] for c in result.pool}
-    core_ids = {
-        name_to_id[normalize_name(n)] for n in spec["core_cards"] if normalize_name(n) in name_to_id
-    }
-
-    strat = strategies.get_strategy(spec["strategy"]) if spec["strategy"] else None
+    strat = strategies.get_strategy(spec["strategy"], fmt) if spec["strategy"] else None
     theme_matches = themes.compute_theme_matches(result.pool, spec["theme"])
+
+    # Colors: Claude's pick if it gave one, otherwise the collection-based search.
+    color_choice = None
+    identity = result.color_identity
+    pool_cards = result.pool
+    if not fmt.requires_commander:
+        color_choice = color_select.select_colors(
+            result.pool,
+            fmt,
+            strat or strategies.get_strategy(None, fmt),
+            basics,
+            theme_matches=theme_matches,
+            locked_colors=spec["colors"] or None,
+            auto_fill=not spec["colors"],
+        )
+        identity = color_choice.colors
+        allowed = set(identity)
+        pool_cards = [c for c in result.pool if color_select._castable_in(c, allowed)]
+        if theme_matches is not None:
+            theme_matches = theme_matches & {c["_id"] for c in pool_cards}
+
+    # Resolve core card names to owned oracle_ids, keeping Claude's copy counts.
+    name_to_id = {normalize_name(c["name"]): c["_id"] for c in pool_cards}
+    core_ids: set[str] = set()
+    core_counts: dict[str, int] = {}
+    for name in spec["core_cards"]:
+        oid = name_to_id.get(normalize_name(name))
+        if oid:
+            core_ids.add(oid)
+            core_counts[oid] = spec["core_counts"].get(name, 1)
 
     deck = generator.generate(
         result.commander,
-        result.pool,
-        result.color_identity,
+        pool_cards,
+        identity,
         basics,
         land_count=spec["land_count"],
         quotas=spec["quota_overrides"] or None,
@@ -335,21 +457,35 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(get_curren
         strategy=strat if spec["strategy"] else None,
         theme_matches=theme_matches,
         locked_ids=core_ids,
+        locked_counts=core_counts,
         avoid_combos=spec["avoid_combos"],
+        spec=fmt,
     )
     deck.theme = spec["theme"]
-    if not edhrec_available:
+    if fmt.supports_quality and not edhrec_available:
         deck.warnings.append(
             "EDHREC data unavailable for this commander — ranked by curve and role fit only."
         )
+    elif not fmt.supports_quality:
+        deck.warnings.append(
+            f"{fmt.label} has no community ranking data — cards chosen by role, curve "
+            "and how many copies you own."
+        )
 
-    deck_ids = {dc.oracle_id for dc in deck.cards} | {result.commander["_id"]}
+    deck_ids = {dc.oracle_id for dc in deck.cards}
+    if result.commander:
+        deck_ids |= {result.commander["_id"]}
     deck_combos = [c for c in pool_full if set(c["cards"]) <= deck_ids]
-    pool_by_id = {c["_id"]: c for c in result.pool}
-    bracket = await _estimate_bracket(database, result.commander, deck, deck_combos, pool_by_id)
+    pool_by_id = {c["_id"]: c for c in pool_cards}
+    bracket = None
+    if fmt.supports_brackets:
+        bracket = await _estimate_bracket(
+            database, result.commander, deck, deck_combos, pool_by_id
+        )
     deck_resp = _deck_response(
-        result.commander, result.color_identity, deck, edhrec_available,
+        result.commander, identity, deck, edhrec_available,
         deck_combos, pool_near, bracket, pool_by_id=pool_by_id,
+        spec=fmt, color_choice=color_choice,
     )
 
     core_summaries = [
@@ -368,12 +504,17 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(get_curren
             avoid_combos=spec["avoid_combos"],
             land_count=spec["land_count"],
             quota_overrides=spec["quota_overrides"],
+            # The colors actually built, not just what Claude asked for — so a
+            # refinement turn starts from the deck the player is looking at.
+            colors=identity if not fmt.requires_commander else [],
         ),
     )
 
 
 class ComposeRequest(BaseModel):
-    commander: str
+    commander: str | None = None
+    format: str = "commander"
+    # Repeat an id to represent multiple copies (constructed formats run up to 4).
     oracle_ids: list[str]
 
 
@@ -382,37 +523,50 @@ async def compose_deck(body: ComposeRequest, current_user: dict = Depends(get_cu
     """Analyze an exact user-chosen card list into the deck shape (categories +
     stats), for the manual builder. Same rendering as an auto-built deck."""
     database = db.get_db()
-    try:
-        result = await pool_service.get_pool(database, current_user["_id"], body.commander)
-    except pool_service.CommanderNotFound as e:
-        detail = f"No card found matching '{e.name}'."
-        if e.suggestions:
-            detail += " Did you mean: " + ", ".join(e.suggestions[:5])
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+    spec, result = await _resolve_pool(database, current_user["_id"], body)
 
     await _enrich_pool_printings(database, result)
 
-    # Keep only ids that are actually in this commander's legal owned pool.
+    # Keep only ids that are actually in the legal owned pool. Repeats are preserved
+    # so a 4-of arrives as four entries and `compose` counts it as four cards.
     pool_by_id = {card["_id"]: card for card in result.pool}
     chosen_docs = [pool_by_id[oid] for oid in body.oracle_ids if oid in pool_by_id]
 
-    score_map = await edhrec.get_score_map(database, result.commander)
-    quality = {card["_id"]: score_map.get(card["name_normalized"], 0.0) for card in result.pool}
-    edhrec_available = any(v > 0 for v in quality.values())
+    quality: dict[str, float] = {}
+    edhrec_available = False
+    if spec.supports_quality:
+        score_map = await edhrec.get_score_map(database, result.commander)
+        quality = {
+            card["_id"]: score_map.get(card["name_normalized"], 0.0) for card in result.pool
+        }
+        edhrec_available = any(v > 0 for v in quality.values())
+
+    identity = result.color_identity
+    if not spec.requires_commander:
+        # The deck's colors are whatever the chosen cards actually need.
+        identity = sorted(
+            {c for doc in chosen_docs for c in (doc.get("colors") or [])},
+            key=lambda c: generator.COLOR_ORDER.index(c) if c in generator.COLOR_ORDER else 9,
+        )
 
     deck = generator.compose(
-        chosen_docs, result.color_identity, quality=quality, printings=result.printings
+        chosen_docs, identity, quality=quality, printings=result.printings, spec=spec
     )
 
-    # Combos present in the current deck, plus combos it's one card away from.
-    deck_ids = {dc.oracle_id for dc in deck.cards} | {result.commander["_id"]}
-    deck_combos, near_combos = await spellbook.detect(database, deck_ids, result.color_identity)
-
-    bracket = await _estimate_bracket(database, result.commander, deck, deck_combos, pool_by_id)
+    deck_combos: list[dict] = []
+    near_combos: list[dict] = []
+    bracket = None
+    if spec.supports_combos:
+        deck_ids = {dc.oracle_id for dc in deck.cards} | {result.commander["_id"]}
+        deck_combos, near_combos = await spellbook.detect(database, deck_ids, identity)
+    if spec.supports_brackets:
+        bracket = await _estimate_bracket(
+            database, result.commander, deck, deck_combos, pool_by_id
+        )
 
     return _deck_response(
-        result.commander, result.color_identity, deck, edhrec_available,
-        deck_combos, near_combos, bracket, pool_by_id=pool_by_id,
+        result.commander, identity, deck, edhrec_available,
+        deck_combos, near_combos, bracket, pool_by_id=pool_by_id, spec=spec,
     )
 
 
@@ -531,8 +685,20 @@ def _card_summary(doc: dict) -> CardSummary:
     )
 
 
+def _color_rationale(choice) -> ColorRationale | None:
+    if choice is None:
+        return None
+    return ColorRationale(
+        colors=choice.colors,
+        score=choice.score,
+        components=choice.components,
+        alternates=[ColorAlternate(colors=c, score=s) for c, s in choice.alternates],
+        short_pool=choice.short_pool,
+    )
+
+
 def _deck_response(
-    commander: dict,
+    commander: dict | None,
     identity: list[str],
     deck,  # generator.GeneratedDeck
     edhrec_available: bool,
@@ -540,12 +706,21 @@ def _deck_response(
     near_combos: list[dict],
     bracket: BracketOut | None = None,
     pool_by_id: dict[str, dict] | None = None,
+    spec=None,
+    color_choice=None,
 ) -> GeneratedDeckResponse:
     """Assemble a GeneratedDeckResponse from a computed deck (shared by generate + compose)."""
+    fmt = spec or formats.get_format(None)
     combo_card_ids = {oid for combo in deck_combos for oid in combo["cards"]}
     return GeneratedDeckResponse(
-        commander=_card_summary(commander),
+        commander=_card_summary(commander) if commander else None,
         color_identity=identity,
+        format=fmt.key,
+        colors=identity,
+        deck_size=fmt.deck_size + (1 if fmt.requires_commander else 0),
+        max_copies=fmt.max_copies,
+        supports_upgrades=fmt.supports_upgrades,
+        color_rationale=_color_rationale(color_choice),
         total=sum(dc.count for dc in deck.cards),
         land_count=deck.land_count,
         nonland_count=deck.nonland_count,
