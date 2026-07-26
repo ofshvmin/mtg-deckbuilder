@@ -41,11 +41,61 @@ async def update_preferences(db: AsyncDatabase, user_id: str, prefs: dict) -> di
     )
 
 
+async def delete_user(db: AsyncDatabase, user_id: str) -> bool:
+    """Permanently delete the user document. Returns True if one was removed.
+
+    Callers are responsible for purging the user's owned data (collection,
+    decks) first — see the delete-account endpoint.
+    """
+    result = await db.users.delete_one({"_id": user_id})
+    return result.deleted_count > 0
+
+
 async def update_password(db: AsyncDatabase, user_id: str, password_hash: str) -> bool:
     """Update the password hash on the user's local identity. Returns True if updated."""
     result = await db.users.update_one(
         {"_id": user_id, "identities.provider": "local"},
         {"$set": {"identities.$.password_hash": password_hash}},
+    )
+    return result.modified_count > 0
+
+
+def is_premium(user: dict) -> bool:
+    """Whether the user currently has an active Premium entitlement.
+
+    The `premium` sub-document is maintained by RevenueCat webhooks. A lifetime
+    (non-expiring) purchase stores `expires_at = None`; subscriptions store the
+    period end, so we treat an active entitlement as lapsed once it passes.
+    """
+    premium = user.get("premium") or {}
+    if not premium.get("active"):
+        return False
+    expires_at = premium.get("expires_at")
+    if expires_at is None:
+        return True  # lifetime / non-expiring unlock
+    try:
+        return datetime.fromisoformat(expires_at) > datetime.now(timezone.utc)
+    except (ValueError, TypeError):
+        return False
+
+
+async def set_premium(
+    db: AsyncDatabase,
+    user_id: str,
+    *,
+    active: bool,
+    expires_at: str | None = None,
+    product_id: str | None = None,
+) -> bool:
+    """Upsert the user's Premium entitlement (called from the RevenueCat webhook)."""
+    result = await db.users.update_one(
+        {"_id": user_id},
+        {"$set": {"premium": {
+            "active": active,
+            "expires_at": expires_at,
+            "product_id": product_id,
+            "updated_at": _now_iso(),
+        }}},
     )
     return result.modified_count > 0
 

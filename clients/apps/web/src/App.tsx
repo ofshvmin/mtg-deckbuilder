@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
+import { PremiumUpgradeProvider } from "./components/PremiumUpgrade";
 import ProtectedRoute from "./auth/ProtectedRoute";
 import LoginPage from "./auth/LoginPage";
 import RegisterPage from "./auth/RegisterPage";
@@ -17,8 +18,9 @@ import SettingsPage from "./pages/SettingsPage";
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
+      <PremiumUpgradeProvider>
+        <BrowserRouter>
+          <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -35,8 +37,9 @@ export default function App() {
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
+          </Routes>
+        </BrowserRouter>
+      </PremiumUpgradeProvider>
     </AuthProvider>
   );
 }

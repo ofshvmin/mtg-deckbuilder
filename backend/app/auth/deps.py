@@ -33,3 +33,13 @@ async def get_current_user(
     if user is None:
         raise _UNAUTHORIZED
     return user
+
+
+async def require_premium(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency for Premium-only endpoints. 402 lets clients open the paywall."""
+    if not users_repo.is_premium(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="This feature requires Grimoire Premium.",
+        )
+    return current_user

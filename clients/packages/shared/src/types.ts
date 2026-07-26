@@ -25,6 +25,10 @@ export interface User {
   email: string;
   created_at: string;
   preferences: UserPreferences;
+  /** Whether the account currently has an active Premium entitlement. */
+  is_premium: boolean;
+  /** ISO timestamp when a subscription lapses; null for lifetime unlocks. */
+  premium_expires_at: string | null;
 }
 
 // --- Card / deck domain ---

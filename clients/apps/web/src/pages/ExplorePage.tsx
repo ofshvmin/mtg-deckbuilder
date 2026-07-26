@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CommanderOption, ExternalDeckResponse } from "@mtg/shared";
 import { api } from "../lib/api";
+import { isPremiumRequired } from "../lib/premium";
+import { usePremiumUpgrade } from "../components/PremiumUpgrade";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
 import type { Color } from "@mtg/shared";
@@ -45,6 +47,7 @@ interface PreconResult {
 
 export default function ExplorePage() {
   const { refreshSummary, refreshSaved } = useLayout();
+  const { showUpgrade } = usePremiumUpgrade();
   const [tab, setTab] = useState<Tab>("precons");
   const [commander, setCommander] = useState("");
   const [urlInput, setUrlInput] = useState("");
@@ -202,8 +205,10 @@ export default function ExplorePage() {
       });
       setSavedId(saved.id);
       refreshSaved();
-    } catch { /* silent */ }
-    finally { setSaving(false); }
+    } catch (e) {
+      if (isPremiumRequired(e)) showUpgrade("Unlimited saved decks");
+      // else: silent, matching prior behavior
+    } finally { setSaving(false); }
   }
 
   // Deck detail view

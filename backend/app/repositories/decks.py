@@ -85,3 +85,14 @@ async def delete_deck(db: AsyncDatabase, user_id: str, deck_id: str) -> bool:
         return False
     result = await db.decks.delete_one({"_id": oid, "user_id": user_id})
     return result.deleted_count > 0
+
+
+async def delete_all_for_user(db: AsyncDatabase, user_id: str) -> int:
+    """Delete every saved deck owned by a user. Returns the number removed."""
+    result = await db.decks.delete_many({"user_id": user_id})
+    return result.deleted_count
+
+
+async def count_decks(db: AsyncDatabase, user_id: str) -> int:
+    """Number of decks a user has saved (used to enforce the free-tier cap)."""
+    return await db.decks.count_documents({"user_id": user_id})

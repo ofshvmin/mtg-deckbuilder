@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     claude_api: str = ""
     claude_model: str = "claude-sonnet-5"
 
+    # Freemium / in-app purchases (RevenueCat).
+    # Shared secret sent by RevenueCat as the webhook Authorization header.
+    # Empty => the webhook rejects all calls (entitlements can't be updated).
+    revenuecat_webhook_token: str = ""
+    # Max decks a non-premium account may save. Premium => unlimited.
+    free_saved_deck_limit: int = 3
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

@@ -17,6 +17,8 @@ from ..models.user import (
     UserPreferences,
     UserResponse,
 )
+from ..repositories import collection as collection_repo
+from ..repositories import decks as decks_repo
 from ..repositories import users as users_repo
 from ..services import email as email_service
 from . import security
@@ -38,6 +40,8 @@ def _public(user: dict) -> UserResponse:
         email=user["email"],
         created_at=user["created_at"],
         preferences=UserPreferences(**(user.get("preferences") or {})),
+        is_premium=users_repo.is_premium(user),
+        premium_expires_at=(user.get("premium") or {}).get("expires_at"),
     )
 
 
@@ -121,6 +125,23 @@ async def reset_password(body: ResetPasswordRequest):
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: dict = Depends(get_current_user)):
     return _public(current_user)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(current_user: dict = Depends(get_current_user)):
+    """Permanently delete the authenticated user's account and all their data.
+
+    Required by App Store Guideline 5.1.1(v): apps that let users create an
+    account must let them delete it from within the app. This purges the
+    user's collection rows and saved decks, then the user document itself.
+    The operation is irreversible.
+    """
+    database = db.get_db()
+    user_id = current_user["_id"]
+    await collection_repo.delete_all_for_user(database, user_id)
+    await decks_repo.delete_all_for_user(database, user_id)
+    await users_repo.delete_user(database, user_id)
+    return None
 
 
 @router.patch("/preferences", response_model=UserResponse)

@@ -1,7 +1,11 @@
 import { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Linking } from "react-native";
 import { Link, router } from "expo-router";
 import { useAuth } from "../src/auth/AuthContext";
+
+// Public marketing site that hosts the legal pages (see apps/web/public).
+const WEB_URL =
+  process.env.EXPO_PUBLIC_WEB_URL ?? "https://mtg-deckbuilder-bice.vercel.app";
 
 export default function RegisterScreen() {
   const { register } = useAuth();
@@ -77,6 +81,24 @@ export default function RegisterScreen() {
             </Text>
           </TouchableOpacity>
         </Link>
+
+        <Text className="mt-8 text-center text-xs leading-5 text-slate-500">
+          By creating an account, you agree to our{" "}
+          <Text
+            className="text-slate-400 underline"
+            onPress={() => Linking.openURL(`${WEB_URL}/terms.html`)}
+          >
+            Terms of Service
+          </Text>{" "}
+          and{" "}
+          <Text
+            className="text-slate-400 underline"
+            onPress={() => Linking.openURL(`${WEB_URL}/privacy.html`)}
+          >
+            Privacy Policy
+          </Text>
+          .
+        </Text>
       </View>
     </KeyboardAvoidingView>
   );

@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import type { BriefDeckResponse, ColorRationale, CommanderOption, DeckFormat, GeneratedDeck, PoolResponse, StrategyOption } from "@mtg/shared";
 import { api } from "../lib/api";
+import { useAuth } from "../auth/AuthContext";
+import { isPremiumRequired } from "../lib/premium";
+import { usePremiumUpgrade } from "../components/PremiumUpgrade";
 import { useLayout } from "../components/Layout";
 import { formatColorIdentity } from "../lib/format";
 import AiPlanPanel, { type BriefTurn } from "../components/AiPlanPanel";
@@ -20,6 +23,9 @@ type EditSeed = { selected: string[]; deckId?: string; deckName?: string };
 
 export default function BuildPage() {
   const { summary, refreshSaved } = useLayout();
+  const { user } = useAuth();
+  const { showUpgrade } = usePremiumUpgrade();
+  const isPremium = !!user?.is_premium;
   const location = useLocation();
   const [pool, setPool] = useState<PoolResponse | null>(null);
   const [poolError, setPoolError] = useState<string | null>(null);
@@ -195,6 +201,10 @@ export default function BuildPage() {
 
   async function submitBrief() {
     if (!pool || !briefText.trim()) return;
+    if (!isPremium) {
+      showUpgrade("AI deck brief");
+      return;
+    }
     const request = briefText.trim();
     setBriefing(true);
     setBriefError(null);
@@ -207,7 +217,11 @@ export default function BuildPage() {
         { role: "assistant", text: res.rationale },
       ]);
     } catch (e) {
-      setBriefError(e instanceof Error ? e.message : "Couldn't build from your description.");
+      if (isPremiumRequired(e)) {
+        showUpgrade("AI deck brief");
+      } else {
+        setBriefError(e instanceof Error ? e.message : "Couldn't build from your description.");
+      }
     } finally {
       setBriefing(false);
     }
@@ -228,10 +242,14 @@ export default function BuildPage() {
       setDeck(res.deck);
       setConversation((c) => [...c, { role: "assistant", text: res.rationale }]);
     } catch (e) {
-      setConversation((c) => [
-        ...c,
-        { role: "assistant", text: `Couldn't refine: ${e instanceof Error ? e.message : "error"}` },
-      ]);
+      if (isPremiumRequired(e)) {
+        showUpgrade("AI deck brief");
+      } else {
+        setConversation((c) => [
+          ...c,
+          { role: "assistant", text: `Couldn't refine: ${e instanceof Error ? e.message : "error"}` },
+        ]);
+      }
     } finally {
       setRefining(false);
     }
@@ -417,8 +435,11 @@ export default function BuildPage() {
                       Build manually
                     </button>
                   )}
-                  <button onClick={() => setMode("brief")} className={toggleClass(mode === "brief")}>
-                    ✨ Describe
+                  <button
+                    onClick={() => (isPremium ? setMode("brief") : showUpgrade("AI deck brief"))}
+                    className={toggleClass(mode === "brief")}
+                  >
+                    ✨ Describe {!isPremium && <span className="text-amber-400">✦</span>}
                   </button>
                 </div>
                 {mode === "auto" && (
