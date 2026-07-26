@@ -3,14 +3,18 @@ import {
   View, Text, TextInput, ScrollView, TouchableOpacity,
   ActivityIndicator, FlatList, KeyboardAvoidingView, Platform,
 } from "react-native";
-import type { BriefDeckResponse, CommanderOption, GeneratedDeck, StrategyOption } from "@mtg/shared";
+import { router } from "expo-router";
+import { ApiError, type BriefDeckResponse, type CommanderOption, type GeneratedDeck, type StrategyOption } from "@mtg/shared";
 import { api } from "../../src/lib/api";
+import { usePremium } from "../../src/purchases/PremiumContext";
 import DeckDetailModal from "../../src/components/DeckDetailModal";
 
 type Mode = "auto" | "brief";
 type BriefTurn = { role: "user" | "assistant"; text: string };
 
 export default function BuildScreen() {
+  const { isPremium } = usePremium();
+
   // Commander search
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<CommanderOption[]>([]);
@@ -131,7 +135,11 @@ export default function BuildScreen() {
         { role: "assistant", text: res.rationale },
       ]);
     } catch (e) {
-      setBriefError(e instanceof Error ? e.message : "AI brief failed");
+      if (e instanceof ApiError && e.status === 402) {
+        router.push("/paywall");
+      } else {
+        setBriefError(e instanceof Error ? e.message : "AI brief failed");
+      }
     } finally {
       setBriefing(false);
     }
@@ -170,8 +178,10 @@ export default function BuildScreen() {
     try {
       await api.saveDeck(deckName.trim() || `${commander?.name} Deck`, deck);
       setSaved(true);
-    } catch { /* silent */ }
-    finally { setSaving(false); }
+    } catch (e) {
+      // 402 => hit the free-tier saved-deck cap; surface the paywall.
+      if (e instanceof ApiError && e.status === 402) router.push("/paywall");
+    } finally { setSaving(false); }
   }
 
   return (
@@ -238,12 +248,12 @@ export default function BuildScreen() {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => setMode("brief")}
+                onPress={() => (isPremium ? setMode("brief") : router.push("/paywall"))}
                 className={"flex-1 rounded-md py-2 " + (mode === "brief" ? "bg-slate-800" : "")}
                 activeOpacity={0.7}
               >
                 <Text className={"text-center text-sm " + (mode === "brief" ? "text-white" : "text-slate-400")}>
-                  Describe
+                  Describe {!isPremium && <Text className="text-amber-400">✦</Text>}
                 </Text>
               </TouchableOpacity>
             </View>

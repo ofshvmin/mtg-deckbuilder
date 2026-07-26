@@ -115,6 +115,16 @@ export class ApiClient {
     await this.tokens.clear();
   }
 
+  /**
+   * Permanently delete the signed-in user's account and all their data
+   * (collection + saved decks) on the server, then clear local tokens.
+   * Irreversible. Required for App Store account-deletion compliance.
+   */
+  async deleteAccount(): Promise<void> {
+    await this.request("DELETE", "/auth/me");
+    await this.tokens.clear();
+  }
+
   // ---- Collection ----
 
   collectionSummary(): Promise<CollectionSummary> {

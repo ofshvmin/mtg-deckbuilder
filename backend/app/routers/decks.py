@@ -6,7 +6,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from .. import db
-from ..auth.deps import get_current_user
+from ..auth.deps import get_current_user, require_premium
 from ..config import get_settings
 from ..models.responses import (
     BracketOut,
@@ -31,6 +31,7 @@ from ..models.responses import (
 from ..repositories import card_prints as card_prints_repo
 from ..repositories import collection as collection_repo
 from ..repositories import decks as decks_repo
+from ..repositories import users as users_repo
 from ..services import ai_brief, brackets, color_select, csv_formats, edhrec, formats, generator
 from ..services import pool as pool_service
 from ..services import roles as roles_service
@@ -356,11 +357,12 @@ class BriefRequest(BaseModel):
 
 
 @router.post("/brief", response_model=BriefDeckResponse)
-async def brief_deck(body: BriefRequest, current_user: dict = Depends(get_current_user)):
+async def brief_deck(body: BriefRequest, current_user: dict = Depends(require_premium)):
     """Interpret a natural-language deck request with Claude, then build the deck.
 
-    Claude selects core cards from the owned pool + build knobs; the generator
-    builds a legal, curved, synergy/combo-layered deck around that core.
+    Premium-only (Guideline gate + it spends Anthropic credits per call). Claude
+    selects core cards from the owned pool + build knobs; the generator builds a
+    legal, curved, synergy/combo-layered deck around that core.
     """
     if not get_settings().claude_api:
         raise HTTPException(
@@ -794,6 +796,14 @@ async def save_deck(body: SaveDeckRequest, current_user: dict = Depends(get_curr
     if not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Deck name cannot be empty.")
     database = db.get_db()
+    if not users_repo.is_premium(current_user):
+        limit = get_settings().free_saved_deck_limit
+        if await decks_repo.count_decks(database, current_user["_id"]) >= limit:
+            raise HTTPException(
+                status.HTTP_402_PAYMENT_REQUIRED,
+                f"Free accounts can save up to {limit} decks. "
+                "Upgrade to Grimoire Premium for unlimited saved decks.",
+            )
     deck_data = body.deck.model_dump()
     deck_id = await decks_repo.save_deck(
         database, current_user["_id"], name, deck_data,

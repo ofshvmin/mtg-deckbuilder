@@ -50,3 +50,5 @@ class UserResponse(BaseModel):
     email: str
     created_at: str
     preferences: UserPreferences = UserPreferences()
+    is_premium: bool = False
+    premium_expires_at: str | None = None

@@ -23,6 +23,12 @@ async def replace_user_collection(
     return len(items)
 
 
+async def delete_all_for_user(db: AsyncDatabase, user_id: str) -> int:
+    """Delete every collection row owned by a user. Returns the number removed."""
+    result = await db.collection_items.delete_many({"user_id": user_id})
+    return result.deleted_count
+
+
 async def owned_counts(db: AsyncDatabase, user_id: str) -> dict[str, int]:
     """Map of oracle_id -> total copies owned across all printings, for a user.
 
