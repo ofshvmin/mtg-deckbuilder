@@ -4,6 +4,8 @@ import type { Combo, GeneratedDeck } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { formatColorIdentity } from "../lib/format";
+import { isPremiumRequired } from "../lib/premium";
+import { usePremiumUpgrade } from "./PremiumUpgrade";
 import BracketBadge from "./BracketBadge";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
@@ -44,6 +46,7 @@ export default function DeckView({
   showOwnership?: boolean;
 }) {
   const { user } = useAuth();
+  const { showUpgrade } = usePremiumUpgrade();
   const maxPrice = user?.preferences?.max_card_price ?? null;
   // The deck is held in local state so "Regenerate unlocked" can replace it.
   const [deck, setDeck] = useState<GeneratedDeck>(initialDeck);
@@ -148,7 +151,11 @@ export default function DeckView({
       setDirty(false);
       onSaved?.();
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Failed to save deck");
+      if (isPremiumRequired(e)) {
+        showUpgrade("Unlimited saved decks");
+      } else {
+        setSaveError(e instanceof Error ? e.message : "Failed to save deck");
+      }
     } finally {
       setSaving(false);
     }

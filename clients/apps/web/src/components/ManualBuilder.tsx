@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import type { DeckCard, GeneratedDeck, PoolCard, PoolResponse } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { isPremiumRequired } from "../lib/premium";
+import { usePremiumUpgrade } from "./PremiumUpgrade";
 import BracketBadge from "./BracketBadge";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
@@ -44,6 +46,7 @@ export default function ManualBuilder({
   deckName?: string;
 }) {
   const { user } = useAuth();
+  const { showUpgrade } = usePremiumUpgrade();
   const maxPrice = user?.preferences?.max_card_price ?? null;
   const [selected, setSelected] = useState<string[]>(initialSelected ?? []);
   const [deck, setDeck] = useState<GeneratedDeck | null>(null);
@@ -147,8 +150,9 @@ export default function ManualBuilder({
       }
       setSavedAs(name.trim());
       onSaved?.();
-    } catch {
-      // silent
+    } catch (e) {
+      if (isPremiumRequired(e)) showUpgrade("Unlimited saved decks");
+      // else: silent, matching prior behavior
     } finally {
       setSaving(false);
     }
