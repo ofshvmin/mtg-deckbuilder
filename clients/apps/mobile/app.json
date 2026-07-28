@@ -23,6 +23,13 @@
     "plugins": [
       "expo-router",
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c15bfc12-3fb8-49e6-b9fc-dae545e6603e"
+      }
+    },
+    "owner": "ofshvmin"
   }
 }
