@@ -4,6 +4,11 @@
 !.env.example
 !.env.*.example
 
+# App Store / Apple private keys (never commit)
+*.p8
+AuthKey_*.p8
+SubscriptionKey_*.p8
+
 # Python
 __pycache__/
 *.py[cod]

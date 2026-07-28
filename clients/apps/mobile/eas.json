@@ -15,13 +15,25 @@
       "distribution": "internal",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_OxYCcxCcZbANnvWomSOeLpwNqFy"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_OxYCcxCcZbANnvWomSOeLpwNqFy"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "daniel@dankodev.com",
+        "ascAppId": "6794916987",
+        "appleTeamId": "2YTFY967N6"
+      }
+    }
   }
 }
