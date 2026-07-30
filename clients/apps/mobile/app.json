@@ -9,7 +9,10 @@
     "scheme": "grimoire",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.grimoire.mtg"
+      "bundleIdentifier": "com.grimoire.mtg",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
