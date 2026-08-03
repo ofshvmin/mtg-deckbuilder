@@ -20,6 +20,8 @@ export interface CardModalData {
   oracle_text?: string;
   total_count?: number;
   printings?: Printing[];
+  /** When shown from a deck: which owned copy that deck currently holds. */
+  selected_printing_key?: string | null;
 }
 
 // Adapter: convert a CollectionCard to CardModalData (they're already compatible).
@@ -34,14 +36,24 @@ export default function CardDetailModal({
   card: initialCard,
   onClose,
   onRemoved,
+  onSelectPrinting,
 }: {
   card: CardModalData;
   onClose: () => void;
   onRemoved?: () => void;
+  /** When set, the modal can reassign which owned copy the deck holds. */
+  onSelectPrinting?: (printingKey: string) => void;
 }) {
   const [card, setCard] = useState<CardModalData>(initialCard);
   const [detail, setDetail] = useState<CardDetail | null>(null);
-  const [index, setIndex] = useState(0);
+  // Open on the copy the deck already holds, not on the first printing owned —
+  // otherwise picking a printing means hunting for where you already were.
+  const [index, setIndex] = useState(() => {
+    const i = initialCard.printings?.findIndex(
+      (p) => p.printing_key === initialCard.selected_printing_key,
+    );
+    return i != null && i >= 0 ? i : 0;
+  });
   const [removing, setRemoving] = useState(false);
   const touchStartX = useRef<number | null>(null);
 
@@ -234,8 +246,17 @@ export default function CardDetailModal({
                           ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
                           : "border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300")
                       }
-                      title={`${p.edition || "—"}${p.finish === "foil" ? " · foil" : ""}`}
+                      title={
+                        `${p.edition || "—"}${p.finish === "foil" ? " · foil" : ""}` +
+                        (p.available != null ? ` · ${p.available} available of ${p.count}` : "") +
+                        (p.printing_key === card.selected_printing_key
+                          ? " · this deck's copy"
+                          : "")
+                      }
                     >
+                      {p.printing_key === card.selected_printing_key && (
+                        <span className="mr-0.5 text-emerald-400">●</span>
+                      )}
                       {p.edition || "—"}
                       {p.finish === "foil" && <span className="ml-0.5 text-amber-500">✦</span>}
                     </button>
@@ -300,6 +321,12 @@ export default function CardDetailModal({
                     {marketUsd != null ? `$${marketUsd.toFixed(2)}` : detail ? "—" : "…"}
                   </dd>
                 </div>
+                {isOwned && current?.available != null && (
+                  <DetailRow
+                    label="Available"
+                    value={`${current.available} of ${current.count}`}
+                  />
+                )}
                 {isOwned && <DetailRow label="Owned" value={current ? `${current.count}` : undefined} />}
                 {isOwned && (
                   <DetailRow
@@ -319,6 +346,31 @@ export default function CardDetailModal({
                   Not in your collection — showing the cheapest printing.
                 </p>
               ) : null}
+
+              {/* Which physical copy this deck holds. A separate action from the
+                  printing chips above, which only navigate — clicking through
+                  your printings to look at them shouldn't silently re-earmark
+                  the deck. */}
+              {onSelectPrinting && isOwned && current && (
+                <div className="mt-3">
+                  {current.printing_key === card.selected_printing_key ? (
+                    <p className="text-xs text-emerald-400">
+                      ✓ This deck uses this copy
+                      {current.edition ? ` (${current.edition.toUpperCase()})` : ""}.
+                    </p>
+                  ) : (
+                    <button
+                      onClick={() => onSelectPrinting(current.printing_key)}
+                      className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-200 transition hover:border-emerald-600 hover:bg-emerald-600/10 hover:text-emerald-300"
+                    >
+                      Use this copy for this deck
+                    </button>
+                  )}
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    Save the deck to keep the change.
+                  </p>
+                </div>
+              )}
             </div>
 
             {oracleText && (

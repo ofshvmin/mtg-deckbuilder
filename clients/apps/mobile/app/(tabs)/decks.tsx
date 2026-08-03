@@ -9,7 +9,9 @@ import DeckDetailModal from "../../src/components/DeckDetailModal";
 export default function DecksScreen() {
   const [decks, setDecks] = useState<SavedDeckSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [openDeck, setOpenDeck] = useState<{ id: string; name: string; deck: GeneratedDeck } | null>(null);
+  const [openDeck, setOpenDeck] = useState<
+    { id: string; name: string; deck: GeneratedDeck; inUse: boolean } | null
+  >(null);
   const [opening, setOpening] = useState(false);
 
   const { open } = useLocalSearchParams<{ open?: string }>();
@@ -24,13 +26,57 @@ export default function DecksScreen() {
     setOpening(true);
     try {
       const saved = await api.getSavedDeck(id);
-      setOpenDeck({ id: saved.id, name: saved.name, deck: saved.deck });
+      setOpenDeck({
+        id: saved.id, name: saved.name, deck: saved.deck, inUse: !!saved.in_use,
+      });
     } catch {
       // silent
     } finally {
       setOpening(false);
     }
   }, []);
+
+  /** Reserve or release a deck's cards. Optimistic — the badge flips at once and
+   *  reverts if the write fails, so sweeping across a shelf of decks stays fluid. */
+  const setInUse = useCallback(async (id: string, next: boolean) => {
+    setDecks((prev) => prev.map((d) => (d.id === id ? { ...d, in_use: next } : d)));
+    setOpenDeck((prev) => (prev && prev.id === id ? { ...prev, inUse: next } : prev));
+    try {
+      await api.updateSavedDeck(id, { in_use: next });
+    } catch {
+      setDecks((prev) => prev.map((d) => (d.id === id ? { ...d, in_use: !next } : d)));
+      setOpenDeck((prev) => (prev && prev.id === id ? { ...prev, inUse: !next } : prev));
+    }
+  }, []);
+
+  /** Point a deck card at a different owned printing, and persist it.
+   *
+   *  Saved immediately rather than behind a Save button: the mobile deck view is
+   *  otherwise read-only, so there's no edit session for the change to sit in.
+   */
+  async function selectPrinting(oracleId: string, printingKey: string) {
+    if (!openDeck) return;
+    const updated: GeneratedDeck = {
+      ...openDeck.deck,
+      cards: openDeck.deck.cards.map((c) =>
+        c.oracle_id === oracleId
+          ? {
+              ...c,
+              selected_printing_key: printingKey,
+              // One printing takes the whole entry. Splitting across printings
+              // only happens automatically, when no single one has enough free.
+              printing_allocation: { [printingKey]: c.count },
+            }
+          : c,
+      ),
+    };
+    setOpenDeck({ ...openDeck, deck: updated });
+    try {
+      await api.updateSavedDeck(openDeck.id, { deck: updated });
+    } catch {
+      // Leave the optimistic change on screen; reopening the deck re-reads truth.
+    }
+  }
 
   // Opened from Home ("recent decks" tap) with an `open` deck id — show it, then
   // clear the param so the same deck can be reopened later.
@@ -89,13 +135,20 @@ export default function DecksScreen() {
                 </Text>
               </View>
             </View>
-            <View className="flex-row items-center justify-between px-3 py-2">
+            <View className="flex-row items-center justify-between gap-2 px-3 py-2">
               <Text className="flex-1 text-xs text-slate-400" numberOfLines={1}>
                 {item.commander_name} · {item.color_identity.join("") || "C"} · {item.total} cards
+                {item.source ? ` · ${item.source}` : ""}
               </Text>
-              {item.source && (
-                <Text className="text-xs text-slate-600">{item.source}</Text>
-              )}
+              <TouchableOpacity
+                onPress={() => setInUse(item.id, !item.in_use)}
+                hitSlop={8}
+                activeOpacity={0.6}
+              >
+                <Text className={"text-xs " + (item.in_use ? "text-emerald-400" : "text-slate-600")}>
+                  {item.in_use ? "◉ In use" : "○ Free"}
+                </Text>
+              </TouchableOpacity>
             </View>
           </TouchableOpacity>
         )}
@@ -105,6 +158,9 @@ export default function DecksScreen() {
         <DeckDetailModal
           deck={openDeck.deck}
           name={openDeck.name}
+          inUse={openDeck.inUse}
+          onToggleInUse={() => setInUse(openDeck.id, !openDeck.inUse)}
+          onSelectPrinting={selectPrinting}
           onClose={() => setOpenDeck(null)}
         />
       )}

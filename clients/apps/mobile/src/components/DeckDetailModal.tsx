@@ -14,15 +14,30 @@ const SLOTS: { key: string; label: string; color: string }[] = [
 ];
 
 export default function DeckDetailModal({
-  deck,
+  deck: initialDeck,
   name,
+  inUse,
+  onToggleInUse,
+  onSelectPrinting,
   onClose,
 }: {
   deck: GeneratedDeck;
   name: string;
+  /** Whether this saved deck reserves its cards from other builds. */
+  inUse?: boolean;
+  onToggleInUse?: () => void;
+  /** Set to let the card sheet reassign which owned copy this deck holds. */
+  onSelectPrinting?: (oracleId: string, printingKey: string) => void;
   onClose: () => void;
 }) {
-  const [selected, setSelected] = useState<DeckCard | null>(null);
+  const deck = initialDeck;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Resolved from the live deck rather than held as a snapshot, so re-earmarking
+  // a printing re-renders the open card sheet with the new choice.
+  const selected = selectedId
+    ? (deck.cards.find((c) => c.oracle_id === selectedId) ?? null)
+    : null;
+  const setSelected = (card: DeckCard | null) => setSelectedId(card?.oracle_id ?? null);
 
   const sections = useMemo(() => {
     return SLOTS.map((s) => ({
@@ -40,6 +55,21 @@ export default function DeckDetailModal({
             <TouchableOpacity onPress={onClose} hitSlop={8}>
               <Text className="text-sm text-indigo-400">← Back</Text>
             </TouchableOpacity>
+            {onToggleInUse && (
+              <TouchableOpacity
+                onPress={onToggleInUse}
+                hitSlop={8}
+                activeOpacity={0.6}
+                className={
+                  "rounded-lg border px-3 py-1.5 " +
+                  (inUse ? "border-emerald-600 bg-emerald-600/20" : "border-slate-700")
+                }
+              >
+                <Text className={"text-xs " + (inUse ? "text-emerald-300" : "text-slate-400")}>
+                  {inUse ? "✓ In use" : "Mark in use"}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
           <Text className="mt-2 text-xl font-bold text-white">{name}</Text>
           <Text className="mt-0.5 text-sm text-slate-400">
@@ -78,9 +108,15 @@ export default function DeckDetailModal({
               activeOpacity={0.6}
               className="flex-row items-center gap-2 px-4 py-1.5"
             >
-              <Text className="flex-1 text-sm text-slate-200" numberOfLines={1}>
+              <Text
+                className={"flex-1 text-sm " + (item.short ? "text-slate-600" : "text-slate-200")}
+                numberOfLines={1}
+              >
                 {item.count > 1 && <Text className="text-slate-500">{item.count}× </Text>}
                 {item.name}
+                {/* Every copy is spoken for by an older in-use deck — you can't
+                    actually sleeve this one. */}
+                {item.short && <Text className="text-amber-500"> ⚠</Text>}
                 {item.in_combo && <Text className="text-fuchsia-400"> ⚡</Text>}
                 {item.quality >= 0.3 && <Text className="text-emerald-400"> ◆</Text>}
               </Text>
@@ -112,7 +148,13 @@ export default function DeckDetailModal({
             mana_cost: selected.mana_cost,
             type_line: selected.type_line,
             printings: selected.printings,
+            selected_printing_key: selected.selected_printing_key,
           }}
+          onSelectPrinting={
+            onSelectPrinting
+              ? (key) => onSelectPrinting(selected.oracle_id, key)
+              : undefined
+          }
           onClose={() => setSelected(null)}
         />
       )}

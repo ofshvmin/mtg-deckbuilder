@@ -4,10 +4,11 @@ import {
   ActivityIndicator, FlatList, KeyboardAvoidingView, Platform,
 } from "react-native";
 import { router } from "expo-router";
-import { ApiError, type BriefDeckResponse, type CommanderOption, type GeneratedDeck, type StrategyOption } from "@mtg/shared";
+import { ApiError, type BriefDeckResponse, type CommanderOption, type GeneratedDeck, type PoolFilters, type PoolScope, type StrategyOption } from "@mtg/shared";
 import { api } from "../../src/lib/api";
 import { usePremium } from "../../src/purchases/PremiumContext";
 import DeckDetailModal from "../../src/components/DeckDetailModal";
+import PoolControls from "../../src/components/PoolControls";
 
 type Mode = "auto" | "brief";
 type BriefTurn = { role: "user" | "assistant"; text: string };
@@ -25,6 +26,9 @@ export default function BuildScreen() {
   const [loadingPool, setLoadingPool] = useState(false);
   const [poolError, setPoolError] = useState<string | null>(null);
   const [poolReady, setPoolReady] = useState(false);
+  const [poolSize, setPoolSize] = useState<number | null>(null);
+  const [poolScope, setPoolScope] = useState<PoolScope>("owned");
+  const [poolSets, setPoolSets] = useState<string[]>([]);
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [deck, setDeck] = useState<GeneratedDeck | null>(null);
@@ -65,6 +69,11 @@ export default function BuildScreen() {
     return () => clearTimeout(t);
   }, [query]);
 
+  const poolFilters: PoolFilters = {
+    pool_scope: poolScope,
+    ...(poolSets.length > 0 ? { sets: poolSets } : {}),
+  };
+
   async function selectCommander(c: CommanderOption) {
     setCommander(c);
     setQuery(c.name);
@@ -76,15 +85,45 @@ export default function BuildScreen() {
     setLoadingPool(true);
     setPoolError(null);
     setSaved(false);
+    await loadPool(c, poolScope, poolSets);
+    setDeckName(`${c.name} Deck`);
+  }
+
+  /** Load the pool for a commander under the current filters.
+   *
+   *  The size is kept (not just validated) so the narrowing controls have
+   *  something to show for themselves — "Available only" is a lot easier to trust
+   *  when you can watch the pool shrink.
+   */
+  async function loadPool(c: CommanderOption, scope: PoolScope, sets: string[]) {
+    setLoadingPool(true);
+    setPoolError(null);
     try {
-      await api.getPool(c.name); // validates pool exists
+      const p = await api.getPool({
+        commander: c.name,
+        pool_scope: scope,
+        ...(sets.length > 0 ? { sets } : {}),
+      });
+      setPoolSize(p.pool_size);
       setPoolReady(true);
-      setDeckName(`${c.name} Deck`);
     } catch (e) {
+      // Keep the commander so the filters stay reachable — an over-narrow pick
+      // has to be one tap away from being widened.
+      setPoolReady(false);
+      setPoolSize(null);
       setPoolError(e instanceof Error ? e.message : "Could not load pool");
     } finally {
       setLoadingPool(false);
     }
+  }
+
+  async function applyPoolFilters(next: { scope?: PoolScope; sets?: string[] }) {
+    const scope = next.scope ?? poolScope;
+    const sets = next.sets ?? poolSets;
+    if (next.scope !== undefined) setPoolScope(scope);
+    if (next.sets !== undefined) setPoolSets(sets);
+    setDeck(null);
+    if (commander) await loadPool(commander, scope, sets);
   }
 
   // Clear the commander field and reset the build back to a clean state.
@@ -94,6 +133,7 @@ export default function BuildScreen() {
     setSuggestions([]);
     setPoolReady(false);
     setPoolError(null);
+    setPoolSize(null);
     setDeck(null);
     setBriefResult(null);
     setConversation([]);
@@ -108,7 +148,7 @@ export default function BuildScreen() {
     setBuildError(null);
     setSaved(false);
     try {
-      const opts: { strategy?: string; theme?: string } = {};
+      const opts: { strategy?: string; theme?: string } & PoolFilters = { ...poolFilters };
       if (selectedStrategy !== "Balanced") opts.strategy = selectedStrategy;
       if (theme.trim()) opts.theme = theme.trim();
       const d = await api.generateDeck(commander.name, opts);
@@ -127,7 +167,7 @@ export default function BuildScreen() {
     setSaved(false);
     try {
       const request = briefText.trim();
-      const res = await api.briefDeck(commander.name, request);
+      const res = await api.briefDeck(commander.name, request, undefined, "commander", poolFilters);
       setBriefResult(res);
       setDeck(res.deck);
       setConversation([
@@ -158,7 +198,9 @@ export default function BuildScreen() {
         ...briefResult.spec,
         core_cards: briefResult.core_cards.map((c) => c.name),
       };
-      const res = await api.briefDeck(commander.name, instruction, priorSpec);
+      const res = await api.briefDeck(
+        commander.name, instruction, priorSpec, "commander", poolFilters,
+      );
       setBriefResult(res);
       setDeck(res.deck);
       setConversation((c) => [...c, { role: "assistant", text: res.rationale }]);
@@ -223,6 +265,21 @@ export default function BuildScreen() {
           </View>
         )}
 
+        {/* Pool scope + sets. Outside the `poolReady` block on purpose: a filter
+            can narrow the pool to nothing, and the control that did it has to
+            stay on screen to undo it. */}
+        {commander && !deck && (
+          <View className="mt-6">
+            <PoolControls
+              scope={poolScope}
+              onScopeChange={(next) => void applyPoolFilters({ scope: next })}
+              sets={poolSets}
+              onSetsChange={(next) => void applyPoolFilters({ sets: next })}
+              disabled={loadingPool || building}
+            />
+          </View>
+        )}
+
         {loadingPool && <Text className="mt-4 text-sm text-slate-400">Loading pool…</Text>}
         {poolError && <Text className="mt-4 text-sm text-rose-400">{poolError}</Text>}
 
@@ -234,6 +291,14 @@ export default function BuildScreen() {
               <Text className="text-sm text-slate-400">
                 {commander.color_identity.join("") || "C"} · {commander.type_line}
               </Text>
+              {poolSize != null && (
+                <Text className="mt-1 text-xs text-slate-500">
+                  {poolSize.toLocaleString()} cards in pool
+                  {poolScope === "available" ? " (available)" : ""}
+                  {poolSets.length > 0 &&
+                    ` · ${poolSets.length} set${poolSets.length === 1 ? "" : "s"}`}
+                </Text>
+              )}
             </View>
 
             {/* Mode toggle */}

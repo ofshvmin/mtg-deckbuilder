@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { DeckCard, GeneratedDeck, PoolCard, PoolResponse } from "@mtg/shared";
+import type { DeckCard, GeneratedDeck, PoolCard, PoolFilters, PoolResponse } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { isPremiumRequired } from "../lib/premium";
@@ -35,6 +35,7 @@ export default function ManualBuilder({
   initialSelected,
   deckId,
   deckName,
+  poolFilters,
 }: {
   pool: PoolResponse;
   commanderName: string;
@@ -44,6 +45,8 @@ export default function ManualBuilder({
   initialSelected?: string[];         // seed the editor from an existing deck
   deckId?: string;                    // when set, Save updates this saved deck in place
   deckName?: string;
+  /** Pool scope/sets in force, so printings get earmarked from the same slice. */
+  poolFilters?: PoolFilters;
 }) {
   const { user } = useAuth();
   const { showUpgrade } = usePremiumUpgrade();
@@ -83,7 +86,10 @@ export default function ManualBuilder({
     const t = setTimeout(() => {
       const seq = ++composeSeq.current;
       api
-        .composeDeck(commanderName, selected)
+        .composeDeck(commanderName, selected, pool.format, {
+          ...poolFilters,
+          ...(deckId ? { exclude_deck_id: deckId } : {}),
+        })
         .then((d) => {
           if (seq === composeSeq.current) setDeck(d);
         })
@@ -93,13 +99,17 @@ export default function ManualBuilder({
         });
     }, 350);
     return () => clearTimeout(t);
-  }, [selected, commanderName]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, commanderName, pool.format, deckId, poolFilters?.pool_scope, poolFilters?.sets]);
 
   // Fetch suggestions via the auto-generator
   async function fetchSuggestions() {
     setLoadingSuggestions(true);
     try {
-      const opts: { strategy?: string; theme?: string } = {};
+      const opts: { strategy?: string; theme?: string } & PoolFilters = {
+        ...poolFilters,
+        ...(deckId ? { exclude_deck_id: deckId } : {}),
+      };
       if (strategy && strategy !== "Balanced") opts.strategy = strategy;
       if (theme?.trim()) opts.theme = theme.trim();
       const generated = await api.generateDeck(commanderName, opts);

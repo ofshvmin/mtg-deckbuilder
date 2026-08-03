@@ -21,7 +21,7 @@ import random
 import re
 from dataclasses import dataclass, field
 
-from . import mana_math, roles
+from . import availability, mana_math, roles
 from .formats import FormatSpec, get_format
 from .strategies import Strategy, get_strategy
 
@@ -63,10 +63,13 @@ class DeckCard:
     count: int = 1
     quality: float = 0.0   # EDHREC quality score (0 if unknown / not on EDHREC)
     # Owned printing units for this card (which physical copies Danko has, and
-    # where they live). Empty for generator-added basics. selected_printing_key
-    # is the copy this deck earmarks — the forward hook for preferred-printing
-    # rules and inventory allocation.
+    # where they live). Empty for generator-added basics.
     printings: list = field(default_factory=list)
+    # Which physical copies this deck holds: printing_key -> copies. Set by
+    # `_allocate_printings` once counts are final, and the number the availability
+    # math charges against the collection. selected_printing_key is the largest
+    # slice of it — the single copy the pull list and card art display.
+    printing_allocation: dict | None = None
     selected_printing_key: str | None = None
 
 
@@ -121,8 +124,22 @@ def _deck_card(
         count=count,
         quality=round(quality, 4),
         printings=list(units),
-        selected_printing_key=units[0]["printing_key"] if units else None,
     )
+
+
+def _allocate_printings(cards: list[DeckCard]) -> None:
+    """Earmark the physical copies each card in the finished deck holds.
+
+    A post-pass rather than part of ``_deck_card`` because the greedy fill bumps
+    ``count`` after a card is created (a 4-of starts life as a 1-of), and the
+    allocation has to be made against the final number of copies. Prefers
+    printings with copies still free, so building against the ``available`` scope
+    doesn't hand you a card another in-use deck is already holding.
+    """
+    for card in cards:
+        alloc = availability.allocate(card.printings, card.count)
+        card.printing_allocation = alloc or None
+        card.selected_printing_key = availability.primary_key(alloc)
 
 
 def generate(
@@ -350,6 +367,7 @@ def generate(
             )
 
     deck.cards = land_cards + chosen
+    _allocate_printings(deck.cards)
     # Count copies, not entries — a 4-of is four cards. Identical under Commander,
     # where every entry is a singleton.
     deck.nonland_count = sum(c.count for c in chosen)
@@ -463,6 +481,7 @@ def compose(
         chosen.append(_deck_card(doc, rset, slot, reason, quality=q(doc["_id"]), printings=printings))
 
     deck.cards = land_cards + chosen
+    _allocate_printings(deck.cards)
     deck.nonland_count = sum(c.count for c in chosen)
     actual_lands = sum(c.count for c in land_cards)
     deck.land_count = actual_lands

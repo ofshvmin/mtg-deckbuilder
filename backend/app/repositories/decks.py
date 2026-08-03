@@ -58,8 +58,13 @@ async def get_deck(db: AsyncDatabase, user_id: str, deck_id: str) -> dict | None
 async def update_deck(
     db: AsyncDatabase, user_id: str, deck_id: str,
     name: str | None = None, deck_data: dict | None = None,
+    in_use: bool | None = None,
 ) -> dict | None:
-    """Update a saved deck's name and/or data. Returns updated doc or None."""
+    """Update a saved deck's name, data and/or in-use flag. Returns doc or None.
+
+    `in_use` marks the deck as physically assembled: its cards are then
+    subtracted from the pool that later builds draw on (services/availability.py).
+    """
     try:
         oid = ObjectId(deck_id)
     except Exception:
@@ -69,6 +74,8 @@ async def update_deck(
         updates["name"] = name
     if deck_data is not None:
         updates["deck"] = deck_data
+    if in_use is not None:
+        updates["in_use"] = in_use
     result = await db.decks.update_one(
         {"_id": oid, "user_id": user_id}, {"$set": updates}
     )
