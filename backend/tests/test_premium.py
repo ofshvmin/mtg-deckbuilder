@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 import app.auth.deps as deps
 import app.routers.webhooks as webhooks
+from app.config import get_settings
 from app.repositories.users import is_premium
 
 
@@ -42,6 +43,31 @@ def test_active_but_expired_is_not_premium():
 
 def test_malformed_expiry_is_not_premium():
     assert is_premium({"premium": {"active": True, "expires_at": "not-a-date"}}) is False
+
+
+# ---- Permanent exemptions (test / comped accounts, no purchase) ----
+
+def test_exempt_flag_is_premium_without_entitlement():
+    assert is_premium({"_id": "u", "premium_exempt": True}) is True
+
+
+def test_exempt_flag_survives_a_lapsed_entitlement():
+    past = _iso(datetime.now(timezone.utc) - timedelta(days=1))
+    user = {"_id": "u", "premium_exempt": True,
+            "premium": {"active": False, "expires_at": past}}
+    assert is_premium(user) is True
+
+
+def test_exempt_email_list_is_premium(monkeypatch):
+    monkeypatch.setattr(get_settings(), "premium_exempt_emails", "Test@Danko.com, qa@x.com")
+    assert is_premium({"_id": "u", "email": "test@danko.com"}) is True
+    assert is_premium({"_id": "u", "email": "someone@else.com"}) is False
+
+
+def test_empty_exempt_email_list_matches_nobody(monkeypatch):
+    monkeypatch.setattr(get_settings(), "premium_exempt_emails", "")
+    assert is_premium({"_id": "u", "email": ""}) is False
+    assert is_premium({"_id": "u"}) is False
 
 
 # ---- require_premium dependency ----
