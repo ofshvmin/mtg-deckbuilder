@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Printing } from "@mtg/shared";
-import { cdnImageUrl, scryfallNamedImageUrl } from "../lib/scryfall";
+import { scryfallImageUrl } from "../lib/scryfall";
 
 // Floating card image that appears when the user hovers over a card name.
 // Positioned to the right of the cursor, flips to the left if near the
@@ -22,9 +22,9 @@ export default function CardHoverPreview({
   const [loaded, setLoaded] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const src = printing?.edition && printing.collector_number
-    ? cdnImageUrl(printing.edition, printing.collector_number, "normal")
-    : scryfallNamedImageUrl(name, "normal");
+  // Prefer the real CDN url the backend enriched onto the printing; fall back to
+  // the API endpoints, which resolve by set/collector or by name.
+  const src = printing?.image_uris?.normal ?? scryfallImageUrl(printing, name, "normal");
 
   // Position: prefer right of anchor, flip left if it would overflow viewport.
   const gap = 12;

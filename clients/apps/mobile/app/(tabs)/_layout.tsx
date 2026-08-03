@@ -1,5 +1,6 @@
-import { Tabs } from "expo-router";
-import { Text } from "react-native";
+import { Redirect, Tabs } from "expo-router";
+import { ActivityIndicator, Text, View } from "react-native";
+import { useAuth } from "../../src/auth/AuthContext";
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
@@ -16,6 +17,23 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 }
 
 export default function TabsLayout() {
+  const { user, loading } = useAuth();
+
+  // Guard every tab, not just the entry route. Signing out clears the session
+  // in place, so without this the tabs keep rendering against a dead session
+  // and Sign Out looks like it did nothing.
+  if (loading) {
+    return (
+      <View className="flex-1 items-center justify-center bg-slate-950">
+        <ActivityIndicator size="large" color="#d8b25c" />
+      </View>
+    );
+  }
+
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
+
   return (
     <Tabs
       screenOptions={{
