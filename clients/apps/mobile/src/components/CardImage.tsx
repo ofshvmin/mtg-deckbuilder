@@ -3,10 +3,6 @@ import type { Printing } from "@mtg/shared";
 
 type Size = "small" | "normal" | "large" | "art_crop";
 
-function cdnUrl(set: string, cn: string, size: Size = "normal"): string {
-  return `https://cards.scryfall.io/${size}/front/${set.toLowerCase()}/${cn}.jpg`;
-}
-
 function scryfallUrl(printing: Printing | undefined, name: string, size: Size = "normal"): string {
   if (printing?.edition && printing.collector_number) {
     const set = encodeURIComponent(printing.edition.toLowerCase());
@@ -23,9 +19,11 @@ function resolveUri(
   imageUrl?: string,
 ): string {
   if (imageUrl) return imageUrl;
-  if (printing?.edition && printing.collector_number) {
-    return cdnUrl(printing.edition, printing.collector_number, size);
-  }
+  // The backend already enriches printings with real Scryfall CDN URLs
+  // (card_prints.image_uris). Those paths are UUID-sharded, so they can't be
+  // derived from set + collector number — always prefer what we were given.
+  const fromPrinting = printing?.image_uris?.[size];
+  if (fromPrinting) return fromPrinting;
   return scryfallUrl(printing, name, size);
 }
 

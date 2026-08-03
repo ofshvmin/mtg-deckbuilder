@@ -53,15 +53,10 @@ export function scryfallNamedImageUrl(
   )}&format=image&version=${size}${faceParam}`;
 }
 
-/** Deterministic CDN URL for a printing (not rate-limited, unlike the API). */
-export function cdnImageUrl(
-  set: string,
-  cn: string,
-  size: ScryfallImageSize = "normal",
-  face: CardFace = "front",
-): string {
-  return `https://cards.scryfall.io/${size}/${face}/${set.toLowerCase()}/${cn}.jpg`;
-}
+// There is deliberately no set/collector-number CDN URL builder here. Scryfall's
+// cards.scryfall.io paths are sharded by image UUID, so they can't be derived —
+// any such URL 404s. Real CDN URLs reach us as `printing.image_uris`, enriched
+// by the backend from card_prints; prefer those, then these API endpoints.
 
 /** Heuristic: does this card have two faces (MDFC, transform, etc.)? */
 export function isDfc(typeLine?: string, manaCost?: string): boolean {

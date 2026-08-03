@@ -3,19 +3,18 @@ import type { Printing } from "@mtg/shared";
 import {
   scryfallImageUrl,
   scryfallNamedImageUrl,
-  cdnImageUrl,
   isDfc,
   type CardFace,
 } from "../lib/scryfall";
 
-// A card image with a graceful source chain. When an `imageUrl` is supplied — a
-// direct cards.scryfall.io CDN url (e.g. batch-fetched by the deck grid) — it's
-// preferred for the front face. The CDN isn't rate-limited, unlike the
-// api.scryfall.com image endpoint, so bulk grids no longer drop later cards once
-// Scryfall starts throttling a burst of ~99 requests. It falls back to the
-// per-printing and named API endpoints, then a text placeholder. `pending` holds
-// the skeleton while a parent is still batch-fetching the CDN url, so we don't
-// fire the api.scryfall.com request that the batch exists to avoid.
+// A card image with a graceful source chain. Real cards.scryfall.io CDN urls
+// come from the backend as `printing.image_uris`, or from a parent that
+// batch-fetched them (`imageUrl`); those are preferred because the CDN isn't
+// rate-limited, unlike the api.scryfall.com image endpoint, so bulk grids no
+// longer drop later cards once Scryfall throttles a burst of ~99 requests. It
+// falls back to the per-printing and named API endpoints, then a text
+// placeholder. `pending` holds the skeleton while a parent is still
+// batch-fetching, so we don't fire the request that the batch exists to avoid.
 export default function CardImage({
   printing,
   name,
@@ -50,13 +49,9 @@ export default function CardImage({
     const dbUrl = face === "back"
       ? printing?.image_uris_back?.normal
       : printing?.image_uris?.normal;
-    const cdn = printing?.edition && printing.collector_number
-      ? cdnImageUrl(printing.edition, printing.collector_number, "normal", face)
-      : undefined;
     if (face === "back") {
       const list: string[] = [];
       if (dbUrl) list.push(dbUrl);
-      if (cdn) list.push(cdn);
       list.push(scryfallImageUrl(printing, name, "normal", "back"));
       list.push(scryfallNamedImageUrl(name, "normal", "back"));
       return [...new Set(list)];
@@ -64,7 +59,6 @@ export default function CardImage({
     const list: string[] = [];
     if (dbUrl) list.push(dbUrl);
     if (imageUrl) list.push(imageUrl);
-    if (cdn) list.push(cdn);
     list.push(scryfallImageUrl(printing, name, "normal", "front"));
     list.push(scryfallNamedImageUrl(name, "normal", "front"));
     return [...new Set(list)];
