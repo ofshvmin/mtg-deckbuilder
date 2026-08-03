@@ -370,9 +370,20 @@ cd backend && flyctl deploy
 ```
 - App `mtg-deckbuilder-api`, region `iad`, shared-cpu-1x / 512MB, auto-stop when idle (cold-start
   on request). Fly auth = `superdanko@gmail.com`.
-- Secrets: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `CORS_ORIGIN_REGEX=https://.*\.vercel\.app`,
-  `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `FROM_EMAIL`, `FRONTEND_URL` (for
-  password reset emails).
+- Secrets: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `CORS_ORIGINS`,
+  `CORS_ORIGIN_REGEX=https://.*\.vercel\.app`, `CLAUDE_API`, `REVENUECAT_WEBHOOK_TOKEN`.
+- Password-reset email (Resend SMTP): `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=587`,
+  `SMTP_USER=resend` (literal), `SMTP_PASSWORD=<Resend API key>`,
+  `SMTP_FROM='Grimoire <noreply@dankodev.com>'`, `FRONTEND_URL=https://grimoire.dankodev.app`
+  (the reset link's base — a wrong value sends users to a dead link).
+  The setting is `SMTP_FROM`, **not** `FROM_EMAIL`: `config.py` declares `smtp_from`, so
+  pydantic-settings reads `SMTP_FROM` and silently ignores anything else. This file previously
+  documented `FROM_EMAIL` and claimed the SMTP secrets were set — neither was true, and password
+  resets sent nothing in prod for months without anyone noticing. See the note below on why that
+  is invisible from the outside.
+- Resend sends from `noreply@dankodev.com`; DKIM and the bounce/Return-Path records live on the
+  `send.dankodev.com` subdomain (Route 53), which is what keeps the root `MX`/SPF free for
+  Google Workspace. Never add a second root SPF record — a domain may only have one.
 - Health: `/livez` (dependency-free), `/health` (DB check). Config: `backend/fly.toml`.
 - Quirk: the CLI may print `net/http: request canceled` on the health-check wait but the deploy
   usually still applies — verify with `flyctl status` and `curl .../livez`.
@@ -408,9 +419,15 @@ cd clients && npm install && npm run dev  # :5173  (defaults API base to http://
   from a claude.ai Pro subscription, billed as prepaid API credits). Optional — the AI-brief feature
   returns a 503 without it and everything else runs. Optional `CLAUDE_MODEL` (default `claude-sonnet-5`).
 
-These are already **Fly secrets** in prod (`flyctl secrets list`): `MONGODB_URI`, `MONGODB_DB`,
-`JWT_SECRET`, `CORS_ORIGIN_REGEX`, `CLAUDE_API`. On a new machine, copy the values from Atlas /
-Anthropic consoles into a fresh local `.env` (they aren't retrievable from Fly).
+Prod keeps these as **Fly secrets** — check with `flyctl secrets list -a mtg-deckbuilder-api`
+rather than trusting this list, since it can drift. On a new machine, copy the values from the
+Atlas / Anthropic / Resend consoles into a fresh local `.env` (they aren't retrievable from Fly).
+
+SMTP is optional locally: with `SMTP_HOST`/`SMTP_FROM` unset, password resets are disabled and
+`/auth/forgot-password` still returns 200 — it must, so it cannot leak whether an account exists.
+That means a broken mailer looks identical to a working one from the client. The startup log line
+`SMTP not configured — password reset emails are DISABLED` is the only outward signal; if you are
+debugging "the reset email never arrived", check for it first.
 
 **Visual verification recipe** (used throughout): register a throwaway user via the API, import
 `backend/../app/data/collection.csv` (the seed collection, real set codes + collector numbers),
