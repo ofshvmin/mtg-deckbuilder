@@ -3,6 +3,7 @@
 Run locally from the backend/ directory:
     uvicorn app.main:app --reload
 """
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -20,11 +21,51 @@ from .routers.webhooks import router as webhooks_router
 
 settings = get_settings()
 
+log = logging.getLogger("uvicorn.error")
+
+
+def _warn_if_email_disabled() -> None:
+    """Say out loud when password-reset email cannot be sent.
+
+    /auth/forgot-password always returns 200 so it cannot leak whether an
+    account exists, which means a dead mailer is indistinguishable from a
+    working one to every client. Prod ran for months with no SMTP secrets set
+    at all and nothing surfaced it. Startup is the one place that can.
+    """
+    missing = [
+        name
+        for name, value in (
+            ("SMTP_HOST", settings.smtp_host),
+            ("SMTP_FROM", settings.smtp_from),
+        )
+        if not value
+    ]
+    if missing:
+        log.warning(
+            "SMTP not configured (%s unset) — password reset emails are DISABLED. "
+            "/auth/forgot-password will still return 200.",
+            ", ".join(missing),
+        )
+        return
+    # Host and sender alone satisfy send_reset_email's check, so an unauthenticated
+    # relay looks configured right up until the send is rejected.
+    if not settings.smtp_password:
+        log.warning(
+            "SMTP_HOST is set but SMTP_PASSWORD is not — reset emails will fail "
+            "against any relay that requires authentication."
+        )
+    if settings.frontend_url.startswith("http://localhost"):
+        log.warning(
+            "FRONTEND_URL is still %s — password reset links will point at localhost.",
+            settings.frontend_url,
+        )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: connect to Mongo (no-op if MONGODB_URI is unset) and build indexes.
     await db.connect()
+    _warn_if_email_disabled()
     yield
     # Shutdown: close the client.
     await db.disconnect()
