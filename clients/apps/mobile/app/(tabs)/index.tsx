@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from "react-native";
 import { router } from "expo-router";
 import type { CollectionSummary, SavedDeckSummary } from "@mtg/shared";
+import { DATA_SOURCE_NOTICE, FAN_CONTENT_NOTICE } from "@mtg/shared";
 import { api } from "../../src/lib/api";
 import { useAuth } from "../../src/auth/AuthContext";
 import { CommanderArtImage } from "../../src/components/CardImage";
@@ -167,6 +168,15 @@ export default function HomeScreen() {
                 <Text className="text-center text-sm text-red-400">Delete Account</Text>
               )}
             </TouchableOpacity>
+          </View>
+
+          {/* Wizards' Fan Content Policy asks for this on the content itself,
+              not only on the policy pages the paywall and sign-up link out to. */}
+          <View className="border-t border-slate-800/80 pt-4">
+            <Text className="text-[11px] leading-4 text-slate-500">{FAN_CONTENT_NOTICE}</Text>
+            <Text className="mt-1.5 text-[11px] leading-4 text-slate-500">
+              {DATA_SOURCE_NOTICE}
+            </Text>
           </View>
         </View>
       )}
