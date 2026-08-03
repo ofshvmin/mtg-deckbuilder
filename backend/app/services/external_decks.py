@@ -13,7 +13,8 @@ import re
 
 import httpx
 
-USER_AGENT = "MTGDeckBuilder/0.1 (personal project; contact: daniel.g.mathews@gmail.com)"
+from ..util import USER_AGENT
+
 HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json"}
 TIMEOUT = 15
 

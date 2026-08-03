@@ -825,14 +825,20 @@ async def save_deck(body: SaveDeckRequest, current_user: dict = Depends(get_curr
 async def list_saved_decks(current_user: dict = Depends(get_current_user)):
     database = db.get_db()
     docs = await decks_repo.list_decks(database, current_user["_id"])
+    commander_names = [
+        doc["deck"].get("commander", {}).get("name", "") for doc in docs
+    ]
+    art = await card_prints_repo.art_by_name(database, commander_names)
     summaries = []
     for doc in docs:
         b = doc["deck"].get("bracket") or {}
+        commander_name = doc["deck"].get("commander", {}).get("name", "Unknown")
+        banner = art.get(commander_name.lower()) or {}
         summaries.append(
             SavedDeckSummary(
                 id=doc["_id"],
                 name=doc["name"],
-                commander_name=doc["deck"].get("commander", {}).get("name", "Unknown"),
+                commander_name=commander_name,
                 color_identity=doc["deck"].get("color_identity", []),
                 total=doc["deck"].get("total", 0),
                 created_at=doc["created_at"],
@@ -840,6 +846,8 @@ async def list_saved_decks(current_user: dict = Depends(get_current_user)):
                 bracket=b.get("bracket"),
                 bracket_label=b.get("label"),
                 source=doc.get("source"),
+                commander_art_crop=banner.get("art_crop"),
+                commander_artist=banner.get("artist"),
             )
         )
     return summaries

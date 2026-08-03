@@ -17,9 +17,9 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from pymongo.asynchronous.database import AsyncDatabase
 
-from ..util import normalize_name
+from ..util import USER_AGENT, normalize_name
 
-HEADERS = {"User-Agent": "MTGDeckBuilder/0.1 (personal project; daniel.g.mathews@gmail.com)"}
+HEADERS = {"User-Agent": USER_AGENT}
 CACHE_TTL = timedelta(days=7)
 _BASE = "https://json.edhrec.com/pages/commanders/{slug}.json"
 

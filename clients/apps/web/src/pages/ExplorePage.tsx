@@ -34,6 +34,8 @@ interface SearchResult {
   color_identity: string[];
   bracket: number | null;
   price: number | null;
+  commander_art_crop?: string | null;
+  commander_artist?: string | null;
 }
 
 interface PreconResult {
@@ -43,6 +45,8 @@ interface PreconResult {
   release_date: string;
   commander_name?: string;
   color_identity?: string[];
+  commander_art_crop?: string | null;
+  commander_artist?: string | null;
 }
 
 export default function ExplorePage() {
@@ -299,7 +303,12 @@ export default function ExplorePage() {
               {precons.map((p) => (
                 <button key={p.file_name} onClick={() => handleFetchPrecon(p)} disabled={fetching}
                   className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 text-left transition hover:border-slate-700 disabled:opacity-50">
-                  <CommanderArt name={preconArtName(p)} className="h-36">
+                  <CommanderArt
+                    name={preconArtName(p)}
+                    className="h-36"
+                    artCropUrl={p.commander_art_crop}
+                    artist={p.commander_artist}
+                  >
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
                     <div className="absolute right-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-slate-200">
                       {p.code.toUpperCase()}
@@ -376,7 +385,12 @@ export default function ExplorePage() {
               {results.map((d) => (
                 <button key={d.external_id} onClick={() => handleFetchResult(d)} disabled={fetching}
                   className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 text-left transition hover:border-slate-700 disabled:opacity-50">
-                  <CommanderArt name={d.commander_name || "Unknown"} className="h-36">
+                  <CommanderArt
+                    name={d.commander_name || "Unknown"}
+                    className="h-36"
+                    artCropUrl={d.commander_art_crop}
+                    artist={d.commander_artist}
+                  >
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
                     {d.bracket != null && (
                       <div className="absolute right-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-slate-200">

@@ -34,6 +34,40 @@ async def replace_all(db: AsyncDatabase, docs: list[dict], batch_size: int = 500
     return await count(db)
 
 
+async def art_by_name(db: AsyncDatabase, names: list[str]) -> dict[str, dict]:
+    """Map lowercase card name -> ``{"art_crop": url, "artist": name}``.
+
+    Deck banners render Scryfall's ``art_crop``, which their image policy only
+    permits alongside the illustrator's credit — so the two are fetched together
+    and callers should treat them as a pair. One query for the whole batch;
+    printings lacking either field are skipped so a banner never renders
+    uncredited. Which printing wins is unimportant (any legal art will do), so
+    the first match for a name is kept.
+    """
+    wanted = {n.lower() for n in names if n}
+    if not wanted:
+        return {}
+
+    cursor = db.card_prints.find(
+        {
+            "name_lower": {"$in": list(wanted)},
+            "image_uris.art_crop": {"$exists": True},
+            "artist": {"$exists": True},
+        },
+        {"name_lower": 1, "image_uris.art_crop": 1, "artist": 1},
+    )
+    out: dict[str, dict] = {}
+    async for doc in cursor:
+        key = doc["name_lower"]
+        if key in out:
+            continue
+        out[key] = {
+            "art_crop": doc["image_uris"]["art_crop"],
+            "artist": doc["artist"],
+        }
+    return out
+
+
 async def enrich_printings(
     db: AsyncDatabase,
     named_printings: list[tuple[str, list[dict]]],
@@ -102,6 +136,8 @@ async def enrich_printings(
                 p["image_uris"] = doc["image_uris"]
             if doc.get("image_uris_back"):
                 p["image_uris_back"] = doc["image_uris_back"]
+            if doc.get("artist"):
+                p["artist"] = doc["artist"]
             # Per-printing market price, so the client shows it without a live
             # Scryfall call. Attached here alongside images since it's the same match.
             if doc.get("price_usd") is not None:

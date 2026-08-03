@@ -110,7 +110,12 @@ export default function HomePage() {
                 onClick={() => navigate("/decks", { state: { openDeckId: d.id } })}
                 className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 text-left transition hover:border-slate-700"
               >
-                <CommanderArt name={d.commander_name} className="h-40">
+                <CommanderArt
+                  name={d.commander_name}
+                  className="h-40"
+                  artCropUrl={d.commander_art_crop}
+                  artist={d.commander_artist}
+                >
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
                   {d.bracket != null && (
                     <div className="absolute right-2 top-2">

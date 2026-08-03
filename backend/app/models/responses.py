@@ -302,6 +302,10 @@ class SavedDeckSummary(BaseModel):
     bracket: int | None = None
     bracket_label: str | None = None
     source: str | None = None
+    # Banner art for the deck tile. Scryfall's image policy requires the artist
+    # credit wherever an art_crop is shown, so clients must render both or neither.
+    commander_art_crop: str | None = None
+    commander_artist: str | None = None
 
 
 class ExternalDeckSummary(BaseModel):
