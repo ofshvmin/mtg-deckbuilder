@@ -10,10 +10,13 @@ this document.
 
 The app is named **Grimoire** (an MTG Commander deck builder). Everything is **deployed and working**:
 - **Backend:** FastAPI on Fly.io at `https://mtg-deckbuilder-api.fly.dev`
-- **Frontend:** React SPA on Vercel at `https://mtg-deckbuilder-bice.vercel.app`
-- **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K+ oracle cards, 113K+ per-printing images, 96K+ combos
+- **Frontend:** React SPA on Vercel — canonical domain **`https://grimoire.dankodev.app`**
+  (`mtg-deckbuilder-bice.vercel.app` still resolves; the custom domain is what the app, the
+  password-reset links and the outbound User-Agent all point at)
+- **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K oracle cards, 113K per-printing images, 96K+ combos
 - **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`
-- **Backend tests:** **401 passing** (`pytest` from `backend/` with the venv's interpreter)
+- **Backend tests:** **401 passing** (`pytest` from `backend/` with the venv — no ignores needed)
+- **Transactional email:** Resend, sending as `noreply@dankodev.com` (password resets only)
 
 The app: import your card collection, pick a commander, and build a legal, mana-curved, synergy/
 combo-tuned 99-card Commander deck in one of **four ways** — auto-build, build by hand, **lock &
@@ -348,6 +351,10 @@ decide how to *present* the block, never whether it applies):
 - **Saved-deck cap** — free accounts may save **`FREE_SAVED_DECK_LIMIT` (default 9)** decks; the
   save endpoint returns 402 past that. Premium is unlimited.
 
+Those two are the *only* things Premium may gate — our compute and our storage. **Scryfall data
+(card search, images, prices) must never sit behind the paywall**; see *Third-party data* below for
+why that is a licence term, not a product choice.
+
 Both refusals are **HTTP 402**, which is the clients' cue to open the paywall rather than show an
 error: web's `isPremiumRequired()` → `PremiumUpgradeProvider` modal, mobile's `router.push("/paywall")`.
 
@@ -404,12 +411,61 @@ accounts, which have no RevenueCat entitlement at all) says so.
   migration** (find-or-link by email, then issue our own JWTs).
 - **Client-agnostic REST API** — the single contract for web, future mobile, and any other client.
 
+## Third-party data, services & the obligations that come with them
+
+Audited 2026-08-03. Every card name, image and mana symbol in the app is Wizards IP, sublicensed
+only through the Fan Content Policy that Scryfall itself operates under. The rules below are not
+style preferences — they are the terms the data arrives with.
+
+| Provider | Used for | Terms |
+|---|---|---|
+| **Scryfall** | all card data, images, prices, set icons | https://scryfall.com/docs/terms · images: https://scryfall.com/docs/api/images |
+| **EDHREC** | commander recs, synergy scores, deck search | https://edhrec.com/terms (endpoints are undocumented — no API terms exist) |
+| **Commander Spellbook** | combo database | MIT; no dedicated ToS |
+| **MTGJSON** | precon deck lists | https://mtgjson.com/license/ (MIT) |
+| **Archidekt** | deck import by URL | https://archidekt.com/terms (undocumented open-beta API) |
+| **Moxfield** | *parsing only — no traffic* | direct import disabled at `explore.py`; they restrict API access |
+| **Anthropic** | AI deck brief (Premium-gated) | https://www.anthropic.com/legal/commercial-terms |
+| **Wizards of the Coast** | the underlying IP | https://company.wizards.com/en/legal/fancontentpolicy |
+
+**Standing constraints — read before touching card display or the paywall:**
+
+- **An `art_crop` may only be shown where the illustrator is credited in the same interface.**
+  This is why `card_prints` stores `artist`, why `card_prints.art_by_name()` refuses to return art
+  without a credit, and why the deck banners render the name. If you add a new art_crop surface,
+  it must carry the credit or show the gradient instead. Do not "temporarily" ship uncredited art.
+- **Scryfall data must not be paywalled.** Premium may gate *our* compute and storage (AI brief,
+  saved-deck count) but never card search, images or prices.
+- **Do not crop, distort, desaturate or colour-shift card images**, or cover the copyright line.
+- **Prefer `cards.scryfall.io` CDN URLs** (from `card_prints`) over `api.scryfall.com/...?format=image`,
+  which is rate-limited and drops images in bulk grids.
+- **A descriptive User-Agent is required** and is shared by every outbound call —
+  `util.USER_AGENT`, currently `Grimoire/1.0.0 (https://grimoire.dankodev.app; app.support@dankodev.com)`.
+  Keep the version in step with the mobile `app.json`.
+- **The Fan Content notice must appear on the content itself**, not only the policy pages:
+  `shared/src/legal.ts` → web `Layout` footer + mobile Home tab. Keep both rendering it.
+
+---
+
 ## Maintenance & data freshness
 
 - Re-sync reference data periodically (~weekly or when new sets drop):
   - `backend/scripts/sync_scryfall.py` — oracle cards (38K)
-  - `backend/scripts/sync_card_prints.py` — per-printing images (113K, from `default_cards` bulk)
+  - `backend/scripts/sync_card_prints.py` — per-printing images + prices + artist (113K, from
+    `default_cards` bulk)
   - `backend/scripts/sync_spellbook.py` — combos (96K)
+- These run **from your machine against prod Atlas**, not on the server — no request path triggers
+  a sync, so a Fly deploy is never needed to refresh data.
+- Both Scryfall syncs write with batched upserts then prune, never delete-then-insert, so the
+  collections stay readable throughout. Safe to run against a live app.
+- **Scryfall bulk format (changed 2026-08):** the plain-JSON `download_uri` is gone, replaced by a
+  gzipped-JSONL `jsonl_download_uri`. `scryfall.iter_bulk_cards()` streams and inflates it, yielding
+  one card per line; callers transform while streaming (the decompressed `default_cards` file is
+  ~1.5GB, which will not fit in the 512MB machine otherwise). Both syncs were silently broken with
+  a `KeyError` until this was fixed — if a sync dies at the index lookup, suspect another schema move.
+- zlib accepts a **truncated** gzip stream without raising, and the syncs prune anything absent from
+  the payload, so a short download would delete real cards. `iter_bulk_cards` refuses any stream
+  that did not reach the gzip trailer. Do not remove that check.
 - `edhrec_cache` auto-refreshes per commander on a 7-day TTL.
 
 ---
@@ -453,6 +509,17 @@ cd backend && flyctl deploy
   frontend-only changes (Danko chooses per change).
 - **Frontend-only** changes need only the push (Vercel). **Backend** changes need a manual
   `flyctl deploy` after the push.
+- ⚠️ **`flyctl deploy` ships your working directory, not `main`.** The Dockerfile does
+  `COPY app ./app`, so uncommitted and untracked files go to production too. Check `git status`
+  first. To deploy exactly what is merged while other work is in flight, deploy from a throwaway
+  worktree rather than stashing:
+  ```bash
+  git worktree add /tmp/deploy-main main
+  cd /tmp/deploy-main/backend && flyctl deploy
+  git worktree remove /tmp/deploy-main
+  ```
+- Deploying a branch is fine and has been done (v45 shipped from `third-party-compliance` before it
+  merged) — just know prod is then ahead of `main` until the PR lands.
 
 ---
 
@@ -511,13 +578,20 @@ delete the throwaway user's `users` + `collection_items` + `decks` docs.
 - Backend redeploy is manual — no CI/CD for Fly yet.
 - Collection grid renders a flat list capped at 400 rows; large collections want pagination/virtualization.
 - `mana-font`'s shipped CSS references `woff` (not `woff2`) → ~408KB one-time cached font download.
-- Per-printing images are now DB-first (via `card_prints`), but cards not in the bulk data (very new
-  printings, tokens) still fall back to Scryfall API (rate-limited). Re-run `sync_card_prints.py`
-  after new set releases.
+- Per-printing images are now DB-first (via `card_prints`), but full-card images for cards not in the
+  bulk data (very new printings, tokens) still fall back to the rate-limited Scryfall API. Commander
+  art no longer does — it shows the gradient instead, since uncredited art is not permitted. Re-run
+  `sync_card_prints.py` after new set releases.
+- ~794 printings have an `art_crop` but no `artist` (World Championship bio cards, punchcards,
+  Unknown Event promos). They render as the gradient. No real commander is affected.
 - `openpyxl` handles `.xlsx` only (not legacy `.xls`); reads the active sheet only.
-- Some backend tests (`test_brackets`, `test_combo_finishers`, `test_upgrades`, `test_preferences`)
-  require fastapi/pymongo installed — they fail with import errors in the base test env. Run with
-  `--ignore` flags or install deps.
+- The browser calls Scryfall directly in a few places (`lib/scryfallPrices.ts`, `scavenger.ts`,
+  `scryfallPrints.ts`, `scryfallSets.ts`). Requests are chunked at the documented 75-identifier
+  maximum and serialized, but there is no explicit inter-request delay; a `setTimeout` in the
+  scavenger loop is the fix if Scryfall ever complains. Browsers cannot set a User-Agent, so those
+  calls are unavoidably anonymous — the policy targets server-side/bulk traffic, which we do control.
+- Mobile has **no forgot-password entry point** — the link exists only in the web `AuthForm`. An iOS
+  user who forgets their password must use the web app or email support.
 - Mobile: `overflow-x: hidden` must be on `<html>` element (iOS Safari ignores it on inner divs).
   Mana costs and printing chips are hidden on mobile card rows to save horizontal space.
 - **Engine caveats (by design, revisit later):** the mana-source model is raw no-mulligan
@@ -578,7 +652,21 @@ the pull-list PDF (expo-print, not jsPDF), push notifications, offline caching, 
 ## What to work on next
 
 The **original 6-phase plan is complete**, plus a large second wave (see *Shipped 2026-07-10 →
-07-12* above). Remaining, all optional:
+07-12* above).
+
+**Open items that are not code** (from the 2026-08-03 third-party audit — these block nothing
+technically but two of them are addresses the shipped app already points users at):
+
+- **`app.support@dankodev.com` does not exist.** It is the contact in the outbound `User-Agent`
+  every third-party API sees, and appears nine times across `privacy.html`, `terms.html` and
+  `support.html` — including the GDPR data-rights channel and the password-recovery fallback.
+  Create it as a Google Workspace alias (free, no extra seat) on `daniel@dankodev.com`.
+- **`appstore.review@dankodev.com` bounces** — it is a Grimoire account with no mailbox behind it,
+  confirmed by a real send. If Apple's reviewers ever need a password reset they are stuck.
+- **Mobile Fan Content notice needs an EAS build** to reach users — it is a native change, so
+  unlike the web footer it does not ship on merge.
+
+Remaining engineering work, all optional:
 
 - **AI deck brief — Phase 2:** conversational refinement ("lower the curve / cut the combos / more
   draw" adjusts the spec and rebuilds), unowned "acquire" suggestions from the brief (max-price
