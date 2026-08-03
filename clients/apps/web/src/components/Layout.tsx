@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useOutletContext } from "react-router-dom";
 import type { CollectionSummary } from "@mtg/shared";
+import { DATA_SOURCE_NOTICE, FAN_CONTENT_NOTICE } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import Logo from "./Logo";
@@ -151,6 +152,22 @@ export default function Layout() {
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         <Outlet context={ctx} />
       </main>
+
+      {/* Wizards' Fan Content Policy asks for this on the content itself, so it
+          sits in the layout rather than only on the linked policy pages. */}
+      <footer className="mx-auto max-w-6xl px-4 pb-10 pt-4 sm:px-6">
+        <div className="border-t border-slate-800/80 pt-5 text-xs leading-relaxed text-slate-500">
+          <p>{FAN_CONTENT_NOTICE}</p>
+          <p className="mt-1.5">
+            {DATA_SOURCE_NOTICE}{" "}
+            <a href="/privacy.html" className="underline hover:text-slate-400">Privacy</a>
+            {" · "}
+            <a href="/terms.html" className="underline hover:text-slate-400">Terms</a>
+            {" · "}
+            <a href="/support.html" className="underline hover:text-slate-400">Support</a>
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
