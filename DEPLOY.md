@@ -55,5 +55,8 @@ commander → build a deck. The `CORS_ORIGIN_REGEX` above already allows every
 
 - Keeping data fresh (run periodically): `fly ssh console` then
   `python scripts/sync_scryfall.py` and `python scripts/sync_spellbook.py`.
+- Freemium knobs are optional secrets: `FREE_SAVED_DECK_LIMIT` (free saved-deck cap, default 9)
+  and `PREMIUM_EXEMPT_EMAILS` (comma-separated always-Premium accounts). To comp an individual
+  account without a deploy, run `python scripts/premium_exempt.py grant <email>` from `backend/`.
 - Frontend redeploys automatically on `git push` (Vercel Git integration).
 - Backend redeploys with `fly deploy` from `backend/`.

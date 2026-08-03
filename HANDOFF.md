@@ -1,6 +1,6 @@
 # Handoff — MTG Deck Builder
 
-Updated 2026-07-14. Self-contained onboarding for a fresh clone — the project's machine-local
+Updated 2026-08-03. Self-contained onboarding for a fresh clone — the project's machine-local
 memory and per-feature design plans (kept under `~/.claude/`, not in git) have been folded into
 this document.
 
@@ -13,7 +13,7 @@ The app is named **Grimoire** (an MTG Commander deck builder). Everything is **d
 - **Frontend:** React SPA on Vercel at `https://mtg-deckbuilder-bice.vercel.app`
 - **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K+ oracle cards, 113K+ per-printing images, 96K+ combos
 - **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`
-- **Backend tests:** **137+ passing** (`pytest`, excluding tests needing fastapi/pymongo in env)
+- **Backend tests:** **401 passing** (`pytest` from `backend/` with the venv's interpreter)
 
 The app: import your card collection, pick a commander, and build a legal, mana-curved, synergy/
 combo-tuned 99-card Commander deck in one of **four ways** — auto-build, build by hand, **lock &
@@ -237,8 +237,9 @@ app/
     card_prints.py     — per-printing image lookup + enrich_printings (batch CDN URL resolution)
     collection.py      — owned_counts, owned_printings, list_collection_cards
     decks.py           — saved-deck CRUD
-    users.py
-  routers/             — collection, commanders, pool, decks, explore
+    users.py           — auth lookups + entitlements: is_premium / is_premium_exempt,
+                         set_premium (webhook), set_premium_exempt (comped accounts)
+  routers/             — collection, commanders, pool, decks, explore, webhooks
     decks.py           — /decks/generate (auto), /decks/compose (manual), saved-deck CRUD + export
     explore.py         — /explore/commanders (autocomplete), /explore/search (EDHREC),
                          /explore/precons + /explore/precon (MTGJSON), /explore/resolve (card
@@ -253,8 +254,10 @@ app/
     email.py           — SMTP email sending (password reset)
     edhrec.py, spellbook.py, pool.py, roles.py, mana_math.py
   util.py              — normalize_name, strip_diacritics, printing_key, normalize_finish
-scripts/               — sync_scryfall.py, sync_card_prints.py, sync_spellbook.py, seed_collection.py
-tests/                 — pytest (137): csv_formats, mana_math, roles, printings, compose, external_decks
+scripts/               — sync_scryfall.py, sync_card_prints.py, sync_spellbook.py, seed_collection.py,
+                         premium_exempt.py (grant/revoke/list permanent Premium exemptions)
+tests/                 — pytest (401): csv_formats, mana_math, roles, printings, compose,
+                         external_decks, availability, premium, …
 ```
 
 Key endpoints: `POST /decks/generate` (auto), `POST /decks/compose` (manual — same
@@ -306,7 +309,9 @@ apps/web/src/
   bulk export). Each doc: scryfall_id, oracle_id, name_lower, set, collector_number, image_uris,
   image_uris_back. Indexed: (set, collector_number), (name_lower, set), oracle_id. Seed:
   `python scripts/sync_card_prints.py`.
-- `users` — auth (email unique).
+- `users` — auth (email unique). Entitlements live here too: a `premium` sub-document written by
+  the RevenueCat webhook (`active`, `expires_at`, `product_id`) and an independent
+  `premium_exempt: true` flag for permanently comped accounts (see *Freemium* below).
 - `collection_items` — one doc per owned printing line: oracle_id, name, count, edition,
   collector_number, foil, finish, condition, language, purchase_price, printing_key, added_at.
   Indexed: user_id + oracle_id.
@@ -330,6 +335,53 @@ apps/web/src/
   carry `selected_printing_key`. Danko's north star includes **inventory allocation** (a physical
   copy can be "in use" in one deck and thus unavailable to another — the airline-fleet model),
   market value, images, and preferred-printing rules — all additive on this model, no schema rework.
+
+---
+
+## Freemium, Premium & the paywall
+
+The app is free to download with two Premium gates, **both enforced server-side** (the clients only
+decide how to *present* the block, never whether it applies):
+
+- **AI deck brief** (`POST /decks/brief`) — `require_premium` dependency; gated because each call
+  spends real Anthropic credits.
+- **Saved-deck cap** — free accounts may save **`FREE_SAVED_DECK_LIMIT` (default 9)** decks; the
+  save endpoint returns 402 past that. Premium is unlimited.
+
+Both refusals are **HTTP 402**, which is the clients' cue to open the paywall rather than show an
+error: web's `isPremiumRequired()` → `PremiumUpgradeProvider` modal, mobile's `router.push("/paywall")`.
+
+**Entitlements** are computed by `repositories/users.is_premium(user)`, which is true when *any* of:
+
+1. `premium_exempt: true` on the user document,
+2. the user's email is in the `PREMIUM_EXEMPT_EMAILS` setting (comma-separated, case-insensitive),
+3. the `premium` sub-document is active and unexpired (`expires_at: None` = lifetime unlock).
+
+(1) and (2) are the **permanent exemptions** — purchase-free, never expiring, for test / App Review /
+comped accounts. They're checked *ahead of* the entitlement and live outside the `premium`
+sub-document, so a RevenueCat webhook sync can never clear them. Grant them with:
+
+```bash
+cd backend
+python scripts/premium_exempt.py list
+python scripts/premium_exempt.py grant someone@example.com [more@example.com …]
+python scripts/premium_exempt.py revoke someone@example.com
+```
+
+The script writes straight to Atlas — no redeploy needed, and it takes effect on the next request.
+`PREMIUM_EXEMPT_EMAILS` does the same without database access, at the cost of a `fly secrets set`
+(which restarts the machine). **All 9 accounts that existed on 2026-08-03 were granted the flag**,
+so every current account is Premium; accounts created after that are not — grant them explicitly.
+
+**Purchases** happen only in the iOS app, via RevenueCat (entitlement `premium`, offering `default`,
+products `com.grimoire.mtg.premium.{monthly,annual,lifetime}`). Mobile calls `Purchases.logIn(user.id)`
+so RevenueCat's `app_user_id` equals our Mongo `_id`; the `POST /webhooks/revenuecat` webhook
+(authenticated with `REVENUECAT_WEBHOOK_TOKEN`) then writes `user.premium`. `is_premium` is exposed
+on `/auth/me`, so the web app — which **cannot sell Premium**, the RevenueCat SDK being mobile-only —
+unlocks automatically for the same account and its modal just explains that upgrades happen in the
+iOS app. On mobile, `isPremium` unlocks when **either** RevenueCat (authoritative right after a
+purchase, before the webhook lands) **or** the backend flag (webhook-synced entitlements *and* exempt
+accounts, which have no RevenueCat entitlement at all) says so.
 
 ---
 
@@ -368,10 +420,14 @@ apps/web/src/
 ```bash
 cd backend && flyctl deploy
 ```
-- App `mtg-deckbuilder-api`, region `iad`, shared-cpu-1x / 512MB, auto-stop when idle (cold-start
-  on request). Fly auth = `superdanko@gmail.com`.
+- App `mtg-deckbuilder-api`, region `iad`, shared-cpu-1x / 512MB, `min_machines_running = 1`
+  (always-on, so App Review and RevenueCat webhooks never hit a cold start). Fly auth =
+  `superdanko@gmail.com`.
 - Secrets: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `CORS_ORIGINS`,
   `CORS_ORIGIN_REGEX=https://.*\.vercel\.app`, `CLAUDE_API`, `REVENUECAT_WEBHOOK_TOKEN`.
+- Freemium settings, both optional (defaults in `config.py` are what prod runs on unless set):
+  `FREE_SAVED_DECK_LIMIT` (default 9) and `PREMIUM_EXEMPT_EMAILS` (default empty). Per-account
+  exemptions go through `scripts/premium_exempt.py` instead and need no deploy — see *Freemium*.
 - Password-reset email (Resend SMTP): `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=587`,
   `SMTP_USER=resend` (literal), `SMTP_PASSWORD=<Resend API key>`,
   `SMTP_FROM='Grimoire <noreply@dankodev.com>'`, `FRONTEND_URL=https://grimoire.dankodev.app`
@@ -472,10 +528,11 @@ delete the throwaway user's `users` + `collection_items` + `decks` docs.
 
 ---
 
-## iOS / mobile app (React Native + Expo) — on branch `feature/mobile-app`
+## iOS / mobile app (React Native + Expo) — merged to `main`
 
-A native mobile app lives at **`clients/apps/mobile`** (an `@mtg/mobile` workspace member), **not yet
-merged to `main`**. It reuses `@mtg/shared` (the `ApiClient` + types) unchanged against the live Fly
+A native mobile app lives at **`clients/apps/mobile`** (an `@mtg/mobile` workspace member), now on
+**`main`** and in App Store submission prep (RevenueCat purchases wired up — see *Freemium* above).
+It reuses `@mtg/shared` (the `ApiClient` + types) unchanged against the live Fly
 API — the backend needs **no changes** (JWT Bearer + REST work for native; CORS is browser-only).
 
 **Stack:** Expo SDK 57 (managed) · React Native 0.86 · React 19.2 · **expo-router** (file-based routes)
