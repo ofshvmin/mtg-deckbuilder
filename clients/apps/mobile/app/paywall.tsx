@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Linking,
 } from "react-native";
 import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { PurchasesPackage } from "react-native-purchases";
 import { usePremium } from "../src/purchases/PremiumContext";
 
@@ -18,6 +19,7 @@ const PERKS = [
 export default function PaywallScreen() {
   const { configured, ready, isPremium, packages, purchase, restore } = usePremium();
   const [busy, setBusy] = useState<string | null>(null);
+  const insets = useSafeAreaInsets();
 
   async function handlePurchase(pkg: PurchasesPackage) {
     setBusy(pkg.identifier);
@@ -51,7 +53,12 @@ export default function PaywallScreen() {
   }
 
   return (
-    <ScrollView className="flex-1 bg-slate-950 px-6 py-8">
+    <ScrollView
+      className="flex-1 bg-slate-950 px-6"
+      // This route has no navigation header, so nothing else keeps the Close
+      // button clear of the status bar / Dynamic Island.
+      contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom + 32 }}
+    >
       <TouchableOpacity onPress={() => router.back()} className="mb-6" activeOpacity={0.7}>
         <Text className="text-sm text-slate-400">✕ Close</Text>
       </TouchableOpacity>
