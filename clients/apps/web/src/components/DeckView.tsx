@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Combo, GeneratedDeck } from "@mtg/shared";
+import type { Combo, DeckCard, GeneratedDeck, PoolFilters } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { formatColorIdentity } from "../lib/format";
@@ -37,6 +37,8 @@ export default function DeckView({
   onSaved,
   onEdit,
   showOwnership,
+  poolFilters,
+  inUse: initialInUse,
 }: {
   deck: GeneratedDeck;
   deckName?: string;
@@ -44,6 +46,10 @@ export default function DeckView({
   onSaved?: () => void;
   onEdit?: (deck: GeneratedDeck) => void;
   showOwnership?: boolean;
+  /** Pool scope/sets the deck was built under, so a regenerate stays in bounds. */
+  poolFilters?: PoolFilters;
+  /** Whether this saved deck currently reserves its cards. */
+  inUse?: boolean;
 }) {
   const { user } = useAuth();
   const { showUpgrade } = usePremiumUpgrade();
@@ -66,6 +72,8 @@ export default function DeckView({
   const [locked, setLocked] = useState<Set<string>>(new Set());
   const [playtesting, setPlaytesting] = useState(false);
   const [scavenging, setScavenging] = useState(false);
+  const [inUse, setInUse] = useState(!!initialInUse);
+  const [inUseSaving, setInUseSaving] = useState(false);
   // Cheapest price per "one card away" missing card, for the max-price filter.
   const [nearPrices, setNearPrices] = useState<Map<string, number | null>>(new Map());
 
@@ -75,6 +83,10 @@ export default function DeckView({
     setLocked(new Set());
     setDirty(false);
   }, [initialDeck]);
+
+  useEffect(() => {
+    setInUse(!!initialInUse);
+  }, [initialInUse]);
 
   // With a max-price cap set, fetch the cheapest price of each "one card away"
   // missing card so we can hide combos whose finisher is over budget.
@@ -127,7 +139,13 @@ export default function DeckView({
         opts.colors = deck.colors;
         opts.auto_fill_colors = false;
       }
-      const next = await api.generateDeck(deck.commander?.name ?? null, { ...opts, format: deck.format });
+      const next = await api.generateDeck(deck.commander?.name ?? null, {
+        ...opts,
+        format: deck.format,
+        ...poolFilters,
+        // A deck rebuilding itself must not treat its own copies as taken.
+        ...(deckId ? { exclude_deck_id: deckId } : {}),
+      });
       setDeck(next);
       setDirty(true);
     } catch (e) {
@@ -135,6 +153,49 @@ export default function DeckView({
     } finally {
       setRegenerating(false);
     }
+  }
+
+  /** Reserve (or release) this deck's cards for other builds.
+   *
+   *  Sent on its own rather than folded into Save: marking a deck assembled is a
+   *  fact about the physical shelf, not an edit to the list, and shouldn't be
+   *  gated behind unsaved changes.
+   */
+  async function handleToggleInUse() {
+    if (!deckId) return;
+    const next = !inUse;
+    setInUse(next);              // optimistic: the switch should feel instant
+    setInUseSaving(true);
+    setSaveError(null);
+    try {
+      await api.updateSavedDeck(deckId, { in_use: next });
+      onSaved?.();
+    } catch (e) {
+      setInUse(!next);
+      setSaveError(e instanceof Error ? e.message : "Couldn't update this deck's status");
+    } finally {
+      setInUseSaving(false);
+    }
+  }
+
+  /** Point a deck card at a different owned printing. */
+  function handleSelectPrinting(oracleId: string, printingKey: string) {
+    setDeck((prev) => ({
+      ...prev,
+      cards: prev.cards.map((c): DeckCard =>
+        c.oracle_id === oracleId
+          ? {
+              ...c,
+              selected_printing_key: printingKey,
+              // Single-key allocation: the picker assigns the whole entry to one
+              // printing. A split across printings only happens automatically,
+              // when no single printing has enough free copies.
+              printing_allocation: { [printingKey]: c.count },
+            }
+          : c,
+      ),
+    }));
+    setDirty(true);
   }
 
   async function handleSave() {
@@ -272,6 +333,23 @@ export default function DeckView({
         </button>
         {deckId && (
           <>
+            <button
+              onClick={handleToggleInUse}
+              disabled={inUseSaving}
+              title={
+                inUse
+                  ? "This deck's cards are reserved — builds set to “Available only” will skip them"
+                  : "Mark this deck as assembled so its cards are reserved from other builds"
+              }
+              className={
+                "rounded-lg border px-3 py-1.5 text-xs transition disabled:opacity-50 sm:text-sm sm:py-2 " +
+                (inUse
+                  ? "border-emerald-600 bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30"
+                  : "border-slate-700 text-slate-300 hover:bg-slate-800")
+              }
+            >
+              {inUse ? "✓ In use" : "Mark in use"}
+            </button>
             <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value)}
               className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200 sm:text-sm sm:py-2">
               {EXPORT_FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
@@ -357,6 +435,7 @@ export default function DeckView({
             onToggleLock={showOwnership ? undefined : toggleLock}
             columnsClassName={hasCombos ? "columns-1 sm:columns-2" : "columns-1 sm:columns-2 lg:columns-3"}
             showOwnership={showOwnership}
+            onSelectPrinting={deckId ? handleSelectPrinting : undefined}
           />
         </div>
 

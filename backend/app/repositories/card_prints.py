@@ -68,6 +68,24 @@ async def art_by_name(db: AsyncDatabase, names: list[str]) -> dict[str, dict]:
     return out
 
 
+async def set_names(db: AsyncDatabase, codes: list[str]) -> dict[str, str]:
+    """Map set code -> display name, for the set picker.
+
+    One aggregation for the whole batch; the ``(set, collector_number)`` index
+    covers the match. ``set_name`` only lands on documents written by a sync that
+    postdates the set picker, so callers must be ready for a missing name and
+    fall back to the code.
+    """
+    wanted = [c.lower() for c in codes if c]
+    if not wanted:
+        return {}
+    cursor = await db.card_prints.aggregate([
+        {"$match": {"set": {"$in": wanted}}},
+        {"$group": {"_id": "$set", "name": {"$first": "$set_name"}}},
+    ])
+    return {row["_id"]: row["name"] async for row in cursor if row.get("name")}
+
+
 async def enrich_printings(
     db: AsyncDatabase,
     named_printings: list[tuple[str, list[dict]]],

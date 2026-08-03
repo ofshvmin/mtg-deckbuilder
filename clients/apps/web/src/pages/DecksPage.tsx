@@ -15,9 +15,9 @@ export default function DecksPage() {
   const deepOpened = useRef(false);
   const [decks, setDecks] = useState<SavedDeckSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [openDeck, setOpenDeck] = useState<{ id: string; name: string; deck: GeneratedDeck; source?: string | null } | null>(
-    null,
-  );
+  const [openDeck, setOpenDeck] = useState<{
+    id: string; name: string; deck: GeneratedDeck; source?: string | null; inUse?: boolean;
+  } | null>(null);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [comparing, setComparing] = useState(false);
@@ -46,7 +46,10 @@ export default function DecksPage() {
     setError(null);
     try {
       const saved = await api.getSavedDeck(id);
-      setOpenDeck({ id: saved.id, name: saved.name, deck: saved.deck, source: saved.source });
+      setOpenDeck({
+        id: saved.id, name: saved.name, deck: saved.deck,
+        source: saved.source, inUse: saved.in_use,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load deck");
     } finally {
@@ -67,6 +70,22 @@ export default function DecksPage() {
   function onSaved() {
     loadDecks();
     refreshSaved();
+  }
+
+  /** Reserve or release a deck's cards without opening it.
+   *
+   *  Optimistic — the tile flips immediately and reverts if the write fails.
+   *  Marking a shelf of decks in use is a sweep across the grid, and a round-trip
+   *  per click would make that feel broken.
+   */
+  async function toggleInUse(deck: SavedDeckSummary) {
+    const next = !deck.in_use;
+    setDecks((prev) => prev.map((d) => (d.id === deck.id ? { ...d, in_use: next } : d)));
+    try {
+      await api.updateSavedDeck(deck.id, { in_use: next });
+    } catch {
+      setDecks((prev) => prev.map((d) => (d.id === deck.id ? { ...d, in_use: !next } : d)));
+    }
   }
 
   // "Edit cards" on a saved deck → open the manual editor seeded with its cards.
@@ -120,6 +139,7 @@ export default function DecksPage() {
           onSaved={onSaved}
           onEdit={openDeck.source ? undefined : editInBuilder}
           showOwnership={!!openDeck.source}
+          inUse={openDeck.inUse}
         />
       </div>
     );
@@ -205,6 +225,16 @@ export default function DecksPage() {
                       />
                     </div>
                   )}
+                  {d.in_use && (
+                    <div className={"absolute top-2 " + (d.bracket != null ? "right-14" : "right-2")}>
+                      <span
+                        className="rounded-full border border-emerald-500/60 bg-emerald-950/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300"
+                        title="This deck's cards are reserved from other builds"
+                      >
+                        In use
+                      </span>
+                    </div>
+                  )}
                   <div className="absolute inset-x-0 bottom-0 p-3">
                     <h3 className="truncate text-sm font-semibold text-white drop-shadow transition group-hover:text-emerald-300">
                       {d.name}
@@ -217,13 +247,31 @@ export default function DecksPage() {
                   {d.commander_name} · {formatColorIdentity(d.color_identity)} · {d.total} cards
                   {d.source && <span className="ml-1 text-slate-600">· {d.source}</span>}
                 </p>
-                <button
-                  onClick={() => remove(d.id)}
-                  className="shrink-0 text-xs text-slate-600 hover:text-rose-400"
-                  title="Delete deck"
-                >
-                  ✕
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    onClick={() => toggleInUse(d)}
+                    className={
+                      "text-xs transition " +
+                      (d.in_use
+                        ? "text-emerald-400 hover:text-emerald-300"
+                        : "text-slate-600 hover:text-slate-300")
+                    }
+                    title={
+                      d.in_use
+                        ? "Release this deck's cards back into the pool"
+                        : "Mark assembled — reserve this deck's cards from other builds"
+                    }
+                  >
+                    {d.in_use ? "◉ In use" : "○ Free"}
+                  </button>
+                  <button
+                    onClick={() => remove(d.id)}
+                    className="text-xs text-slate-600 hover:text-rose-400"
+                    title="Delete deck"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             </div>
           ))}

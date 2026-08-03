@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import type { BriefDeckResponse, ColorRationale, CommanderOption, DeckFormat, GeneratedDeck, PoolResponse, StrategyOption } from "@mtg/shared";
+import type { BriefDeckResponse, ColorRationale, CommanderOption, DeckFormat, GeneratedDeck, PoolFilters, PoolResponse, PoolScope, StrategyOption } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { isPremiumRequired } from "../lib/premium";
@@ -14,12 +14,32 @@ import DeckView from "../components/DeckView";
 import ManaCurve from "../components/ManaCurve";
 import ManualBuilder from "../components/ManualBuilder";
 import ColorPicker from "../components/ColorPicker";
+import PoolControls from "../components/PoolControls";
 import PoolTable from "../components/PoolTable";
 import StatTile from "../components/StatTile";
 
 type Mode = "auto" | "manual" | "brief";
 
 type EditSeed = { selected: string[]; deckId?: string; deckName?: string };
+
+// Pool choices persist across visits — which shelves you build from is a standing
+// preference, not a per-session one. Same idiom as the deck view toggle.
+const SCOPE_KEY = "mtg.poolScope";
+const SETS_KEY = "mtg.poolSets";
+
+function storedScope(): PoolScope {
+  return localStorage.getItem(SCOPE_KEY) === "available" ? "available" : "owned";
+}
+
+function storedSets(): string[] {
+  try {
+    const raw = localStorage.getItem(SETS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((s) => typeof s === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 export default function BuildPage() {
   const { summary, refreshSaved } = useLayout();
@@ -49,12 +69,25 @@ export default function BuildPage() {
   const [format, setFormat] = useState("commander");
   const [colors, setColors] = useState<string[]>([]);
   const [autoFillColors, setAutoFillColors] = useState(true);
+  const [poolScope, setPoolScope] = useState<PoolScope>(storedScope);
+  const [poolSets, setPoolSets] = useState<string[]>(storedSets);
   // Kept separately from `deck` because the color picker lives on the build screen,
   // where `deck` is null — the rationale has to outlive the deck that produced it.
   const [colorRationale, setColorRationale] = useState<ColorRationale | null>(null);
 
   const spec = formats.find((f) => f.key === format);
   const needsCommander = spec ? spec.requires_commander : true;
+
+  // The commander we last loaded a pool for, tracked separately from `pool`
+  // because a filter can narrow the pool to nothing (a 400) — and if that wiped
+  // the target, there'd be no way to widen the filter and try again.
+  const [poolCommander, setPoolCommander] = useState<string | null>(null);
+  const hasTarget = !needsCommander || poolCommander !== null;
+
+  const poolFilters: PoolFilters = {
+    pool_scope: poolScope,
+    ...(poolSets.length > 0 ? { sets: poolSets } : {}),
+  };
 
   useEffect(() => {
     api.listFormats().then(setFormats).catch(() => {});
@@ -85,8 +118,17 @@ export default function BuildPage() {
       setPoolError(null);
       setDeck(null);
       setMode("manual");
+      setPoolCommander(st.editCommander!);
       try {
-        setPool(await api.getPool(st.editCommander!));
+        // Editing a saved deck: its own copies must read as available, or every
+        // card it already holds would look taken by itself.
+        setPool(
+          await api.getPool({
+            commander: st.editCommander!,
+            ...poolFilters,
+            ...(st.editDeckId ? { exclude_deck_id: st.editDeckId } : {}),
+          }),
+        );
         setEditSeed({
           selected: st.editSelected ?? [],
           deckId: st.editDeckId,
@@ -110,6 +152,46 @@ export default function BuildPage() {
     setDeckError(null);
   }
 
+  /** Refetch the pool under a new scope/set selection, persisting the choice.
+   *
+   *  Runs off the controls rather than an effect so the stat tiles and pool table
+   *  update the instant a filter changes — the whole point of the control is
+   *  seeing how much of your collection it leaves you.
+   */
+  async function applyPoolFilters(next: { scope?: PoolScope; sets?: string[] }) {
+    const scope = next.scope ?? poolScope;
+    const sets = next.sets ?? poolSets;
+    if (next.scope !== undefined) {
+      setPoolScope(scope);
+      localStorage.setItem(SCOPE_KEY, scope);
+    }
+    if (next.sets !== undefined) {
+      setPoolSets(sets);
+      localStorage.setItem(SETS_KEY, JSON.stringify(sets));
+    }
+    if (!hasTarget) return;
+    setLoadingPool(true);
+    setPoolError(null);
+    setDeck(null);
+    try {
+      setPool(
+        await api.getPool({
+          ...(poolCommander ? { commander: poolCommander } : {}),
+          format,
+          pool_scope: scope,
+          ...(sets.length > 0 ? { sets } : {}),
+        }),
+      );
+    } catch (e) {
+      // Keep the target so the filter stays adjustable — an over-narrow pick
+      // should be one click away from being widened, not a dead end.
+      setPool(null);
+      setPoolError(e instanceof Error ? e.message : "Could not load pool");
+    } finally {
+      setLoadingPool(false);
+    }
+  }
+
   // Switching format loads the pool straight away for formats that need no
   // commander — that's the zero-input requirement: pick Standard, get a deck.
   async function selectFormat(key: string) {
@@ -117,13 +199,14 @@ export default function BuildPage() {
     setColors([]);
     setColorRationale(null);
     setMode("auto");
+    setPoolCommander(null);
     resetBuild();
     const next = formats.find((f) => f.key === key);
     if (!next || next.requires_commander) return;
     setLoadingPool(true);
     setPoolError(null);
     try {
-      setPool(await api.getPool({ format: key }));
+      setPool(await api.getPool({ format: key, ...poolFilters }));
     } catch (e) {
       setPoolError(e instanceof Error ? e.message : "Could not load pool");
     } finally {
@@ -141,8 +224,9 @@ export default function BuildPage() {
     setBriefResult(null);
     setConversation([]);
     setBriefText("");
+    setPoolCommander(c.name);
     try {
-      setPool(await api.getPool(c.name));
+      setPool(await api.getPool({ commander: c.name, format, ...poolFilters }));
     } catch (e) {
       setPoolError(e instanceof Error ? e.message : "Could not load pool");
     } finally {
@@ -173,7 +257,7 @@ export default function BuildPage() {
       const opts: {
         strategy?: string; theme?: string; format?: string;
         colors?: string[]; auto_fill_colors?: boolean;
-      } = { format };
+      } & PoolFilters = { format, ...poolFilters };
       if (selectedStrategy && selectedStrategy !== strategies[0]?.name) {
         opts.strategy = selectedStrategy;
       }
@@ -209,7 +293,9 @@ export default function BuildPage() {
     setBriefing(true);
     setBriefError(null);
     try {
-      const res = await api.briefDeck(pool.commander?.name ?? null, request, undefined, format);
+      const res = await api.briefDeck(
+        pool.commander?.name ?? null, request, undefined, format, poolFilters,
+      );
       setBriefResult(res);
       setDeck(res.deck);
       setConversation([
@@ -237,7 +323,9 @@ export default function BuildPage() {
         ...briefResult.spec,
         core_cards: briefResult.core_cards.map((c) => c.name),
       };
-      const res = await api.briefDeck(pool.commander?.name ?? null, instruction, priorSpec, format);
+      const res = await api.briefDeck(
+        pool.commander?.name ?? null, instruction, priorSpec, format, poolFilters,
+      );
       setBriefResult(res);
       setDeck(res.deck);
       setConversation((c) => [...c, { role: "assistant", text: res.rationale }]);
@@ -294,6 +382,19 @@ export default function BuildPage() {
             <CommanderPicker onSelect={selectCommander} />
           </div>
         </div>
+      )}
+
+      {/* Pool scope + sets. Sits outside the `pool &&` block below on purpose: a
+          filter can narrow the pool to nothing, and the control that caused it
+          has to stay on screen to undo it. */}
+      {hasTarget && !deck && (
+        <PoolControls
+          scope={poolScope}
+          onScopeChange={(next) => void applyPoolFilters({ scope: next })}
+          sets={poolSets}
+          onSetsChange={(next) => void applyPoolFilters({ sets: next })}
+          disabled={loadingPool || buildingDeck}
+        />
       )}
 
       {loadingPool && <p className="text-slate-400">Building your legal pool…</p>}
@@ -355,7 +456,12 @@ export default function BuildPage() {
                   refining={refining}
                 />
               )}
-              <DeckView deck={deck} onSaved={refreshSaved} onEdit={(d) => editDeck(d)} />
+              <DeckView
+                deck={deck}
+                onSaved={refreshSaved}
+                onEdit={(d) => editDeck(d)}
+                poolFilters={poolFilters}
+              />
             </>
           ) : (
             <>
@@ -516,6 +622,7 @@ export default function BuildPage() {
                   initialSelected={editSeed?.selected}
                   deckId={editSeed?.deckId}
                   deckName={editSeed?.deckName}
+                  poolFilters={poolFilters}
                 />
               )}
             </>

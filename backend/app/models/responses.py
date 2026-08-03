@@ -71,6 +71,10 @@ class PoolResponse(BaseModel):
     deck_size: int = 100
     max_copies: int = 1
     supports_upgrades: bool = True
+    # Which slice of the collection this pool came from, echoed back so the build
+    # screen can show what it actually got rather than what it asked for.
+    pool_scope: str = "owned"           # "owned" | "available"
+    sets: list[str] = []                # set codes the pool was narrowed to
 
 
 class PrintingOut(BaseModel):
@@ -81,7 +85,10 @@ class PrintingOut(BaseModel):
     finish: str = "nonfoil"        # "foil" | "nonfoil"
     condition: str | None = None
     language: str | None = None
-    count: int = 1
+    count: int = 1                 # copies owned
+    # Copies not already committed to an in-use deck. Goes negative when decks
+    # over-claim, which is allowed — see services/availability.py.
+    available: int | None = None
     purchase_price: float | None = None
     added_at: str | None = None    # ISO timestamp; stamped on import/add going forward
     image_uris: dict[str, str] | None = None        # per-printing CDN URLs from card_prints
@@ -105,6 +112,14 @@ class CollectionCardOut(BaseModel):
     image_uris_back: dict[str, str] | None = None
 
 
+class CollectionSetOut(BaseModel):
+    """One set the user owns cards from, for the build screen's set picker."""
+    code: str
+    name: str          # falls back to the uppercased code until prints are resynced
+    owned: int         # copies owned from this set
+    available: int     # copies not committed to an in-use deck (may be negative)
+
+
 class DeckCardOut(BaseModel):
     oracle_id: str
     name: str
@@ -120,6 +135,15 @@ class DeckCardOut(BaseModel):
     in_combo: bool = False
     printings: list[PrintingOut] = []          # owned printings (empty for basics)
     selected_printing_key: str | None = None   # which owned copy this deck earmarks
+    # printing_key -> copies this deck holds. The number the availability math
+    # charges against the collection; selected_printing_key is its largest slice.
+    printing_allocation: dict[str, int] | None = None
+    # Copies of this card free across all its printings, at the time the deck was
+    # read. Only populated for saved decks (a fresh build hasn't been committed).
+    available_count: int | None = None
+    # True when in-use decks older than this one already spoke for every copy —
+    # clients render the card as unowned.
+    short: bool = False
     image_uris: dict[str, str] | None = None
     image_uris_back: dict[str, str] | None = None
 
@@ -279,6 +303,9 @@ class SaveDeckRequest(BaseModel):
 class UpdateDeckRequest(BaseModel):
     name: str | None = None
     deck: GeneratedDeckResponse | None = None
+    # Opt in to reserving this deck's cards. Separate from `deck` so flipping the
+    # switch doesn't require the client to round-trip the whole 100-card blob.
+    in_use: bool | None = None
 
 
 class SavedDeckResponse(BaseModel):
@@ -289,6 +316,7 @@ class SavedDeckResponse(BaseModel):
     updated_at: str
     source: str | None = None
     source_url: str | None = None
+    in_use: bool = False
 
 
 class SavedDeckSummary(BaseModel):
@@ -302,6 +330,7 @@ class SavedDeckSummary(BaseModel):
     bracket: int | None = None
     bracket_label: str | None = None
     source: str | None = None
+    in_use: bool = False
     # Banner art for the deck tile. Scryfall's image policy requires the artist
     # credit wherever an art_crop is shown, so clients must render both or neither.
     commander_art_crop: str | None = None

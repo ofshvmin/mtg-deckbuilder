@@ -13,6 +13,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
+from . import availability
 from .formats import FormatSpec, get_format
 
 COLOR_ORDER = ["W", "U", "B", "R", "G"]
@@ -38,6 +39,10 @@ class Pool:
     # the colors below are the generator's filter, not the pool's.
     colors: list[str] = field(default_factory=list)
     color_choice: object | None = None
+    # Which slice of the collection this pool was drawn from. Echoed back to the
+    # client so the build screen can confirm the filters actually applied.
+    scope: str = availability.SCOPE_OWNED
+    sets: list[str] = field(default_factory=list)
 
 
 def format_color_identity(colors: list[str]) -> str:
@@ -63,15 +68,52 @@ def nonland_curve(pool: list[dict]) -> list[dict]:
     return [{"cmc": cmc, "count": buckets[cmc]} for cmc in range(8)]
 
 
-async def get_pool(db: AsyncDatabase, user_id: str, commander_name: str) -> Pool:
+async def _load_inventory(
+    db: AsyncDatabase,
+    user_id: str,
+    *,
+    scope: str,
+    sets: list[str] | None,
+    exclude_deck_id: str | None,
+) -> tuple[dict[str, list[dict]], dict[str, int]]:
+    """The printings a build may draw on, plus the copy count per oracle id.
+
+    Both filters act on owned printing *units*, in the order Danko reasons about
+    them: narrow to what isn't already sleeved up, then narrow to the sets you
+    feel like building from. A card survives only if some unit survives both.
+
+    Under the default ``owned`` scope with no set filter this is exactly the old
+    ``owned_counts()`` result — the availability pass still runs so every unit
+    carries an ``available`` number for display, but nothing is excluded.
+    """
+    printings = await collection_repo.owned_printings(db, user_id)
+    printings = availability.filter_units_by_set(printings, sets)
+    committed = await availability.committed_by_printing(
+        db, user_id, exclude_deck_id=exclude_deck_id
+    )
+    printings = availability.apply_committed(printings, committed)
+    count_key = "available" if scope == availability.SCOPE_AVAILABLE else "count"
+    return printings, availability.counts_from_units(printings, key=count_key)
+
+
+async def get_pool(
+    db: AsyncDatabase,
+    user_id: str,
+    commander_name: str,
+    *,
+    scope: str = availability.SCOPE_OWNED,
+    sets: list[str] | None = None,
+    exclude_deck_id: str | None = None,
+) -> Pool:
     commander = await cards_repo.find_commander(db, commander_name)
     if commander is None:
         suggestions = [c["name"] for c in await cards_repo.search(db, commander_name, limit=10)]
         raise CommanderNotFound(commander_name, suggestions)
 
     identity = commander.get("color_identity", [])
-    owned = await collection_repo.owned_counts(db, user_id)
-    printings = await collection_repo.owned_printings(db, user_id)
+    printings, owned = await _load_inventory(
+        db, user_id, scope=scope, sets=sets, exclude_deck_id=exclude_deck_id
+    )
     pool = await cards_repo.get_legal_pool(
         db, allowed_colors=identity, owned_counts=owned, exclude_oracle_id=commander["_id"]
     )
@@ -82,6 +124,8 @@ async def get_pool(db: AsyncDatabase, user_id: str, commander_name: str) -> Pool
         printings=printings,
         format_key="commander",
         colors=identity,
+        scope=scope,
+        sets=list(sets or []),
     )
 
 
@@ -90,6 +134,10 @@ async def get_pool_for_format(
     user_id: str,
     spec: FormatSpec | None = None,
     commander_name: str | None = None,
+    *,
+    scope: str = availability.SCOPE_OWNED,
+    sets: list[str] | None = None,
+    exclude_deck_id: str | None = None,
 ) -> Pool:
     """Format-aware pool loader.
 
@@ -105,10 +153,14 @@ async def get_pool_for_format(
     if fmt.requires_commander:
         if not commander_name:
             raise ValueError(f"{fmt.label} requires a commander")
-        return await get_pool(db, user_id, commander_name)
+        return await get_pool(
+            db, user_id, commander_name,
+            scope=scope, sets=sets, exclude_deck_id=exclude_deck_id,
+        )
 
-    owned = await collection_repo.owned_counts(db, user_id)
-    printings = await collection_repo.owned_printings(db, user_id)
+    printings, owned = await _load_inventory(
+        db, user_id, scope=scope, sets=sets, exclude_deck_id=exclude_deck_id
+    )
     pool = await cards_repo.get_constructed_pool(
         db, legality_field=fmt.legality_field, owned_counts=owned
     )
@@ -119,4 +171,6 @@ async def get_pool_for_format(
         printings=printings,
         format_key=fmt.key,
         colors=[],
+        scope=scope,
+        sets=list(sets or []),
     )

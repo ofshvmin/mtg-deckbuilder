@@ -51,6 +51,12 @@ def print_doc(card: dict) -> dict:
         "set": card.get("set", "").lower(),
         "collector_number": card.get("collector_number", ""),
     }
+    # The set's display name, so the set picker doesn't have to show bare codes.
+    # Web could look this up from Scryfall's /sets index client-side, but mobile
+    # has no such cache — carrying it here serves both from one place.
+    set_name = (card.get("set_name") or "").strip()
+    if set_name:
+        doc["set_name"] = set_name
     if image_uris:
         doc["image_uris"] = image_uris
     if image_uris_back:

@@ -6,14 +6,27 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 const CARD_WIDTH = SCREEN_WIDTH * 0.75;
 
 interface Props {
-  card: { name: string; mana_cost?: string; type_line?: string; oracle_text?: string; printings?: Printing[] } | null;
+  card: {
+    name: string;
+    mana_cost?: string;
+    type_line?: string;
+    oracle_text?: string;
+    printings?: Printing[];
+    /** When shown from a deck: which owned copy that deck currently holds. */
+    selected_printing_key?: string | null;
+  } | null;
+  /** When set, tapping a printing reassigns which copy the deck holds. */
+  onSelectPrinting?: (printingKey: string) => void;
   onClose: () => void;
 }
 
-export default function CardDetailModal({ card, onClose }: Props) {
+export default function CardDetailModal({ card, onSelectPrinting, onClose }: Props) {
   if (!card) return null;
 
-  const printing = card.printings?.[0];
+  // Show the copy the deck actually holds, not just the first one owned.
+  const printing =
+    card.printings?.find((p) => p.printing_key === card.selected_printing_key) ??
+    card.printings?.[0];
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -49,17 +62,41 @@ export default function CardDetailModal({ card, onClose }: Props) {
             {card.printings && card.printings.length > 0 && (
               <View className="mt-4">
                 <Text className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-                  Owned Printings
+                  {onSelectPrinting ? "Which copy this deck uses" : "Owned Printings"}
                 </Text>
-                {card.printings.map((p, i) => (
-                  <View key={i} className="flex-row items-center gap-2 py-1">
-                    <Text className="text-xs text-slate-300">
-                      {(p.edition || "???").toUpperCase()} #{p.collector_number || "?"}
-                    </Text>
-                    <Text className="text-xs text-slate-500">{p.finish}</Text>
-                    <Text className="text-xs text-slate-500">×{p.count}</Text>
-                  </View>
-                ))}
+                {card.printings.map((p, i) => {
+                  const isCurrent = p.printing_key === card.selected_printing_key;
+                  const row = (
+                    <View className="flex-row items-center gap-2 py-1.5">
+                      {onSelectPrinting && (
+                        <Text className={isCurrent ? "text-emerald-400" : "text-slate-700"}>●</Text>
+                      )}
+                      <Text className={"text-xs " + (isCurrent ? "text-emerald-300" : "text-slate-300")}>
+                        {(p.edition || "???").toUpperCase()} #{p.collector_number || "?"}
+                      </Text>
+                      <Text className="text-xs text-slate-500">{p.finish}</Text>
+                      <Text className="text-xs text-slate-500">
+                        {p.available != null ? `${p.available}/${p.count} free` : `×${p.count}`}
+                      </Text>
+                    </View>
+                  );
+                  return onSelectPrinting ? (
+                    <TouchableOpacity
+                      key={i}
+                      onPress={() => onSelectPrinting(p.printing_key)}
+                      activeOpacity={0.6}
+                    >
+                      {row}
+                    </TouchableOpacity>
+                  ) : (
+                    <View key={i}>{row}</View>
+                  );
+                })}
+                {onSelectPrinting && (
+                  <Text className="mt-1 text-xs text-slate-500">
+                    Tap a printing to earmark that copy for this deck.
+                  </Text>
+                )}
               </View>
             )}
           </View>

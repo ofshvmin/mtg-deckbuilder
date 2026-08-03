@@ -16,13 +16,14 @@ from ..models.responses import (
     CardSearchResult,
     CollectionCardOut,
     CollectionItemOut,
+    CollectionSetOut,
     CollectionSummary,
     ImportResultResponse,
 )
 from ..repositories import card_prints as card_prints_repo
 from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
-from ..services import csv_formats, importer
+from ..services import availability, csv_formats, importer
 from ..util import normalize_finish, normalize_name, printing_key
 
 router = APIRouter(prefix="/collection", tags=["collection"])
@@ -45,6 +46,45 @@ async def summary(current_user: dict = Depends(get_current_user)):
     unique = await collection_repo.unique_owned_count(database, current_user["_id"])
     total = await collection_repo.total_copies(database, current_user["_id"])
     return CollectionSummary(has_collection=unique > 0, total_cards=total, unique_cards=unique)
+
+
+@router.get("/sets", response_model=list[CollectionSetOut])
+async def list_sets(current_user: dict = Depends(get_current_user)):
+    """The sets present in the user's collection, for the build screen's set picker.
+
+    Only sets you actually own cards from — the picker is "which of my shelves do
+    I want to build from", not a browse of all of Magic. Counts are copies, not
+    distinct cards, and `available` is copies not already committed to a deck
+    marked in use. Sorted by name so the list reads alphabetically.
+    """
+    database = db.get_db()
+    user_id = current_user["_id"]
+    printings = await collection_repo.owned_printings(database, user_id)
+    committed = await availability.committed_by_printing(database, user_id)
+    with_availability = availability.apply_committed(printings, committed)
+
+    owned: dict[str, int] = {}
+    free: dict[str, int] = {}
+    for units in with_availability.values():
+        for unit in units:
+            code = (unit.get("edition") or "").lower()
+            if not code:
+                continue
+            owned[code] = owned.get(code, 0) + int(unit.get("count") or 0)
+            free[code] = free.get(code, 0) + int(unit.get("available") or 0)
+
+    names = await card_prints_repo.set_names(database, list(owned))
+    rows = [
+        CollectionSetOut(
+            code=code,
+            name=names.get(code) or code.upper(),
+            owned=count,
+            available=free.get(code, 0),
+        )
+        for code, count in owned.items()
+    ]
+    rows.sort(key=lambda r: r.name.lower())
+    return rows
 
 
 @router.post("/import", response_model=ImportResultResponse)

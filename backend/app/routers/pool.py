@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from .. import db
 from ..auth.deps import get_current_user
 from ..models.responses import CardSummary, CurveBucket, PoolCard, PoolResponse
-from ..services import formats
+from ..services import availability, formats
 from ..services import pool as pool_service
 
 router = APIRouter(tags=["pool"])
@@ -30,6 +30,9 @@ def _card_summary(c: dict) -> CardSummary:
 async def get_pool(
     commander: str | None = None,
     format: str = Query("commander"),
+    pool_scope: str = Query("owned", description='"owned" (default) or "available"'),
+    sets: list[str] | None = Query(None, description="Set codes to narrow the pool to"),
+    exclude_deck_id: str | None = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     """The user's legal owned pool.
@@ -38,9 +41,15 @@ async def get_pool(
     formats need nothing at all — that's what makes zero-input auto-generate work,
     and the returned pool is deliberately unfiltered by color so the client can
     retoggle colors without refetching.
+
+    `pool_scope` and `sets` narrow which physical copies are in play: "available"
+    drops copies already committed to a deck marked in use, and `sets` restricts
+    to printings from the chosen sets. Both default to off, so the plain call is
+    the whole collection, exactly as before.
     """
     spec = formats.get_format(format)
     database = db.get_db()
+    scope = availability.normalize_scope(pool_scope)
 
     if spec.requires_commander:
         if not commander:
@@ -48,21 +57,35 @@ async def get_pool(
                 status.HTTP_400_BAD_REQUEST, f"{spec.label} requires a commander."
             )
         try:
-            result = await pool_service.get_pool(database, current_user["_id"], commander)
+            result = await pool_service.get_pool(
+                database, current_user["_id"], commander,
+                scope=scope, sets=sets, exclude_deck_id=exclude_deck_id,
+            )
         except pool_service.CommanderNotFound as e:
             detail = f"No card found matching '{e.name}'."
             if e.suggestions:
                 detail += " Did you mean: " + ", ".join(e.suggestions[:5])
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
     else:
-        result = await pool_service.get_pool_for_format(database, current_user["_id"], spec)
-        if not result.pool:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                f"No {spec.label}-legal cards in your collection.",
-            )
+        result = await pool_service.get_pool_for_format(
+            database, current_user["_id"], spec,
+            scope=scope, sets=sets, exclude_deck_id=exclude_deck_id,
+        )
+
+    # Commander tolerates an empty pool (the generator warns and fills basics);
+    # only a filter that emptied it is worth failing on, with a message that says
+    # which filter did it.
+    if not result.pool and (
+        not spec.requires_commander or availability.is_filtered(scope, sets)
+    ):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            availability.empty_pool_message(spec.label, scope, sets),
+        )
 
     return PoolResponse(
+        pool_scope=result.scope,
+        sets=result.sets,
         commander=_card_summary(result.commander) if result.commander else None,
         color_identity=result.color_identity,
         pool_size=len(result.pool),

@@ -14,6 +14,7 @@ import type {
   ComboFinisher,
   CollectionCard,
   CollectionItem,
+  CollectionSet,
   CollectionSummary,
   CommanderOption,
   DeckFormat,
@@ -21,6 +22,7 @@ import type {
   GeneratedDeck,
   HealthStatus,
   ImportResult,
+  PoolFilters,
   PoolResponse,
   SavedDeck,
   SavedDeckSummary,
@@ -212,12 +214,24 @@ export class ApiClient {
    *  commander at all — that's what makes zero-input auto-generate work — and the
    *  pool comes back unfiltered by color so colors can be retoggled without a refetch.
    */
-  getPool(arg: string | { commander?: string; format?: string }): Promise<PoolResponse> {
+  getPool(
+    arg: string | ({ commander?: string; format?: string } & PoolFilters),
+  ): Promise<PoolResponse> {
     const opts = typeof arg === "string" ? { commander: arg } : arg;
     const params = new URLSearchParams();
     if (opts.commander) params.set("commander", opts.commander);
     if (opts.format) params.set("format", opts.format);
+    const filters = opts as PoolFilters;
+    if (filters.pool_scope) params.set("pool_scope", filters.pool_scope);
+    // Repeated `sets` params, matching FastAPI's list[str] query binding.
+    for (const code of filters.sets ?? []) params.append("sets", code);
+    if (filters.exclude_deck_id) params.set("exclude_deck_id", filters.exclude_deck_id);
     return this.request<PoolResponse>("GET", `/pool?${params.toString()}`);
+  }
+
+  /** Sets the user owns cards from, with owned/available copy counts. */
+  listCollectionSets(): Promise<CollectionSet[]> {
+    return this.request<CollectionSet[]>("GET", "/collection/sets");
   }
 
   /** Formats the build UI can offer. */
@@ -249,7 +263,7 @@ export class ApiClient {
       format?: string;
       colors?: string[];
       auto_fill_colors?: boolean;
-    },
+    } & PoolFilters,
   ): Promise<GeneratedDeck> {
     return this.request<GeneratedDeck>("POST", "/decks/generate", {
       body: { commander: commanderName, ...opts },
@@ -263,9 +277,10 @@ export class ApiClient {
     brief: string,
     priorSpec?: Record<string, unknown>,
     format = "commander",
+    filters?: PoolFilters,
   ): Promise<BriefDeckResponse> {
     return this.request<BriefDeckResponse>("POST", "/decks/brief", {
-      body: { commander: commanderName, brief, prior_spec: priorSpec, format },
+      body: { commander: commanderName, brief, prior_spec: priorSpec, format, ...filters },
     });
   }
 
@@ -274,9 +289,10 @@ export class ApiClient {
     commanderName: string | null,
     oracleIds: string[],
     format = "commander",
+    filters?: PoolFilters,
   ): Promise<GeneratedDeck> {
     return this.request<GeneratedDeck>("POST", "/decks/compose", {
-      body: { commander: commanderName, oracle_ids: oracleIds, format },
+      body: { commander: commanderName, oracle_ids: oracleIds, format, ...filters },
     });
   }
 
@@ -368,7 +384,12 @@ export class ApiClient {
     return this.request<SavedDeck>("GET", `/decks/saved/${encodeURIComponent(deckId)}`);
   }
 
-  updateSavedDeck(deckId: string, updates: { name?: string; deck?: GeneratedDeck }): Promise<SavedDeck> {
+  /** Update a saved deck. `in_use` can be flipped on its own — no need to
+   *  round-trip the whole card list just to reserve the deck's copies. */
+  updateSavedDeck(
+    deckId: string,
+    updates: { name?: string; deck?: GeneratedDeck; in_use?: boolean },
+  ): Promise<SavedDeck> {
     return this.request<SavedDeck>("PUT", `/decks/saved/${encodeURIComponent(deckId)}`, { body: updates });
   }
 

@@ -46,7 +46,19 @@ function deckCardToModal(c: DeckCard): CardModalData {
     type_line: c.type_line,
     color_identity: c.color_identity,
     printings: c.printings,
+    selected_printing_key: c.selected_printing_key,
   };
+}
+
+/** Whether a card should render greyed out as "you don't have this".
+ *
+ *  Two ways to get there: an imported deck listing cards you've never owned, and
+ *  a card every copy of which an older in-use deck already claimed (`short`).
+ *  Both mean the same thing at the table — you can't put this card in the sleeve.
+ */
+function isUnavailable(c: DeckCard, showOwnership?: boolean): boolean {
+  if (c.short) return true;
+  return !!showOwnership && (!c.printings || c.printings.length === 0);
 }
 
 export default function DeckCardList({
@@ -56,6 +68,7 @@ export default function DeckCardList({
   onToggleLock,
   columnsClassName = "columns-1 sm:columns-2",
   showOwnership,
+  onSelectPrinting,
 }: {
   cards: DeckCard[];
   onRemove?: (oracleId: string) => void;
@@ -63,6 +76,8 @@ export default function DeckCardList({
   onToggleLock?: (oracleId: string) => void;
   columnsClassName?: string;
   showOwnership?: boolean;
+  /** Set to make the card modal's printing chips pick which copy this deck holds. */
+  onSelectPrinting?: (oracleId: string, printingKey: string) => void;
 }) {
   const [modal, setModal] = useState<CardModalData | null>(null);
   const { hover, onEnter, onLeave } = useCardHover();
@@ -139,7 +154,7 @@ export default function DeckCardList({
                     onClick={() => setModal(deckCardToModal(c))}
                     onHoverEnter={onEnter}
                     onHoverLeave={onLeave}
-                    unowned={showOwnership && (!c.printings || c.printings.length === 0)}
+                    unowned={isUnavailable(c, showOwnership)}
                   />
                 ))}
               </ul>
@@ -164,7 +179,7 @@ export default function DeckCardList({
                     onRemove={onRemove}
                     locked={locked?.has(c.oracle_id)}
                     onToggleLock={onToggleLock}
-                    unowned={showOwnership && (!c.printings || c.printings.length === 0)}
+                    unowned={isUnavailable(c, showOwnership)}
                   />
                 ))}
               </div>
@@ -193,7 +208,7 @@ export default function DeckCardList({
                       onRemove={onRemove}
                       locked={locked?.has(c.oracle_id)}
                       onToggleLock={onToggleLock}
-                      unowned={showOwnership && (!c.printings || c.printings.length === 0)}
+                      unowned={isUnavailable(c, showOwnership)}
                     />
                   </div>
                 ))}
@@ -207,7 +222,20 @@ export default function DeckCardList({
         <CardHoverPreview name={hover.name} printing={hover.printing} anchorRect={hover.rect} />,
         document.body,
       )}
-      {modal && <CardDetailModal card={modal} onClose={() => setModal(null)} />}
+      {modal && (
+        <CardDetailModal
+          card={modal}
+          onClose={() => setModal(null)}
+          onSelectPrinting={
+            onSelectPrinting && modal.oracle_id
+              ? (key) => {
+                  onSelectPrinting(modal.oracle_id!, key);
+                  setModal({ ...modal, selected_printing_key: key });
+                }
+              : undefined
+          }
+        />
+      )}
     </>
   );
 }

@@ -138,6 +138,34 @@ export interface PoolResponse {
   deck_size: number;
   max_copies: number;
   supports_upgrades: boolean;
+  /** Which slice of the collection this pool came from, echoed back by the server. */
+  pool_scope?: PoolScope;
+  /** Set codes the pool was narrowed to; empty means every set. */
+  sets?: string[];
+}
+
+/**
+ * Which physical copies a build may draw on.
+ *   "owned"     — everything in the collection (the default)
+ *   "available" — minus copies committed to decks marked in use
+ */
+export type PoolScope = "owned" | "available";
+
+/** Options every build endpoint accepts for narrowing the card pool. */
+export interface PoolFilters {
+  pool_scope?: PoolScope;
+  sets?: string[];
+  /** Rebuilding an in-use deck: its own copies must read as free. */
+  exclude_deck_id?: string;
+}
+
+/** One set the user owns cards from, for the build screen's set picker. */
+export interface CollectionSet {
+  code: string;
+  name: string;
+  owned: number;
+  /** Copies not committed to an in-use deck. May be negative when decks over-claim. */
+  available: number;
 }
 
 // One owned printing (physical inventory unit) of a card: which set it's from,
@@ -150,7 +178,9 @@ export interface Printing {
   finish: string; // "foil" | "nonfoil"
   condition: string | null;
   language: string | null;
-  count: number;
+  count: number; // copies owned
+  /** Copies not committed to an in-use deck. Negative when decks over-claim. */
+  available?: number | null;
   purchase_price?: number | null;
   added_at?: string | null; // ISO timestamp; present for items added after 2026-07
   image_uris?: Record<string, string> | null; // per-printing CDN URLs from card_prints
@@ -191,6 +221,12 @@ export interface DeckCard {
   in_combo: boolean;
   printings?: Printing[]; // owned printings (absent/empty for basics + pre-existing saved decks)
   selected_printing_key?: string | null; // which owned copy this deck earmarks
+  /** printing_key -> copies this deck holds. Largest slice is selected_printing_key. */
+  printing_allocation?: Record<string, number> | null;
+  /** Copies free across all printings. Only set on saved decks. */
+  available_count?: number | null;
+  /** Older in-use decks already claimed every copy — render as unowned. */
+  short?: boolean;
   image_uris?: Record<string, string> | null;
   image_uris_back?: Record<string, string> | null;
 }
@@ -305,6 +341,8 @@ export interface SavedDeck {
   updated_at: string;
   source?: string | null;
   source_url?: string | null;
+  /** Deck is physically assembled — its cards are reserved from future builds. */
+  in_use?: boolean;
 }
 
 export interface SavedDeckSummary {
@@ -318,6 +356,7 @@ export interface SavedDeckSummary {
   bracket?: number | null;
   bracket_label?: string | null;
   source?: string | null;
+  in_use?: boolean;
   // Banner art and its illustrator. Scryfall's image policy requires the credit
   // wherever an art_crop is shown, so these are set together or not at all.
   commander_art_crop?: string | null;

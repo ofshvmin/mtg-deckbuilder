@@ -32,7 +32,7 @@ from ..repositories import card_prints as card_prints_repo
 from ..repositories import collection as collection_repo
 from ..repositories import decks as decks_repo
 from ..repositories import users as users_repo
-from ..services import ai_brief, brackets, color_select, csv_formats, edhrec, formats, generator
+from ..services import ai_brief, availability, brackets, color_select, csv_formats, edhrec, formats, generator
 from ..services import pool as pool_service
 from ..services import roles as roles_service
 from ..services import spellbook, strategies, themes
@@ -41,7 +41,20 @@ from ..util import normalize_name
 router = APIRouter(prefix="/decks", tags=["decks"])
 
 
-class GenerateRequest(BaseModel):
+class PoolScopeMixin(BaseModel):
+    """The slice of the collection a build may draw on.
+
+    Defaults reproduce the old behavior exactly — everything you own, from every
+    set — so clients that don't know about pool scoping are unaffected.
+    """
+    pool_scope: str = "owned"                 # "owned" | "available"
+    sets: list[str] | None = None             # set codes to narrow the pool to
+    # When rebuilding an in-use deck, the deck's own copies must read as free or
+    # it would be unable to keep any of its cards.
+    exclude_deck_id: str | None = None
+
+
+class GenerateRequest(PoolScopeMixin):
     # Optional because non-Commander formats have none. `format` defaulting to
     # "commander" is what keeps every pre-format client working unchanged.
     commander: str | None = None
@@ -62,25 +75,39 @@ async def _resolve_pool(database, user_id: str, body):
     commander through the shared helpers, so there's no chance of a None deref.
     """
     spec = formats.get_format(getattr(body, "format", None))
+    scope = availability.normalize_scope(getattr(body, "pool_scope", None))
+    sets = getattr(body, "sets", None)
+    exclude_deck_id = getattr(body, "exclude_deck_id", None)
     if spec.requires_commander:
         if not body.commander:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, f"{spec.label} requires a commander."
             )
         try:
-            result = await pool_service.get_pool(database, user_id, body.commander)
+            result = await pool_service.get_pool(
+                database, user_id, body.commander,
+                scope=scope, sets=sets, exclude_deck_id=exclude_deck_id,
+            )
         except pool_service.CommanderNotFound as e:
             detail = f"No card found matching '{e.name}'."
             if e.suggestions:
                 detail += " Did you mean: " + ", ".join(e.suggestions[:5])
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
     else:
-        result = await pool_service.get_pool_for_format(database, user_id, spec)
-        if not result.pool:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                f"No {spec.label}-legal cards in your collection.",
-            )
+        result = await pool_service.get_pool_for_format(
+            database, user_id, spec,
+            scope=scope, sets=sets, exclude_deck_id=exclude_deck_id,
+        )
+    # Commander has always tolerated an empty pool (you get a pile of basics and a
+    # warning), so only fail it when a pool filter is what emptied it — otherwise
+    # the user has no way to tell an over-narrow filter from a broken collection.
+    if not result.pool and (
+        not spec.requires_commander or availability.is_filtered(scope, sets)
+    ):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            availability.empty_pool_message(spec.label, scope, sets),
+        )
     return spec, result
 
 
@@ -347,7 +374,7 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
     )
 
 
-class BriefRequest(BaseModel):
+class BriefRequest(PoolScopeMixin):
     commander: str | None = None
     format: str = "commander"
     brief: str
@@ -513,7 +540,7 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(require_pr
     )
 
 
-class ComposeRequest(BaseModel):
+class ComposeRequest(PoolScopeMixin):
     commander: str | None = None
     format: str = "commander"
     # Repeat an id to represent multiple copies (constructed formats run up to 4).
@@ -754,6 +781,7 @@ def _deck_response(
                 in_combo=dc.oracle_id in combo_card_ids,
                 printings=[PrintingOut(**p) for p in dc.printings],
                 selected_printing_key=dc.selected_printing_key,
+                printing_allocation=dc.printing_allocation,
                 **({"image_uris": pool_by_id[dc.oracle_id].get("image_uris"),
                     "image_uris_back": pool_by_id[dc.oracle_id].get("image_uris_back")}
                    if pool_by_id and dc.oracle_id in pool_by_id else {}),
@@ -846,6 +874,7 @@ async def list_saved_decks(current_user: dict = Depends(get_current_user)):
                 bracket=b.get("bracket"),
                 bracket_label=b.get("label"),
                 source=doc.get("source"),
+                in_use=bool(doc.get("in_use")),
                 commander_art_crop=banner.get("art_crop"),
                 commander_artist=banner.get("artist"),
             )
@@ -853,12 +882,48 @@ async def list_saved_decks(current_user: dict = Depends(get_current_user)):
     return summaries
 
 
-@router.get("/saved/{deck_id}", response_model=SavedDeckResponse)
-async def get_saved_deck(deck_id: str, current_user: dict = Depends(get_current_user)):
-    database = db.get_db()
-    doc = await decks_repo.get_deck(database, current_user["_id"], deck_id)
-    if not doc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found.")
+async def _refresh_ownership(database, user_id: str, doc: dict) -> None:
+    """Re-attach live collection data to a stored deck, in place.
+
+    The `printings` on a saved deck are a snapshot from build time. Anything that
+    happened since — a re-import, a new copy bought, another deck marked in use —
+    would leave the printing picker choosing between stale options and the
+    availability numbers wrong. So the deck's ownership facts are recomputed on
+    every read: which printings you own, how many of each are free, and whether
+    older in-use decks already spoke for every copy of a card this deck wants.
+
+    Deliberately not persisted — this is derived data, and writing it back on a
+    GET would churn `updated_at` and make every deck look freshly edited.
+    """
+    cards = (doc.get("deck") or {}).get("cards") or []
+    if not cards:
+        return
+    owned = await collection_repo.owned_printings(database, user_id)
+    committed = await availability.committed_by_printing(database, user_id)
+    with_availability = availability.apply_committed(owned, committed)
+    shortfalls = await availability.deck_shortfalls(
+        database, user_id, str(doc["_id"]), owned
+    )
+    names = {c.get("oracle_id"): c.get("name", "") for c in cards}
+    await card_prints_repo.enrich_printings(
+        database,
+        [(names.get(oid, ""), units) for oid, units in with_availability.items() if oid in names],
+    )
+    for card in cards:
+        units = with_availability.get(card.get("oracle_id")) or []
+        card["printings"] = units
+        card["available_count"] = sum(int(u.get("available") or 0) for u in units) if units else None
+        card["short"] = bool(shortfalls.get(card.get("oracle_id")))
+        # A printing that vanished from the collection can't stay earmarked.
+        keys = {u["printing_key"] for u in units}
+        alloc = {k: v for k, v in availability.card_allocation(card).items() if k in keys}
+        if not alloc and units:
+            alloc = availability.allocate(units, int(card.get("count") or 1))
+        card["printing_allocation"] = alloc or None
+        card["selected_printing_key"] = availability.primary_key(alloc)
+
+
+def _saved_deck_response(doc: dict) -> SavedDeckResponse:
     return SavedDeckResponse(
         id=doc["_id"],
         name=doc["name"],
@@ -867,7 +932,18 @@ async def get_saved_deck(deck_id: str, current_user: dict = Depends(get_current_
         updated_at=doc["updated_at"],
         source=doc.get("source"),
         source_url=doc.get("source_url"),
+        in_use=bool(doc.get("in_use")),
     )
+
+
+@router.get("/saved/{deck_id}", response_model=SavedDeckResponse)
+async def get_saved_deck(deck_id: str, current_user: dict = Depends(get_current_user)):
+    database = db.get_db()
+    doc = await decks_repo.get_deck(database, current_user["_id"], deck_id)
+    if not doc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found.")
+    await _refresh_ownership(database, current_user["_id"], doc)
+    return _saved_deck_response(doc)
 
 
 @router.put("/saved/{deck_id}", response_model=SavedDeckResponse)
@@ -878,17 +954,13 @@ async def update_saved_deck(
     deck_data = body.deck.model_dump() if body.deck else None
     name = body.name.strip() if body.name else None
     doc = await decks_repo.update_deck(
-        database, current_user["_id"], deck_id, name=name, deck_data=deck_data,
+        database, current_user["_id"], deck_id,
+        name=name, deck_data=deck_data, in_use=body.in_use,
     )
     if not doc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Deck not found.")
-    return SavedDeckResponse(
-        id=doc["_id"],
-        name=doc["name"],
-        deck=doc["deck"],
-        created_at=doc["created_at"],
-        updated_at=doc["updated_at"],
-    )
+    await _refresh_ownership(database, current_user["_id"], doc)
+    return _saved_deck_response(doc)
 
 
 @router.delete("/saved/{deck_id}", status_code=status.HTTP_204_NO_CONTENT)
