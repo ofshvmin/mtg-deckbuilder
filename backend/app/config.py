@@ -42,11 +42,18 @@ class Settings(BaseSettings):
     # Empty => the webhook rejects all calls (entitlements can't be updated).
     revenuecat_webhook_token: str = ""
     # Max decks a non-premium account may save. Premium => unlimited.
-    free_saved_deck_limit: int = 3
+    free_saved_deck_limit: int = 9
+    # Comma-separated emails that always count as Premium, independent of any
+    # purchase (test / review / comped accounts). Never expires.
+    premium_exempt_emails: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def premium_exempt_email_set(self) -> set[str]:
+        return {e.strip().lower() for e in self.premium_exempt_emails.split(",") if e.strip()}
 
 
 @lru_cache

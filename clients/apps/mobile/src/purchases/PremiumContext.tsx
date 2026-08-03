@@ -123,9 +123,11 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     return active;
   }, []);
 
-  // When RevenueCat is configured it's authoritative on-device; otherwise fall
-  // back to the backend's entitlement flag (kept in sync via the RC webhook).
-  const isPremium = CONFIGURED ? rcPremium : !!user?.is_premium;
+  // RevenueCat is authoritative for a just-made purchase (the webhook may not
+  // have landed yet); the backend flag covers the rest — webhook-synced
+  // entitlements and permanently exempt accounts, which have no RC entitlement
+  // at all. Either one unlocks, matching what the server actually enforces.
+  const isPremium = (CONFIGURED && rcPremium) || !!user?.is_premium;
 
   return (
     <PremiumContext.Provider

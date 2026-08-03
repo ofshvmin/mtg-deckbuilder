@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pymongo import ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
 
+from ..config import get_settings
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -60,13 +62,32 @@ async def update_password(db: AsyncDatabase, user_id: str, password_hash: str) -
     return result.modified_count > 0
 
 
+def is_premium_exempt(user: dict) -> bool:
+    """Whether the user is permanently exempt from paywall limits.
+
+    Two independent, purchase-free grants — both never expire and are ignored by
+    the RevenueCat webhook, so a test account keeps Premium regardless of its
+    entitlement state:
+
+    * `premium_exempt: true` on the user document (see scripts/premium_exempt.py)
+    * the user's email listed in the PREMIUM_EXEMPT_EMAILS setting
+    """
+    if user.get("premium_exempt") is True:
+        return True
+    email = (user.get("email") or "").strip().lower()
+    return bool(email) and email in get_settings().premium_exempt_email_set
+
+
 def is_premium(user: dict) -> bool:
     """Whether the user currently has an active Premium entitlement.
 
     The `premium` sub-document is maintained by RevenueCat webhooks. A lifetime
     (non-expiring) purchase stores `expires_at = None`; subscriptions store the
     period end, so we treat an active entitlement as lapsed once it passes.
+    Exempt accounts (see `is_premium_exempt`) are Premium unconditionally.
     """
+    if is_premium_exempt(user):
+        return True
     premium = user.get("premium") or {}
     if not premium.get("active"):
         return False
@@ -98,6 +119,19 @@ async def set_premium(
         }}},
     )
     return result.modified_count > 0
+
+
+async def set_premium_exempt(db: AsyncDatabase, email: str, exempt: bool) -> bool:
+    """Grant/revoke a permanent, purchase-free Premium exemption by email.
+
+    Independent of the `premium` sub-document, so RevenueCat sync can't clear it.
+    Returns True if a matching user was found.
+    """
+    result = await db.users.update_one(
+        {"email": email.strip().lower()},
+        {"$set": {"premium_exempt": exempt}} if exempt else {"$unset": {"premium_exempt": ""}},
+    )
+    return result.matched_count > 0
 
 
 def local_identity(user: dict) -> dict | None:
