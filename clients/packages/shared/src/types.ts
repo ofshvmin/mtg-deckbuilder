@@ -155,6 +155,7 @@ export interface Printing {
   added_at?: string | null; // ISO timestamp; present for items added after 2026-07
   image_uris?: Record<string, string> | null; // per-printing CDN URLs from card_prints
   image_uris_back?: Record<string, string> | null;
+  artist?: string | null; // illustrator, required alongside any art_crop we render
   price_usd?: number | null; // per-printing market price from card_prints (no live Scryfall call)
   price_usd_foil?: number | null;
 }
@@ -317,6 +318,10 @@ export interface SavedDeckSummary {
   bracket?: number | null;
   bracket_label?: string | null;
   source?: string | null;
+  // Banner art and its illustrator. Scryfall's image policy requires the credit
+  // wherever an art_crop is shown, so these are set together or not at all.
+  commander_art_crop?: string | null;
+  commander_artist?: string | null;
 }
 
 export interface ExternalDeckSummary {

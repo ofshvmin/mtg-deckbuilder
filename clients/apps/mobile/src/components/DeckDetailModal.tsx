@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Modal, View, Text, ScrollView, TouchableOpacity, SectionList } from "react-native";
 import type { DeckCard, GeneratedDeck } from "@mtg/shared";
-import CardImage, { CommanderArtImage } from "./CardImage";
+import CardImage from "./CardImage";
 import CardDetailModal from "./CardDetailModal";
 
 const SLOTS: { key: string; label: string; color: string }[] = [

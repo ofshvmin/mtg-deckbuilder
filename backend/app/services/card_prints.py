@@ -17,29 +17,15 @@ import httpx
 from pymongo.asynchronous.database import AsyncDatabase
 
 from ..repositories import card_prints as card_prints_repo
-from .scryfall import BULK_DATA_INDEX_URL, HEADERS, _extract_image_uris
+from .scryfall import _extract_image_uris, iter_bulk_cards
 
 logger = logging.getLogger("uvicorn.error")
-
-
-async def _get_json(client: httpx.AsyncClient, url: str):
-    resp = await client.get(url, headers=HEADERS, timeout=600)
-    resp.raise_for_status()
-    return resp.json()
 
 
 async def fetch_default_cards() -> list[dict]:
     """Fetch the `default_cards` bulk file from Scryfall (one entry per printing)."""
     async with httpx.AsyncClient(follow_redirects=True) as client:
-        index = await _get_json(client, BULK_DATA_INDEX_URL)
-        uri = next(
-            (item["download_uri"] for item in index["data"] if item["type"] == "default_cards"),
-            None,
-        )
-        if not uri:
-            raise RuntimeError("Could not find 'default_cards' in Scryfall bulk-data index.")
-        logger.info("Downloading default_cards from %s", uri)
-        return await _get_json(client, uri)
+        return [card async for card in iter_bulk_cards(client, "default_cards")]
 
 
 def _price(raw: dict | None, key: str) -> float | None:
@@ -69,6 +55,11 @@ def print_doc(card: dict) -> dict:
         doc["image_uris"] = image_uris
     if image_uris_back:
         doc["image_uris_back"] = image_uris_back
+    # Scryfall's image policy requires the artist credit to appear wherever we
+    # show an `art_crop`, so the illustrator travels with the image URLs.
+    artist = (card.get("artist") or "").strip()
+    if artist:
+        doc["artist"] = artist
     # Per-printing market price, seeded here so the app never has to call Scryfall
     # live for prices (mirrors how images are served from the DB). Stored only when
     # present to keep documents small.
@@ -84,8 +75,14 @@ def print_doc(card: dict) -> dict:
 
 async def sync(db: AsyncDatabase) -> int:
     """Download Scryfall default_cards and replace the `card_prints` collection."""
-    raw = await fetch_default_cards()
+    # Transformed while streaming: holding every raw printing object would cost
+    # well over a gigabyte, where the slim docs we keep are a fraction of that.
     # English only keeps the collection lean (~90K vs ~300K+ all languages).
-    docs = [print_doc(c) for c in raw if c.get("id") and c.get("lang") == "en"]
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        docs = [
+            print_doc(card)
+            async for card in iter_bulk_cards(client, "default_cards")
+            if card.get("id") and card.get("lang") == "en"
+        ]
     logger.info("Inserting %d card_prints documents", len(docs))
     return await card_prints_repo.replace_all(db, docs)

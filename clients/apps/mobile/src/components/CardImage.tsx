@@ -1,4 +1,5 @@
 import { Image } from "expo-image";
+import { Text } from "react-native";
 import type { Printing } from "@mtg/shared";
 
 type Size = "small" | "normal" | "large" | "art_crop";
@@ -55,26 +56,55 @@ export default function CardImage({
   );
 }
 
+// Scryfall's image policy only permits an art_crop where the illustrator is
+// credited in the same interface, so the art and the credit arrive together from
+// the API (see card_prints.art_by_name) and render as a pair. Without credited
+// art we render nothing and let the caller's background show through — which
+// also keeps us off the rate-limited api.scryfall.com image endpoint.
 export function CommanderArtImage({
   name,
   className = "",
   style,
   artCropUrl,
+  artist,
 }: {
   name: string;
   className?: string;
   style?: object;
-  artCropUrl?: string;
+  artCropUrl?: string | null;
+  artist?: string | null;
 }) {
-  const uri = artCropUrl || `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=art_crop`;
+  if (!artCropUrl) return null;
   return (
-    <Image
-      source={{ uri }}
-      contentFit="cover"
-      transition={300}
-      className={className}
-      style={style}
-      cachePolicy="disk"
-    />
+    <>
+      <Image
+        source={{ uri: artCropUrl }}
+        contentFit="cover"
+        transition={300}
+        className={className}
+        style={style}
+        cachePolicy="disk"
+        accessibilityLabel={artist ? `${name}, illustrated by ${artist}` : name}
+      />
+      {artist ? (
+        <Text
+          numberOfLines={1}
+          style={{
+            position: "absolute",
+            right: 4,
+            bottom: 2,
+            maxWidth: "55%",
+            fontSize: 9,
+            lineHeight: 11,
+            color: "rgba(255,255,255,0.7)",
+            // The caller paints a scrim over the art after this component
+            // renders; the credit has to stay legible above it.
+            zIndex: 2,
+          }}
+        >
+          {artist}
+        </Text>
+      ) : null}
+    </>
   );
 }

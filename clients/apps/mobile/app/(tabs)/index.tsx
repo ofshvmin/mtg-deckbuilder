@@ -121,6 +121,8 @@ export default function HomeScreen() {
                     <View style={{ height: 80 }}>
                       <CommanderArtImage
                         name={d.commander_name}
+                        artCropUrl={d.commander_art_crop}
+                        artist={d.commander_artist}
                         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
                       />
                       <View

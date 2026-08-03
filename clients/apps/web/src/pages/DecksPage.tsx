@@ -178,7 +178,12 @@ export default function DecksPage() {
                 className="block w-full text-left"
                 title={comparing ? `Select ${d.name}` : `Open ${d.name}`}
               >
-                <CommanderArt name={d.commander_name} className="h-40">
+                <CommanderArt
+                  name={d.commander_name}
+                  className="h-40"
+                  artCropUrl={d.commander_art_crop}
+                  artist={d.commander_artist}
+                >
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
                   {comparing && (
                     <div className="absolute left-2 top-2">

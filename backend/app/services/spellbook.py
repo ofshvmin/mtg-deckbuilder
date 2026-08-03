@@ -13,8 +13,10 @@ from __future__ import annotations
 import httpx
 from pymongo.asynchronous.database import AsyncDatabase
 
+from ..util import USER_AGENT
+
 BULK_URL = "https://json.commanderspellbook.com/variants.json"
-HEADERS = {"User-Agent": "MTGDeckBuilder/0.1 (personal project; daniel.g.mathews@gmail.com)"}
+HEADERS = {"User-Agent": USER_AGENT}
 COLORS = set("WUBRG")
 
 

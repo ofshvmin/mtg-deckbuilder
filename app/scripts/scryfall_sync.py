@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from db import get_connection, ensure_schema, normalize_name
 
 BULK_DATA_INDEX_URL = "https://api.scryfall.com/bulk-data"
-USER_AGENT = "MTGDeckBuilder/0.1 (personal project; contact: daniel.g.mathews@gmail.com)"
+USER_AGENT = "Grimoire/1.0.0 (https://grimoire.dankodev.app; app.support@dankodev.com)"
 HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json;q=0.9,*/*;q=0.8"}
 
 BASIC_LAND_NAMES = {"plains", "island", "swamp", "mountain", "forest", "wastes"}

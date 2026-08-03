@@ -16,6 +16,7 @@ from ..models.responses import (
     GeneratedDeckResponse,
     PrintingOut,
 )
+from ..repositories import card_prints as card_prints_repo
 from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
 from ..services import external_decks
@@ -57,6 +58,9 @@ class SearchSummary(BaseModel):
     color_identity: list[str]
     bracket: int | None = None
     price: int | None = None
+    # Banner art + its required artist credit (see card_prints.art_by_name).
+    commander_art_crop: str | None = None
+    commander_artist: str | None = None
 
 
 @router.get("/search", response_model=list[SearchSummary])
@@ -94,7 +98,21 @@ async def search_decks(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"External service error ({e.response.status_code}).")
     except httpx.HTTPError:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "External service unavailable.")
-    return [SearchSummary(**r) for r in results]
+
+    art = await card_prints_repo.art_by_name(
+        database, [r.get("commander_name", "") for r in results]
+    )
+    summaries = []
+    for r in results:
+        banner = art.get((r.get("commander_name") or "").lower()) or {}
+        summaries.append(
+            SearchSummary(
+                **r,
+                commander_art_crop=banner.get("art_crop"),
+                commander_artist=banner.get("artist"),
+            )
+        )
+    return summaries
 
 
 @router.get("/edhrec-deck")
@@ -123,6 +141,9 @@ class PreconSummary(BaseModel):
     commander_name: str | None = None
     color_identity: list[str] = []
     source: str = "precon"
+    # Banner art + its required artist credit (see card_prints.art_by_name).
+    commander_art_crop: str | None = None
+    commander_artist: str | None = None
 
 
 @router.get("/precons", response_model=list[PreconSummary])
@@ -140,17 +161,26 @@ async def search_precons(
             decks = all_decks[:limit]
     except httpx.HTTPError:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not fetch precon list.")
-    return [
-        PreconSummary(
-            file_name=d.get("fileName", ""),
-            name=d.get("name", "Untitled"),
-            code=d.get("code", ""),
-            release_date=d.get("releaseDate", ""),
-            commander_name=d.get("commander_name"),
-            color_identity=d.get("color_identity", []),
+
+    art = await card_prints_repo.art_by_name(
+        db.get_db(), [d.get("commander_name") or "" for d in decks]
+    )
+    summaries = []
+    for d in decks:
+        banner = art.get((d.get("commander_name") or "").lower()) or {}
+        summaries.append(
+            PreconSummary(
+                file_name=d.get("fileName", ""),
+                name=d.get("name", "Untitled"),
+                code=d.get("code", ""),
+                release_date=d.get("releaseDate", ""),
+                commander_name=d.get("commander_name"),
+                color_identity=d.get("color_identity", []),
+                commander_art_crop=banner.get("art_crop"),
+                commander_artist=banner.get("artist"),
+            )
         )
-        for d in decks
-    ]
+    return summaries
 
 
 @router.get("/precon", response_model=ExternalDeckResponse)
