@@ -284,6 +284,7 @@ export default function CardDetailModal({
                 name={card.name}
                 typeLine={typeLine}
                 manaCost={manaCost}
+                eager
                 className="aspect-[5/7] w-full"
               />
               {count > 1 && (

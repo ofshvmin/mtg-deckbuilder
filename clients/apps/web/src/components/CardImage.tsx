@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Printing } from "@mtg/shared";
 import {
   scryfallImageUrl,
@@ -24,6 +24,7 @@ export default function CardImage({
   isFoil = false,
   imageUrl,
   pending = false,
+  eager = false,
 }: {
   printing?: Printing;
   name: string;
@@ -33,6 +34,8 @@ export default function CardImage({
   isFoil?: boolean;
   imageUrl?: string;
   pending?: boolean;
+  /** Set on images that are already on screen when they mount (see `loading`). */
+  eager?: boolean;
 }) {
   const foil = isFoil || printing?.finish === "foil";
   const dfc = isDfc(typeLine, manaCost);
@@ -41,7 +44,12 @@ export default function CardImage({
   const [face, setFace] = useState<CardFace>("front");
   const [srcIndex, setSrcIndex] = useState(0);
   const [failed, setFailed] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  // Which url finished loading — *not* a boolean. A boolean has to be cleared
+  // whenever the card changes, and that clear races the `load` event: if the
+  // url we settle on is one that already loaded, no second `load` is ever
+  // coming, so the flag stays false and the art sits at opacity-0 under the
+  // skeleton forever. Comparing a url against the current src has no such race.
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
 
   // Ordered fallback sources:
   //   DB CDN url (per-printing) → parent CDN url → constructed CDN url → API → named API.
@@ -65,27 +73,35 @@ export default function CardImage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageUrl, printingKey, name, face]);
 
-  // Restart the source chain whenever the card, face, or resolved url changes.
-  useEffect(() => {
+  // Restart the fallback chain when the candidate list itself changes. Adjusted
+  // during render rather than in an effect so it lands before the browser can
+  // fire `load` on the new <img>. Deliberately doesn't clear the loaded url:
+  // the chain gets rebuilt whenever a printing resolves, while `sources[0]`
+  // usually stays the very same url that's already on screen.
+  const chainKey = sources.join(" ");
+  const [prevChainKey, setPrevChainKey] = useState(chainKey);
+  if (prevChainKey !== chainKey) {
+    setPrevChainKey(chainKey);
     setSrcIndex(0);
     setFailed(false);
-    setLoaded(false);
-  }, [printingKey, name, face, imageUrl]);
+  }
 
   // Reset to the front face when the printing changes.
-  const prevPrintingKey = useRef(printingKey);
-  if (prevPrintingKey.current !== printingKey) {
-    prevPrintingKey.current = printingKey;
+  const [prevPrintingKey, setPrevPrintingKey] = useState(printingKey);
+  if (prevPrintingKey !== printingKey) {
+    setPrevPrintingKey(printingKey);
     if (face !== "front") setFace("front");
   }
 
+  // A cached image can finish loading before React attaches `onLoad`, so that
+  // event never fires and the skeleton would never lift. Catch it on attach.
+  const attachImg = useCallback((node: HTMLImageElement | null) => {
+    if (node?.complete && node.naturalWidth > 0) setLoadedSrc(node.src);
+  }, []);
+
   function handleError() {
-    if (srcIndex < sources.length - 1) {
-      setSrcIndex((i) => i + 1);
-      setLoaded(false);
-    } else {
-      setFailed(true);
-    }
+    if (srcIndex < sources.length - 1) setSrcIndex((i) => i + 1);
+    else setFailed(true);
   }
 
   function flip() {
@@ -115,6 +131,7 @@ export default function CardImage({
   // hit api.scryfall.com (which the batch fetch exists to avoid).
   const waiting = pending && !imageUrl && face === "front";
   const src = waiting ? undefined : sources[srcIndex];
+  const loaded = src != null && loadedSrc === src;
 
   return (
     <div className={"relative overflow-hidden rounded-xl " + className}>
@@ -122,10 +139,17 @@ export default function CardImage({
       <div className={foil ? "foil-shimmer h-full w-full" : "h-full w-full"}>
         {src && (
           <img
+            // Remount per url so `attachImg` gets to check an already-complete
+            // image, and so a retried url actually re-requests.
+            key={src}
+            ref={attachImg}
             src={src}
             alt={name}
-            loading="lazy"
-            onLoad={() => setLoaded(true)}
+            // `lazy` pays off in the big grids, but an image that's already on
+            // screen when it mounts has nothing to defer for, and leaving that
+            // to the browser's lazy heuristic only risks it not loading.
+            loading={eager ? "eager" : "lazy"}
+            onLoad={() => setLoadedSrc(src)}
             onError={handleError}
             className={
               "h-full w-full object-contain transition-opacity duration-200 " +
