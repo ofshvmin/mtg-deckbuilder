@@ -19,7 +19,7 @@ from ..models.responses import (
 from ..repositories import card_prints as card_prints_repo
 from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
-from ..services import external_decks
+from ..services import deck_text, external_decks
 from ..services.generator import compose
 from ..util import normalize_name, strip_diacritics
 
@@ -229,6 +229,77 @@ class ResolveDeckRequest(BaseModel):
     source_url: str = ""
     name: str = "Untitled"
     owner: str = "Unknown"
+
+
+class ImportDeckListRequest(BaseModel):
+    """A decklist pasted in or read out of a file, in text or CSV form."""
+    text: str
+    name: str = "Imported deck"
+
+
+# A decklist is a few thousand characters. This is generous room for one with
+# long names and full printing data, and a cheap stop before the parser.
+MAX_DECKLIST_CHARS = 200_000
+
+
+@router.post("/import", response_model=ExternalDeckResponse)
+async def import_deck_list(
+    body: ImportDeckListRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Resolve a pasted/uploaded decklist (text or CSV) against our DB.
+
+    The counterpart to ``/collection/import``: that one reads what you own, this
+    one reads a deck. Nothing is saved here — the client previews the resolved
+    deck and then posts it to ``/decks/save`` like any other build, so the
+    saved-deck cap and the ownership pass apply unchanged.
+    """
+    text = body.text or ""
+    if len(text) > MAX_DECKLIST_CHARS:
+        raise HTTPException(
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "That decklist is too large to import.",
+        )
+    if not text.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Paste a decklist to import.")
+
+    parsed = deck_text.parse(text)
+    if not parsed.entries:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "No cards found in that list. Expected one card per line, like "
+            '"1x Sol Ring (c17) 1", or a Moxfield/Archidekt CSV export.',
+        )
+
+    database = db.get_db()
+    unresolved: list[str] = []
+    deck_response, unowned_count, owned_count = await _resolve_external_deck(
+        database,
+        current_user["_id"],
+        [e.as_card_entry() for e in parsed.entries],
+        collect_unresolved=unresolved,
+    )
+
+    if parsed.excluded:
+        skipped = sum(e.quantity for e in parsed.excluded)
+        deck_response.warnings.append(
+            f"{skipped} card(s) in a maybeboard or sideboard were left out of the deck."
+        )
+    if parsed.unparsed:
+        deck_response.warnings.append(
+            f"{len(parsed.unparsed)} line(s) couldn't be read as a card and were skipped."
+        )
+
+    return ExternalDeckResponse(
+        source=parsed.source_format if parsed.source_format != "text" else "decklist",
+        source_url="",
+        name=body.name.strip() or "Imported deck",
+        owner="Imported",
+        deck=deck_response,
+        unowned_count=unowned_count,
+        owned_count=owned_count,
+        unresolved_names=unresolved,
+    )
 
 
 @router.post("/resolve", response_model=ExternalDeckResponse)
@@ -445,8 +516,14 @@ async def fetch_deck(
 
 async def _resolve_external_deck(
     database, user_id: str, card_entries: list[dict],
+    collect_unresolved: list[str] | None = None,
 ) -> tuple[GeneratedDeckResponse, int, int]:
-    """Resolve external card entries against our DB and build a GeneratedDeckResponse."""
+    """Resolve external card entries against our DB and build a GeneratedDeckResponse.
+
+    Pass ``collect_unresolved`` to also receive the names that matched nothing.
+    A fetched deck only needs the count (its source is authoritative — a miss is
+    our gap), but a hand-pasted list needs the names back so the typo is fixable.
+    """
     name_set: set[str] = set()
     for entry in card_entries:
         name_set.add(normalize_name(entry["name"]))
@@ -488,6 +565,8 @@ async def _resolve_external_deck(
             doc = docs_by_norm.get(normalize_name(entry["name"].split(" // ")[0]))
         if doc is None:
             unresolved_count += 1
+            if collect_unresolved is not None and entry["name"] not in collect_unresolved:
+                collect_unresolved.append(entry["name"])
             continue
 
         is_commander = "Commander" in (entry.get("categories") or [])

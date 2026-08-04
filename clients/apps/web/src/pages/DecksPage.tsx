@@ -7,6 +7,7 @@ import { formatColorIdentity } from "../lib/format";
 import BracketBadge from "../components/BracketBadge";
 import CommanderArt from "../components/CommanderArt";
 import DeckView from "../components/DeckView";
+import ImportDeckModal from "../components/ImportDeckModal";
 
 export default function DecksPage() {
   const { refreshSaved } = useLayout();
@@ -22,6 +23,10 @@ export default function DecksPage() {
   const [error, setError] = useState<string | null>(null);
   const [comparing, setComparing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [importing, setImporting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<SavedDeckSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const loadDecks = useCallback(() => {
     api
@@ -57,14 +62,38 @@ export default function DecksPage() {
     }
   }
 
-  async function remove(id: string) {
+  /** Delete a deck and say what came back.
+   *
+   *  Availability is derived from the decks that still exist, so removing an
+   *  in-use deck hands its copies straight back to the pool — worth stating,
+   *  since nothing else on screen would show it.
+   */
+  async function remove(deck: SavedDeckSummary) {
+    setDeleting(true);
+    setError(null);
     try {
-      await api.deleteSavedDeck(id);
-      setDecks((prev) => prev.filter((d) => d.id !== id));
+      await api.deleteSavedDeck(deck.id);
+      setDecks((prev) => prev.filter((d) => d.id !== deck.id));
+      setConfirmDelete(null);
+      setNotice(
+        deck.in_use
+          ? `Deleted “${deck.name}” — its ${deck.total} cards are available again.`
+          : `Deleted “${deck.name}”.`,
+      );
       refreshSaved();
-    } catch {
-      // silent
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete that deck");
+      setConfirmDelete(null);
+    } finally {
+      setDeleting(false);
     }
+  }
+
+  function onImported(deckId: string) {
+    setImporting(false);
+    loadDecks();
+    refreshSaved();
+    open(deckId);
   }
 
   function onSaved() {
@@ -149,31 +178,52 @@ export default function DecksPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-2xl font-semibold">Saved decks</h2>
-        {decks.length >= 2 && (
-          <div className="flex items-center gap-2">
-            {comparing && selected.size === 2 && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setNotice(null); setImporting(true); }}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:bg-slate-800"
+            title="Import a decklist from text or a CSV export"
+          >
+            Import deck
+          </button>
+          {decks.length >= 2 && (
+            <>
+              {comparing && selected.size === 2 && (
+                <button
+                  onClick={handleCompare}
+                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-500"
+                >
+                  Compare Selected
+                </button>
+              )}
               <button
-                onClick={handleCompare}
-                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-500"
+                onClick={() => { setComparing((c) => !c); setSelected(new Set()); }}
+                className={
+                  "rounded-lg border px-3 py-1.5 text-sm transition " +
+                  (comparing
+                    ? "border-indigo-600 bg-indigo-600/20 text-indigo-300"
+                    : "border-slate-700 text-slate-300 hover:bg-slate-800")
+                }
               >
-                Compare Selected
+                {comparing ? "Cancel" : "Compare"}
               </button>
-            )}
-            <button
-              onClick={() => { setComparing((c) => !c); setSelected(new Set()); }}
-              className={
-                "rounded-lg border px-3 py-1.5 text-sm transition " +
-                (comparing
-                  ? "border-indigo-600 bg-indigo-600/20 text-indigo-300"
-                  : "border-slate-700 text-slate-300 hover:bg-slate-800")
-              }
-            >
-              {comparing ? "Cancel" : "Compare"}
-            </button>
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
       {error && <p className="text-rose-400">{error}</p>}
+      {notice && (
+        <p className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm text-slate-300">
+          <span className="min-w-0 flex-1">{notice}</span>
+          <button
+            onClick={() => setNotice(null)}
+            className="shrink-0 text-slate-500 transition hover:text-slate-300"
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </p>
+      )}
       {loading ? (
         <p className="text-slate-400">Loading decks…</p>
       ) : decks.length === 0 ? (
@@ -265,16 +315,51 @@ export default function DecksPage() {
                     {d.in_use ? "◉ In use" : "○ Free"}
                   </button>
                   <button
-                    onClick={() => remove(d.id)}
-                    className="text-xs text-slate-600 hover:text-rose-400"
-                    title="Delete deck"
+                    onClick={() => { setNotice(null); setConfirmDelete(d); }}
+                    className="text-xs text-slate-600 transition hover:text-rose-400"
+                    title={`Delete ${d.name}`}
+                    aria-label={`Delete ${d.name}`}
                   >
-                    ✕
+                    Delete
                   </button>
                 </div>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {importing && (
+        <ImportDeckModal onClose={() => setImporting(false)} onSaved={onImported} />
+      )}
+
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">Delete this deck?</h3>
+            <p className="mt-2 text-sm text-slate-400">
+              “{confirmDelete.name}” will be removed for good.
+              {confirmDelete.in_use
+                ? ` Its ${confirmDelete.total} cards go back into your available pool.`
+                : " Your collection is unchanged."}
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={() => remove(confirmDelete)}
+                disabled={deleting}
+                className="flex-1 rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete deck"}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(null)}
+                disabled={deleting}
+                className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

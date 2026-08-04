@@ -15,7 +15,7 @@ The app is named **Grimoire** (an MTG Commander deck builder). Everything is **d
   password-reset links and the outbound User-Agent all point at)
 - **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K oracle cards, 113K per-printing images, 96K+ combos
 - **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`
-- **Backend tests:** **401 passing** (`pytest` from `backend/` with the venv — no ignores needed)
+- **Backend tests:** **443 passing** (`pytest` from `backend/` with the venv — no ignores needed)
 - **Transactional email:** Resend, sending as `noreply@dankodev.com` (password resets only)
 
 The app: import your card collection, pick a commander, and build a legal, mana-curved, synergy/
@@ -141,6 +141,17 @@ and a per-deck-card `selected_printing_key` — the seams for future value/image
   - **Ownership display**: unowned cards shown dimmed/italic (text view) or greyscale (image views).
   - **Save to My Decks**: saves with `source`/`source_url` fields. Source badge on deck tiles.
   - **Import Cards to Collection**: batch-add deck cards with "ignore duplicates" or "import all" mode.
+- **Decklist import** (`POST /explore/import`, `services/deck_text.py`): paste a decklist or upload
+  a `.txt`/`.csv` export on the **Saved Decks** page. Parses Moxfield-style lines
+  (`1x Alms Collector (c17) 1 *F* [Creature]`), plain `1 Sol Ring`, Arena/MTGO, `SB:` prefixes and
+  section headers, plus deck CSVs through the existing `csv_formats` detection. `[Commander{top}]`
+  becomes the commander; `{noDeck}` / maybeboard / sideboard rows are held out of the deck and
+  reported, as are names that match no card. Resolves through the same pipeline as an Explore
+  import, previews owned/unowned, then saves via `/decks/save` (so the free-tier cap still applies).
+- **Deck delete** (web + iOS): confirm dialog on the Decks page / `Alert` on mobile, and it says
+  what happens to the cards. Deleting an **in-use** deck returns its copies to the available pool
+  for free — availability is derived per request from the in-use decks that still exist
+  (`services/availability.py`), so there is no counter to decrement.
 - **Compare Decks** (`/compare`, PR #32): select 2 saved decks on the Decks page → side-by-side
   stats (total, lands, avg MV, bracket), mana curves, shared cards grouped by slot, and cards
   unique to each deck. Selection mode with checkbox overlays + "Compare Selected" button.
@@ -246,10 +257,14 @@ app/
     decks.py           — /decks/generate (auto), /decks/compose (manual), saved-deck CRUD + export
     explore.py         — /explore/commanders (autocomplete), /explore/search (EDHREC),
                          /explore/precons + /explore/precon (MTGJSON), /explore/resolve (card
-                         list resolution), /explore/deck (EDHREC + Archidekt URL import)
+                         list resolution), /explore/deck (EDHREC + Archidekt URL import),
+                         /explore/import (pasted/uploaded decklist)
   services/
     csv_formats.py     — format detection / normalization / parse / export
     importer.py        — collection import (CSV/Excel → Mongo); stamps printing_key + added_at
+    deck_text.py       — decklist parsing (text lines + deck CSVs → card entries); commander,
+                         maybeboard/sideboard and unreadable-line reporting
+    availability.py    — owned vs. committed-to-an-in-use-deck arithmetic, per printing_key
     generator.py       — generate() greedy 99-card build; compose() analyze an exact card list
     external_decks.py  — EDHREC search/preview/page fetch, MTGJSON precon list/fetch (with
                          eager commander enrichment), Archidekt deck fetch, URL parsing
@@ -259,8 +274,8 @@ app/
   util.py              — normalize_name, strip_diacritics, printing_key, normalize_finish
 scripts/               — sync_scryfall.py, sync_card_prints.py, sync_spellbook.py, seed_collection.py,
                          premium_exempt.py (grant/revoke/list permanent Premium exemptions)
-tests/                 — pytest (401): csv_formats, mana_math, roles, printings, compose,
-                         external_decks, availability, premium, …
+tests/                 — pytest (443): csv_formats, mana_math, roles, printings, compose,
+                         external_decks, deck_text, availability, premium, …
 ```
 
 Key endpoints: `POST /decks/generate` (auto), `POST /decks/compose` (manual — same
@@ -268,8 +283,9 @@ Key endpoints: `POST /decks/generate` (auto), `POST /decks/compose` (manual — 
 (grouped-by-oracle browser data), `GET /explore/commanders` (all-commanders autocomplete),
 `GET /explore/search` (EDHREC community decks), `GET /explore/precons` + `GET /explore/precon`
 (MTGJSON precons), `GET /explore/deck` (EDHREC/Archidekt URL import), `POST /explore/resolve`
-(resolve external card list against DB), `POST /collection/batch-add` (bulk import cards),
-plus auth / collection / pool / saved-deck CRUD + export.
+(resolve external card list against DB), `POST /explore/import` (pasted/uploaded decklist),
+`POST /collection/batch-add` (bulk import cards), plus auth / collection / pool / saved-deck
+CRUD + export.
 
 ### Frontend (`clients/` — npm workspaces)
 ```
@@ -284,7 +300,8 @@ apps/web/src/
     CollectionPage.tsx       — import/export/add + CollectionGrid (landing)
     BuildPage.tsx            — commander → pool → Auto (DeckView) or Manual (ManualBuilder)
     ExplorePage.tsx          — Precons (MTGJSON) + Community (EDHREC) tabs, URL import
-    DecksPage.tsx            — saved-deck tiles (commander art) → DeckView; Compare selection mode
+    DecksPage.tsx            — saved-deck tiles (commander art) → DeckView; Compare selection mode;
+                               Import deck (ImportDeckModal) + delete behind a confirm
     ComparePage.tsx          — side-by-side deck stats, curves, shared/unique cards
   components/
     CollectionGrid.tsx       — one row per card; row click → CardDetailModal
@@ -293,6 +310,7 @@ apps/web/src/
     DeckCardList.tsx         — role-grouped masonry list (shared; optional per-row remove; ownership dimming)
     DeckView.tsx             — hero + stats + curve + DeckCardList + combos; showOwnership mode
     ImportCardsModal.tsx     — batch-add external deck cards to collection (ignore dupes / import all)
+    ImportDeckModal.tsx      — paste/upload a decklist → resolve preview (owned, unowned, misses) → save
     CommanderArt.tsx, SetSymbol.tsx, CardImage.tsx
     ManaCost.tsx, ColorPips.tsx (mana-font glyphs), ManaCurve, StatTile, PrintingChips,
     CommanderPicker, PoolTable, AddCardSearch, Import/ExportCollection, CollectionList
@@ -335,9 +353,15 @@ apps/web/src/
   logo) is still fetched client-side via Scryfall `/sets` (cached in localStorage).
 - **`printing_key` = `set|collector|finish`** is the stable identity every future feature hangs off:
   a catalog FK, a price/image lookup key, and the target of deck→copy **allocation**. Deck cards
-  carry `selected_printing_key`. Danko's north star includes **inventory allocation** (a physical
-  copy can be "in use" in one deck and thus unavailable to another — the airline-fleet model),
-  market value, images, and preferred-printing rules — all additive on this model, no schema rework.
+  carry `selected_printing_key` plus a `printing_allocation` (key → copies).
+- **Inventory allocation is built** (the airline-fleet model): a saved deck flagged `in_use` is
+  sleeved up, so its copies leave the pool later builds draw on. `services/availability.py` is the
+  arithmetic — owned minus committed, per `printing_key`, allowed to go negative when two decks
+  claim the same copy (`deck_shortfalls` then decides which deck shows it as unowned). It is
+  **derived per request, never stored**, which is why releasing a deck — or deleting it — returns
+  its copies for free. Build endpoints take `pool_scope=owned|available`.
+- Still on the north star, all additive on this model with no schema rework: market value, a full
+  printing catalog, and preferred-printing rules.
 
 ---
 
@@ -618,7 +642,8 @@ API — the backend needs **no changes** (JWT Bearer + REST work for native; COR
 **Home** (stats + quick actions + recent decks), **Collection** (image `FlatList` grid + filter →
 `CardDetailModal`), **Build** (commander search → auto-build with strategy/theme **or** the AI
 **Describe** brief **with conversational refinement** → save; the hero), **Decks** (commander-art
-tiles + bracket → full-screen `DeckDetailModal`, role-grouped with combos).
+tiles + bracket → full-screen `DeckDetailModal`, role-grouped with combos; in-use toggle and
+delete-behind-an-`Alert` per tile).
 
 **Status.** Phases 0–2 complete (auth + read + build). Recent fixes on the branch:
 - **AI-brief refinement** ported from web (transcript + "refine" input → rebuild via prior spec).
@@ -645,7 +670,9 @@ papercuts. `expo-secure-store` is a no-op on web, so the web preview needs a tem
 token shim (not committed).
 
 **Out of scope so far:** manual builder, lock & regenerate, the full playtest sim, Compare, Explore,
-the pull-list PDF (expo-print, not jsPDF), push notifications, offline caching, Android polish.
+**decklist import** (web-only — the paste/upload UI is `ImportDeckModal`; the endpoint is client-
+agnostic, so mobile only needs the screen), the pull-list PDF (expo-print, not jsPDF), push
+notifications, offline caching, Android polish.
 
 ---
 
@@ -673,7 +700,8 @@ Remaining engineering work, all optional:
   capped), streaming the rationale, tool-use grounding (`search_owned_pool`), a *hard* combo-avoid.
 - **Server-side printing catalog — Phase 2** — `card_prints` handles images; next add **prices** so
   market value and deck totals don't depend on per-client Scryfall calls.
-- **Inventory allocation** — which physical copies are committed to which decks (the fleet model).
+- **Mobile decklist import** — the web has it (`ImportDeckModal` → `POST /explore/import`); mobile
+  needs a paste screen against the same endpoint. Delete already shipped on both.
 - **Collection performance** — pagination/virtualization (grid caps at 400 rows today).
 - **CI/CD** for the Fly backend (deploys are manual `flyctl deploy`).
 - **Game Changers list refresh** — `app/data/game_changers.json` is the official WOTC list (from

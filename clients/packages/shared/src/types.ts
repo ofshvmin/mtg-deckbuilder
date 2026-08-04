@@ -382,6 +382,8 @@ export interface ExternalDeckResponse {
   deck: GeneratedDeck;
   unowned_count: number;
   owned_count: number;
+  /** Names in the list that matched no card. Only decklist imports fill this in. */
+  unresolved_names?: string[];
 }
 
 export interface BatchAddResult {

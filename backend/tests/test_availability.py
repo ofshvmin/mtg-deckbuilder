@@ -285,6 +285,61 @@ class TestDeckShortfalls:
         assert asyncio.run(availability.deck_shortfalls(db, "u", "mine", owned)) == {}
 
 
+class TestDeletingADeckFreesItsCards:
+    """Deleting a saved deck must put its copies back on the shelf.
+
+    Nothing writes an "available" number anywhere — it is derived per request
+    from the in-use decks that still exist — so the guarantee is that the same
+    pool arithmetic, run against a ``decks`` collection the deck has been removed
+    from, reports the copies as free again. These tests pin that end to end so a
+    future move to a stored counter can't quietly break it.
+    """
+
+    OWNED = {
+        "sol": [unit("c17|1|nonfoil", 1)],
+        "swamp": [unit("khm|396|nonfoil", 2)],
+    }
+
+    def _deck(self):
+        return deck_doc("d1", [
+            {"oracle_id": "sol", "count": 1, "selected_printing_key": "c17|1|nonfoil"},
+            {"oracle_id": "swamp", "count": 2, "selected_printing_key": "khm|396|nonfoil"},
+        ])
+
+    def _available(self, db):
+        committed = asyncio.run(availability.committed_by_printing(db, "u"))
+        stamped = availability.apply_committed(self.OWNED, committed)
+        return availability.counts_from_units(stamped, key="available")
+
+    def test_in_use_deck_holds_its_copies(self):
+        assert self._available(FakeDB([self._deck()])) == {}
+
+    def test_deleting_the_deck_returns_every_copy(self):
+        db = FakeDB([self._deck()])
+        db.decks._docs.clear()          # what `delete_deck` leaves behind
+        assert self._available(db) == {"sol": 1, "swamp": 2}
+
+    def test_only_the_deleted_deck_releases(self):
+        db = FakeDB([self._deck(), deck_doc("d2", [
+            {"oracle_id": "swamp", "count": 1, "selected_printing_key": "khm|396|nonfoil"},
+        ], created_at="2026-02-01")])
+        db.decks._docs = [d for d in db.decks._docs if d["_id"] != "d1"]
+        # d2 still claims one Swamp; the other Swamp and the Sol Ring come back.
+        assert self._available(db) == {"sol": 1, "swamp": 1}
+
+    def test_deleting_an_over_claimed_deck_clears_the_negative(self):
+        db = FakeDB([self._deck(), deck_doc("d2", [
+            {"oracle_id": "sol", "count": 1, "selected_printing_key": "c17|1|nonfoil"},
+        ], created_at="2026-02-01")])
+        def sol_available():
+            committed = asyncio.run(availability.committed_by_printing(db, "u"))
+            return availability.apply_committed(self.OWNED, committed)["sol"][0]["available"]
+
+        assert sol_available() == -1     # two decks, one Sol Ring
+        db.decks._docs = [d for d in db.decks._docs if d["_id"] != "d2"]
+        assert sol_available() == 0      # back to "spoken for", not "over-spent"
+
+
 class TestScopeHelpers:
     @pytest.mark.parametrize("value", [None, "", "nonsense", "OWNED"])
     def test_unknown_scopes_fall_back_to_owned(self, value):
