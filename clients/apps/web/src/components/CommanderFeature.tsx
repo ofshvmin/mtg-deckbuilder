@@ -66,6 +66,7 @@ export default function CommanderFeature({
           typeLine={type}
           manaCost={mana}
           imageUrl={imageUris?.normal}
+          eager
           className="aspect-[745/1040] w-full shadow-lg ring-1 ring-black/40"
         />
       </div>
