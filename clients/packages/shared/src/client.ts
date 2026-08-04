@@ -350,6 +350,12 @@ export class ApiClient {
     return this.request<ExternalDeckResponse>("GET", `/explore/deck?${params.toString()}`);
   }
 
+  /** Resolve a pasted or uploaded decklist (text or CSV) against our DB.
+   *  Nothing is saved — the caller previews the deck and then calls `saveDeck`. */
+  importDeckList(body: { text: string; name?: string }): Promise<ExternalDeckResponse> {
+    return this.request<ExternalDeckResponse>("POST", "/explore/import", { body });
+  }
+
   /** Resolve a card list (from client-side EDHREC fetch) against our DB. */
   resolveExternalDeck(body: {
     cards: { name: string; quantity: number; is_commander: boolean }[];

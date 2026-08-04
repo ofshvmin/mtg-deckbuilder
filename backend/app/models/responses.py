@@ -356,6 +356,9 @@ class ExternalDeckResponse(BaseModel):
     deck: GeneratedDeckResponse
     unowned_count: int
     owned_count: int
+    # Names the list asked for that matched no card in our DB. Only the decklist
+    # import fills this in — see `_resolve_external_deck`.
+    unresolved_names: list[str] = []
 
 
 class BatchAddResult(BaseModel):

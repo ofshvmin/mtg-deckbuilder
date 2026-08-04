@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import type { GeneratedDeck, SavedDeckSummary } from "@mtg/shared";
 import { api } from "../../src/lib/api";
@@ -48,6 +48,38 @@ export default function DecksScreen() {
       setOpenDeck((prev) => (prev && prev.id === id ? { ...prev, inUse: !next } : prev));
     }
   }, []);
+
+  /** Delete a saved deck, behind a confirm.
+   *
+   *  A deck marked in use is holding its copies out of every other build; the
+   *  pool is derived from the decks that still exist, so deleting it hands those
+   *  copies straight back. The prompt says so, since nothing on screen would.
+   */
+  const removeDeck = useCallback((deck: SavedDeckSummary) => {
+    Alert.alert(
+      "Delete this deck?",
+      `"${deck.name}" will be removed for good.` +
+        (deck.in_use
+          ? ` Its ${deck.total} cards go back into your available pool.`
+          : " Your collection is unchanged."),
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setDecks((prev) => prev.filter((d) => d.id !== deck.id));
+            setOpenDeck((prev) => (prev && prev.id === deck.id ? null : prev));
+            try {
+              await api.deleteSavedDeck(deck.id);
+            } catch {
+              loadDecks();   // the write failed — put the tile back
+            }
+          },
+        },
+      ],
+    );
+  }, [loadDecks]);
 
   /** Point a deck card at a different owned printing, and persist it.
    *
@@ -148,6 +180,14 @@ export default function DecksScreen() {
                 <Text className={"text-xs " + (item.in_use ? "text-emerald-400" : "text-slate-600")}>
                   {item.in_use ? "◉ In use" : "○ Free"}
                 </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => removeDeck(item)}
+                hitSlop={8}
+                activeOpacity={0.6}
+                accessibilityLabel={`Delete ${item.name}`}
+              >
+                <Text className="text-xs text-slate-600">Delete</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>

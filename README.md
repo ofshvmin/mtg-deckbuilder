@@ -14,7 +14,7 @@ See `MTG_Deckbuilder_Plan.md` for the product plan and phased roadmap.
 - **Clients** (`clients/`) — npm workspace monorepo:
   - `packages/shared` (`@mtg/shared`) — portable TS: API client, types, domain logic.
   - `apps/web` (`@mtg/web`) — React + Vite + TypeScript + Tailwind.
-  - `apps/mobile` — React Native app (planned; reuses `@mtg/shared`).
+  - `apps/mobile` — React Native (Expo) app, reusing `@mtg/shared` against the same API.
 - **Auth** — self-hosted JWT (Bearer tokens), provider-agnostic identities
   (social login can be added later without migration).
 
@@ -43,6 +43,7 @@ The web app reads `VITE_API_BASE_URL` (defaults to `http://localhost:8000`).
 
 ## Status
 
-Phase 1 (data foundation) and Phase 2 (mana math) are built and verified as
-local scripts in `app/scripts/`. The full-stack re-platform is in progress —
-see `MTG_Deckbuilder_Plan.md`.
+Shipped and deployed as **Grimoire** — web at `https://grimoire.dankodev.app`, API on Fly.io,
+with an iOS app in App Store prep. `MTG_Deckbuilder_Plan.md` is the original product plan;
+**`HANDOFF.md` is the current state of things** — architecture, what's built, deploy steps
+and known issues.
