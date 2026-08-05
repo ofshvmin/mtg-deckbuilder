@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from "react-native";
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from "react-native";
 import { router } from "expo-router";
 import type { CollectionSummary, SavedDeckSummary } from "@mtg/shared";
 import { DATA_SOURCE_NOTICE, FAN_CONTENT_NOTICE } from "@mtg/shared";
@@ -8,8 +8,7 @@ import { useAuth } from "../../src/auth/AuthContext";
 import { CommanderArtImage } from "../../src/components/CardImage";
 
 export default function HomeScreen() {
-  const { user, logout, deleteAccount } = useAuth();
-  const [deleting, setDeleting] = useState(false);
+  const { user } = useAuth();
   const [summary, setSummary] = useState<CollectionSummary | null>(null);
   const [recent, setRecent] = useState<SavedDeckSummary[]>([]);
   const [deckCount, setDeckCount] = useState(0);
@@ -28,48 +27,6 @@ export default function HomeScreen() {
   }, []);
 
   const greeting = user?.email?.split("@")[0] ?? "there";
-
-  const confirmDeleteAccount = () => {
-    Alert.alert(
-      "Delete Account",
-      "This permanently deletes your account, your entire collection, and all saved decks. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete Account",
-          style: "destructive",
-          onPress: () => {
-            // Second confirmation — this action is irreversible.
-            Alert.alert(
-              "Are you absolutely sure?",
-              "There is no way to recover your account or data after this.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Permanently Delete",
-                  style: "destructive",
-                  onPress: async () => {
-                    setDeleting(true);
-                    try {
-                      await deleteAccount();
-                      // Signing out clears the user; the app returns to the
-                      // auth screen automatically.
-                    } catch {
-                      setDeleting(false);
-                      Alert.alert(
-                        "Couldn't delete account",
-                        "Something went wrong. Please check your connection and try again.",
-                      );
-                    }
-                  },
-                },
-              ],
-            );
-          },
-        },
-      ],
-    );
-  };
 
   return (
     <ScrollView className="flex-1 bg-slate-950 px-4 py-6">
@@ -146,29 +103,6 @@ export default function HomeScreen() {
               </View>
             </View>
           )}
-
-          {/* Account actions */}
-          <View className="gap-3">
-            <TouchableOpacity
-              onPress={logout}
-              className="rounded-lg border border-slate-700 py-3"
-              activeOpacity={0.7}
-            >
-              <Text className="text-center text-sm text-slate-400">Sign Out</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={confirmDeleteAccount}
-              disabled={deleting}
-              className="rounded-lg border border-red-900/60 py-3"
-              activeOpacity={0.7}
-            >
-              {deleting ? (
-                <ActivityIndicator size="small" color="#f87171" />
-              ) : (
-                <Text className="text-center text-sm text-red-400">Delete Account</Text>
-              )}
-            </TouchableOpacity>
-          </View>
 
           {/* Wizards' Fan Content Policy asks for this on the content itself,
               not only on the policy pages the paywall and sign-up link out to. */}
