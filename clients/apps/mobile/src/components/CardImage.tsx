@@ -71,8 +71,13 @@ export function CommanderArtImage({
   name: string;
   className?: string;
   style?: object;
-  artCropUrl?: string | null;
-  artist?: string | null;
+  // Required, not optional: this renders nothing without a url, so an omitted
+  // prop is a silently blank banner. Making it explicit means the compiler
+  // catches a caller that forgets it — which is how the Decks tab shipped with
+  // no art at all. `artist` rides along because Scryfall's image policy wants
+  // the credit wherever an art_crop is shown.
+  artCropUrl: string | null | undefined;
+  artist: string | null | undefined;
 }) {
   if (!artCropUrl) return null;
   return (

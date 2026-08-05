@@ -148,6 +148,8 @@ export default function DecksScreen() {
             <View style={{ height: 120 }}>
               <CommanderArtImage
                 name={item.commander_name}
+                artCropUrl={item.commander_art_crop}
+                artist={item.commander_artist}
                 style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
               />
               <View
