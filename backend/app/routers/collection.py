@@ -173,10 +173,22 @@ async def list_collection(current_user: dict = Depends(get_current_user)):
 async def list_collection_cards(current_user: dict = Depends(get_current_user)):
     """One entry per owned oracle card, with oracle data + owned printings.
 
-    Powers the collection browser (distinct cards, not printing lines).
+    Powers the collection browser (distinct cards, not printing lines). Every
+    printing carries what's free as well as what's owned, so the browser can
+    answer "what's actually on the shelf" the same way the build screen does —
+    availability is derived from the decks marked in use, never stored.
     """
     database = db.get_db()
-    cards = await collection_repo.list_collection_cards(database, current_user["_id"])
+    user_id = current_user["_id"]
+    cards = await collection_repo.list_collection_cards(database, user_id)
+
+    committed = await availability.committed_by_printing(database, user_id)
+    free = availability.apply_committed({c["oracle_id"]: c["printings"] for c in cards}, committed)
+    for card in cards:
+        units = free[card["oracle_id"]]
+        card["printings"] = units
+        card["available_count"] = sum(u["available"] for u in units)
+
     await card_prints_repo.enrich_printings(
         database, [(c["name"], c["printings"]) for c in cards]
     )
