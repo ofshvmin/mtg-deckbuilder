@@ -1,8 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { CollectionCard } from "@mtg/shared";
 import { api } from "../lib/api";
+import {
+  availableCopies,
+  filterCards,
+  fromSearchParams,
+  sortCards,
+  toSearchParams,
+  type FilterState,
+  type SortDir,
+  type SortKey,
+} from "../lib/collectionFilter";
 import { useLayout } from "../components/Layout";
 import AddCardSearch from "../components/AddCardSearch";
+import CollectionFilters from "../components/CollectionFilters";
 import CollectionGrid from "../components/CollectionGrid";
 import ExportCollection from "../components/ExportCollection";
 import ImportCollection from "../components/ImportCollection";
@@ -21,6 +33,20 @@ export default function CollectionPage() {
   const [loading, setLoading] = useState(true);
   const [activePanel, setActivePanel] = useState<Panel>(null);
 
+  // Filter and sort state lives in the query string: the back button steps
+  // through narrowings, and a filtered view is a link someone can be sent.
+  const [params, setParams] = useSearchParams();
+  const { filters, sort, dir } = useMemo(() => fromSearchParams(params), [params]);
+
+  const apply = useCallback(
+    (next: FilterState, nextSort: SortKey, nextDir: SortDir) => {
+      // replace, not push — dragging a mana-value spinner shouldn't bury the
+      // previous page under thirty history entries.
+      setParams(toSearchParams(next, nextSort, nextDir), { replace: true });
+    },
+    [setParams],
+  );
+
   const loadCards = useCallback(() => {
     api
       .listCollectionCards()
@@ -34,6 +60,21 @@ export default function CollectionPage() {
     refreshSummary();
     loadCards();
   }, [refreshSummary, loadCards]);
+
+  const visible = useMemo(
+    () => sortCards(filterCards(cards, filters), sort, dir),
+    [cards, filters, sort, dir],
+  );
+
+  // The Free column earns its width only once something is actually reserved —
+  // otherwise it would repeat the Owned column on every row. Tying it to the
+  // "Available only" filter alone would have hidden the case worth seeing most:
+  // a card claimed by more in-use decks than you own copies reads as negative,
+  // and that row is exactly the one that filter excludes.
+  const anythingReserved = useMemo(
+    () => cards.some((c) => availableCopies(c) !== c.total_count),
+    [cards],
+  );
 
   // First-time state: no collection yet.
   if (summary && !summary.has_collection) {
@@ -90,7 +131,26 @@ export default function CollectionPage() {
       {loading ? (
         <p className="text-slate-400">Loading your collection…</p>
       ) : (
-        <CollectionGrid cards={cards} onChanged={refreshAll} />
+        <>
+          <CollectionFilters
+            filters={filters}
+            onChange={(next) => apply(next, sort, dir)}
+            sort={sort}
+            dir={dir}
+            onSortChange={(key, nextDir) => apply(filters, key, nextDir)}
+            activeCount={visible.length}
+            totalCount={cards.length}
+          />
+          <CollectionGrid
+            cards={visible}
+            totalOwned={cards.length}
+            sort={sort}
+            dir={dir}
+            onSortChange={(key, nextDir) => apply(filters, key, nextDir)}
+            onChanged={refreshAll}
+            showAvailability={anythingReserved || filters.availability === "available"}
+          />
+        </>
       )}
     </div>
   );
