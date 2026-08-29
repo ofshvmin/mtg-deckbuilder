@@ -199,8 +199,18 @@ export interface CollectionCard {
   cmc: number;
   type_line: string;
   color_identity: Color[];
+  /** The card's own colors, not its identity — "show me my blue cards". */
+  colors: Color[];
   oracle_text: string;
+  /** Oracle-level: a card reprinted at another rarity reads as one value. */
+  rarity?: string | null;
+  /** On WOTC's Reserved List — will never be reprinted. */
+  reserved?: boolean;
+  /** On WOTC's Commander Game Changers list. */
+  game_changer?: boolean;
   total_count: number;
+  /** Copies not committed to a deck marked in use. Negative when decks over-claim. */
+  available_count?: number;
   printings: Printing[];
   image_uris?: Record<string, string> | null;
   image_uris_back?: Record<string, string> | null;

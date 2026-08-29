@@ -105,8 +105,15 @@ class CollectionCardOut(BaseModel):
     cmc: float = 0.0
     type_line: str = ""
     color_identity: list[str] = []
+    colors: list[str] = []          # the card's own colors, not its identity
     oracle_text: str = ""
+    rarity: str | None = None       # oracle-level; a card reprinted at another rarity shows one
+    reserved: bool = False          # on WOTC's Reserved List — will never be reprinted
+    game_changer: bool = False      # on WOTC's Commander Game Changers list
     total_count: int
+    # Copies not committed to a deck marked in use. Negative when decks over-claim,
+    # same convention as PrintingOut.available — the browser clamps for display.
+    available_count: int = 0
     printings: list[PrintingOut] = []
     image_uris: dict[str, str] | None = None
     image_uris_back: dict[str, str] | None = None

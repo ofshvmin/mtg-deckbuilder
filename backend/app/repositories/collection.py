@@ -128,7 +128,16 @@ async def list_collection_cards(db: AsyncDatabase, user_id: str) -> list[dict]:
             "cmc": card.get("cmc", 0.0),
             "type_line": card.get("type_line", ""),
             "color_identity": card.get("color_identity", []),
+            # Both color views: identity drives "what can go in this commander's
+            # deck", the card's own colors drive "show me my blue cards".
+            "colors": card.get("colors", []),
             "oracle_text": card.get("oracle_text", ""),
+            # Oracle-level rarity, i.e. the rarity of whichever printing Scryfall
+            # picked as representative. A card reprinted at a different rarity
+            # reads as one value here — good enough to filter by, not to price by.
+            "rarity": card.get("rarity"),
+            "reserved": bool(card.get("reserved")),
+            "game_changer": bool(card.get("game_changer")),
             "total_count": sum(u["count"] for u in units),
             "printings": units,
         }

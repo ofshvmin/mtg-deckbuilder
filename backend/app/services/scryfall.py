@@ -139,6 +139,14 @@ def doc_from_card(card: dict) -> dict:
         "legal_standard": card.get("legalities", {}).get("standard", "not_legal"),
         "legal_legacy": card.get("legalities", {}).get("legacy", "not_legal"),
         "rarity": card.get("rarity"),
+        # Reserved List: WOTC has committed to never reprinting these, which makes
+        # them the part of a collection that can't be replaced. Card-level, not
+        # printing-level, so it belongs here rather than on card_prints.
+        "reserved": bool(card.get("reserved")),
+        # WOTC's Commander "Game Changers" list, straight from upstream. Also
+        # maintained by hand in data/game_changers.json for bracket scoring — this
+        # field is the self-updating replacement, see services/brackets.py.
+        "game_changer": bool(card.get("game_changer")),
         "is_basic_land": name.lower() in BASIC_LAND_NAMES,
         "released_at": card.get("released_at"),
         "updated_at": datetime.now(timezone.utc).isoformat(),
