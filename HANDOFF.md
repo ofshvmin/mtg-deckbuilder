@@ -1,6 +1,6 @@
 # Handoff — MTG Deck Builder
 
-Updated 2026-08-03. Self-contained onboarding for a fresh clone — the project's machine-local
+Updated 2026-08-29. Self-contained onboarding for a fresh clone — the project's machine-local
 memory and per-feature design plans (kept under `~/.claude/`, not in git) have been folded into
 this document.
 
@@ -13,9 +13,9 @@ The app is named **Grimoire** (an MTG Commander deck builder). Everything is **d
 - **Frontend:** React SPA on Vercel — canonical domain **`https://grimoire.dankodev.app`**
   (`mtg-deckbuilder-bice.vercel.app` still resolves; the custom domain is what the app, the
   password-reset links and the outbound User-Agent all point at)
-- **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38K oracle cards, 113K per-printing images, 96K+ combos
+- **Database:** MongoDB Atlas (`mtg_deckbuilder`) — 38.6K oracle cards, 113K per-printing images, 96K+ combos
 - **Git:** `github.com/ofshvmin/mtg-deckbuilder`, branch `main`
-- **Backend tests:** **443 passing** (`pytest` from `backend/` with the venv — no ignores needed)
+- **Backend tests:** **455 passing** (`pytest` from `backend/` with the venv — no ignores needed)
 - **Transactional email:** Resend, sending as `noreply@dankodev.com` (password resets only)
 
 The app: import your card collection, pick a commander, and build a legal, mana-curved, synergy/
@@ -152,6 +152,24 @@ and a per-deck-card `selected_printing_key` — the seams for future value/image
   what happens to the cards. Deleting an **in-use** deck returns its copies to the available pool
   for free — availability is derived per request from the in-use decks that still exist
   (`services/availability.py`), so there is no counter to decrement.
+- **Collection filtering & sorting** (PR #64, web): the browser could filter on a substring of the
+  card name and nothing else. Now filters on text (name + type line + rules text), set, colors,
+  card type, rarity, mana value range, finish, availability, copies owned, and the **Reserved List**
+  / **Game Changers** lists; sorts by name, mana value, copies, value, recently added, color, type,
+  set or rarity — from a dropdown or a column header. All of it is pure functions in
+  `lib/collectionFilter.ts` over cards the page already holds, so no filter costs a round trip.
+  Three things to know:
+  - **Colors have a match mode** — *Any of* / *Exactly* / *At most*. "At most" is the deck-building
+    question (what is legal in these colors) and is why this isn't five toggles. Reads color
+    identity by default; the card's own `colors` are selectable because the two disagree on
+    exactly the cards people go looking for.
+  - **Active filters render as removable chips** with a count. A table quietly missing three
+    thousand cards is a bug report.
+  - **The Free column appears whenever anything is reserved**, not only under "Available only" — a
+    card claimed by more in-use decks than you own reads negative, and that row is precisely the one
+    that filter excludes.
+  Filter state lives in the query string (back button steps through narrowings; a filtered view is
+  a link). The build screen's set picker was lifted into `SetPicker` and is now shared.
 - **Compare Decks** (`/compare`, PR #32): select 2 saved decks on the Decks page → side-by-side
   stats (total, lands, avg MV, bracket), mana curves, shared cards grouped by slot, and cards
   unique to each deck. Selection mode with checkbox overlays + "Compare Selected" button.
@@ -274,13 +292,14 @@ app/
   util.py              — normalize_name, strip_diacritics, printing_key, normalize_finish
 scripts/               — sync_scryfall.py, sync_card_prints.py, sync_spellbook.py, seed_collection.py,
                          premium_exempt.py (grant/revoke/list permanent Premium exemptions)
-tests/                 — pytest (443): csv_formats, mana_math, roles, printings, compose,
-                         external_decks, deck_text, availability, premium, …
+tests/                 — pytest (455): csv_formats, mana_math, roles, printings, compose,
+                         external_decks, deck_text, availability, collection_browser, premium, …
 ```
 
 Key endpoints: `POST /decks/generate` (auto), `POST /decks/compose` (manual — same
 `GeneratedDeckResponse` shape, built from a fixed `oracle_ids` list), `GET /collection/cards`
-(grouped-by-oracle browser data), `GET /explore/commanders` (all-commanders autocomplete),
+(grouped-by-oracle browser data — oracle fields the browser filters on, plus `available` per
+printing and `available_count` per card), `GET /explore/commanders` (all-commanders autocomplete),
 `GET /explore/search` (EDHREC community decks), `GET /explore/precons` + `GET /explore/precon`
 (MTGJSON precons), `GET /explore/deck` (EDHREC/Archidekt URL import), `POST /explore/resolve`
 (resolve external card list against DB), `POST /explore/import` (pasted/uploaded decklist),
@@ -297,14 +316,19 @@ apps/web/src/
   App.tsx                    — routes: /login, /register, /forgot-password, /reset-password, Layout → /, /build, /explore, /decks, /compare
   components/Layout.tsx      — header + NavLinks + Outlet context (summary, saved count)
   pages/
-    CollectionPage.tsx       — import/export/add + CollectionGrid (landing)
+    CollectionPage.tsx       — import/export/add + CollectionFilters + CollectionGrid (landing);
+                               owns filter/sort state, mirrored into the query string
     BuildPage.tsx            — commander → pool → Auto (DeckView) or Manual (ManualBuilder)
     ExplorePage.tsx          — Precons (MTGJSON) + Community (EDHREC) tabs, URL import
     DecksPage.tsx            — saved-deck tiles (commander art) → DeckView; Compare selection mode;
                                Import deck (ImportDeckModal) + delete behind a confirm
     ComparePage.tsx          — side-by-side deck stats, curves, shared/unique cards
   components/
-    CollectionGrid.tsx       — one row per card; row click → CardDetailModal
+    CollectionGrid.tsx       — one row per card; sortable headers, Value + Free columns,
+                               RL/GC badges, paged "Show more"; row click → CardDetailModal
+    CollectionFilters.tsx    — search / sets / colors + match mode / sort, with the rest behind
+                               "More filters"; active filters as removable chips
+    SetPicker.tsx            — multi-select over the sets you own (shared with PoolControls)
     CardDetailModal.tsx      — set banner + image + printing nav + detail panel
     ManualBuilder.tsx        — pool picker + live composed deck (seq-guarded)
     DeckCardList.tsx         — role-grouped masonry list (shared; optional per-row remove; ownership dimming)
@@ -321,11 +345,16 @@ apps/web/src/
     scryfallSets.ts    — /sets fetch (memoized, localStorage 24h) → code→{name, iconSvgUri}
     edhrec.ts          — client-side EDHREC helpers (slug conversion, hash list fetch)
     format.ts          — formatManaCost, COLOR_PIP, formatColorIdentity
+    collectionFilter.ts — collection browser filter predicates, sort comparators, card-type
+                          parsing, value/availability helpers, filter↔query-string round-trip
 ```
 
 ### Database collections
 - `cards` — Scryfall **oracle** cards (one doc per oracle_id; includes card-level `image_uris`).
-  Indexed: name_normalized, color_identity, legal_commander, cmc.
+  Indexed: name_normalized, color_identity, legal_commander, cmc. Also carries `reserved` (WOTC
+  Reserved List — 571 cards, never reprinted) and `game_changer` (WOTC Commander Game Changers —
+  53), both straight from the oracle bulk file; **added 2026-08-18, so they only exist after a
+  `sync_scryfall.py` run.**
 - `card_prints` — per-printing CDN image URLs (~113K docs, seeded from Scryfall `default_cards`
   bulk export). Each doc: scryfall_id, oracle_id, name_lower, set, collector_number, image_uris,
   image_uris_back. Indexed: (set, collector_number), (name_lower, set), oracle_id. Seed:
@@ -474,12 +503,15 @@ style preferences — they are the terms the data arrives with.
 ## Maintenance & data freshness
 
 - Re-sync reference data periodically (~weekly or when new sets drop):
-  - `backend/scripts/sync_scryfall.py` — oracle cards (38K)
+  - `backend/scripts/sync_scryfall.py` — oracle cards (38.6K)
   - `backend/scripts/sync_card_prints.py` — per-printing images + prices + artist (113K, from
     `default_cards` bulk)
   - `backend/scripts/sync_spellbook.py` — combos (96K)
 - These run **from your machine against prod Atlas**, not on the server — no request path triggers
   a sync, so a Fly deploy is never needed to refresh data.
+- **Adding a field to `doc_from_card` is a two-part change**: the code alone does nothing until a
+  re-sync rewrites the 38.6K docs. `reserved` and `game_changer` were added this way (PR #64,
+  re-synced 2026-08-18). Anything reading a new field must tolerate its absence until then.
 - Both Scryfall syncs write with batched upserts then prune, never delete-then-insert, so the
   collections stay readable throughout. Safe to run against a live app.
 - **Scryfall bulk format (changed 2026-08):** the plain-JSON `download_uri` is gone, replaced by a
@@ -543,7 +575,19 @@ cd backend && flyctl deploy
   git worktree remove /tmp/deploy-main
   ```
 - Deploying a branch is fine and has been done (v45 shipped from `third-party-compliance` before it
-  merged) — just know prod is then ahead of `main` until the PR lands.
+  merged, v49 from `collection-filters-backend`) — just know prod is then ahead of `main` until the
+  PR lands.
+- **Order matters when a change spans both.** Vercel ships the instant the PR merges; Fly does not.
+  Deploy the backend **first** — otherwise there is a window where the live web app calls an
+  endpoint or reads a field production doesn't have yet. Either deploy from the branch pre-merge or
+  merge and deploy Fly immediately.
+- ⚠️ **A Fly deploy can change the behaviour of the already-shipped iOS app**, with no new build and
+  no App Review. The binary on people's phones talks to whatever production serves. Adding fields to
+  a response is safe — the client ignores what it doesn't know — but *populating a field it already
+  reads* is a live change. PR #64 did exactly that: `/collection/cards` began setting `available`,
+  and `mobile/src/components/CardDetailModal.tsx` branches on `p.available != null`, so its "Owned
+  Printings" rows went from `×3` to `2/3 free` the moment v49 went out. Before any backend deploy,
+  grep the mobile app for the fields you touched.
 
 ---
 
@@ -702,10 +746,22 @@ Remaining engineering work, all optional:
   market value and deck totals don't depend on per-client Scryfall calls.
 - **Mobile decklist import** — the web has it (`ImportDeckModal` → `POST /explore/import`); mobile
   needs a paste screen against the same endpoint. Delete already shipped on both.
-- **Collection performance** — pagination/virtualization (grid caps at 400 rows today).
+- **Collection performance** — the grid renders 400 rows at a time behind a "Show more", and
+  filtering/sorting is client-side over the whole collection in memory. Fine to a few thousand
+  unique cards; past ~10K it wants virtualization and probably server-side filtering.
+- **Mobile collection filtering** — web has the full filter/sort bar (PR #64); the mobile
+  Collection tab still filters on card name only. The predicates in `lib/collectionFilter.ts` are
+  framework-agnostic and would move to `packages/shared` cleanly.
 - **CI/CD** for the Fly backend (deploys are manual `flyctl deploy`).
-- **Game Changers list refresh** — `app/data/game_changers.json` is the official WOTC list (from
-  Scryfall `is:gamechanger`); re-pull periodically when WOTC revises it (query + update the JSON).
+- **Point brackets at the `game_changer` field** — `app/data/game_changers.json` is a hand-kept
+  copy of the WOTC list, and `services/brackets.py` still resolves it by name. The `cards` docs now
+  carry `game_changer` from Scryfall directly, so bracket scoring could read that and the JSON could
+  go. The two agree today (53 each), so this is cleanup, not a bug — but the JSON drifts the next
+  time WOTC revises the list and the field doesn't.
+- **Per-printing rarity** — the collection's rarity filter reads oracle-level `cards.rarity`, i.e.
+  the rarity of whichever printing Scryfall picked as representative, so a card reprinted at another
+  rarity reads as one value (Black Lotus comes back `bonus`). Exact per-printing rarity means adding
+  `rarity` to `card_prints` and re-running that 113K-doc sync.
 
 ---
 
