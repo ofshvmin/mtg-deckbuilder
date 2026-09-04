@@ -10,7 +10,7 @@ _MANA_SYMBOL = re.compile(r"\{([^}]+)\}")
 # Spellbook, Archidekt, MTGJSON). Scryfall's API policy requires a descriptive
 # one; the others use it to reach us before they resort to blocking. Keep the
 # version in step with the mobile app's `app.json`.
-USER_AGENT = "Grimoire/1.0.0 (https://grimoire.dankodev.app; app.support@dankodev.com)"
+USER_AGENT = "Grimoire/1.1.0 (https://grimoire.dankodev.app; app.support@dankodev.com)"
 
 
 def colors_in_cost(mana_cost: str) -> set[str]:
