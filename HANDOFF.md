@@ -684,12 +684,48 @@ API — the backend needs **no changes** (JWT Bearer + REST work for native; COR
 
 **Screens (MVP, all built):** auth (`login`/`register` + `AuthProvider`), a `(tabs)` group —
 **Home** (stats + quick actions + recent decks), **Collection** (image `FlatList` grid + filter →
-`CardDetailModal`), **Build** (commander search → auto-build with strategy/theme **or** the AI
+`CardDetailModal`, plus **collection import** — see below), **Build** (commander search → auto-build with strategy/theme **or** the AI
 **Describe** brief **with conversational refinement** → save; the hero), **Decks** (commander-art
 tiles + bracket → full-screen `DeckDetailModal`, role-grouped with combos; in-use toggle and
 delete-behind-an-`Alert` per tile).
 
 **Status.** Phases 0–2 complete (auth + read + build). Recent fixes on the branch:
+- **Collection import on mobile** (`src/components/ImportCollectionModal.tsx`) — closes the app's
+  biggest gap: the empty Collection tab used to just tell users to go to the web app, so a
+  mobile-only user had no way to get started at all. Uses **expo-document-picker** (a native module,
+  so it needs `npx expo run:ios`, not just Metro). Three things are easy to get wrong here:
+  - **Upload the file as a Blob, never as RN's `{uri, name, type}` descriptor.** The usual RN advice
+    (pass a uri descriptor to `FormData`) is *wrong on Expo SDK 57*, which replaces the global
+    `fetch` with its WinterCG one (`expo/src/winter/fetch`). Its multipart encoder
+    (`convertFormData.ts`) accepts only strings, `Blob`s, and objects exposing `bytes()`, and throws
+    `Unsupported FormDataPart implementation` on a uri part. Mobile therefore passes an
+    **`expo-file-system` `File`** (`new File(asset.uri)`) — it implements `Blob` and carries its own
+    `name`/`type`, which is what the encoder reads for the part headers. `ApiClient.importCollection`
+    keeps its plain `Blob` signature; Expo's patched `FormData.append` honours the 3-arg
+    `(name, blob, filename)` form, so web and mobile share one code path.
+  - **That failure mode lies to you.** The body is encoded *before* the request is attempted (the
+    `normalizeBodyInitAsync` call sits outside `fetch.ts`'s try/catch), so an encoding bug throws a
+    plain `Error`, never reaches the network, and — under the web component's "anything that isn't an
+    `ApiError` is a network error" rule — got retried 4× and reported as *"Couldn't reach the
+    server"*. It reads exactly like a Fly cold start. The mobile modal now only retries errors whose
+    message starts with `"fetch failed:"` (Expo's `FetchError` prefix); anything else surfaces
+    immediately. **If import ever looks like an outage, check the backend log first — zero
+    `/collection/import` lines with healthy `/health` lines means the bug is client-side.**
+  - **The picker filter is `*/*` on purpose.** iOS maps `type` to UTIs, and CSVs arriving via iCloud
+    Drive, AirDrop or a mail attachment are routinely typed `public.data`. A strict MIME allowlist
+    greys out the user's own file in the picker with no explanation, so the extension is checked in
+    JS afterwards instead, where the rejection can say why. `copyToCacheDirectory: true` gives a
+    stable `file://` — the RN analogue of the web component's `arrayBuffer()` workaround.
+  - **Home refetches on focus now** (`useFocusEffect`). It used to load its stats once on mount, so
+    a collection imported from the Collection tab left Home reading "0 cards" until an app restart.
+  - **No `app.json` plugin entry, deliberately.** expo-document-picker's config plugin only injects
+    iCloud entitlements when `ios.usesIcloudStorage` is set (`plugin/build/withDocumentPickerIOS.js`).
+    Leaving it unset means **no new capability and no provisioning-profile change** — reading a
+    user-picked iCloud Drive file works without the entitlement.
+
+  The scale-to-zero wake-up + retry ladder from the web `ImportCollection` is carried over verbatim;
+  it matters *more* on mobile, since picking a file is a long enough pause for the Fly machine to
+  autostop. Import **replaces** the collection, so a populated one is confirmed behind an `Alert`.
 - **AI-brief refinement** ported from web (transcript + "refine" input → rebuild via prior spec).
 - **Home** shows the true saved-deck count and opens a tapped recent deck directly.
 - **NativeWind was wired up** — it had been configured but never activated (no `babel.config.js`, Metro
@@ -758,8 +794,8 @@ Commander-only and read-mostly; the backend already supports everything below.
   Commander — commander search *is* the entry point to its Build tab, so this is a real screen
   restructure, not a dropdown: the non-Commander formats have no commander step and use
   colors + `deck_size`/`max_copies` instead.
-- **Collection editing on mobile** — no `importCollection`, `addCard`, `removeCard`, or
-  `batchAddToCollection`. The empty-collection screen tells users to go to the web app.
+- **Collection editing on mobile** — `importCollection` shipped (see below); still no `addCard`,
+  `removeCard`, or `batchAddToCollection`, so cards can only be added a whole file at a time.
 - **Mobile decklist import** — web has it (`ImportDeckModal` → `POST /explore/import`); mobile needs
   a paste screen against the same endpoint. Delete already shipped on both.
 - **Mobile collection filtering** — web got the full filter/sort bar (PR #64); mobile still filters

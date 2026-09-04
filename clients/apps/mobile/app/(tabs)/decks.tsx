@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import type { GeneratedDeck, SavedDeckSummary } from "@mtg/shared";
 import { api } from "../../src/lib/api";
 import { CommanderArtImage } from "../../src/components/CardImage";
@@ -9,6 +9,7 @@ import DeckDetailModal from "../../src/components/DeckDetailModal";
 export default function DecksScreen() {
   const [decks, setDecks] = useState<SavedDeckSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [openDeck, setOpenDeck] = useState<
     { id: string; name: string; deck: GeneratedDeck; inUse: boolean } | null
   >(null);
@@ -17,10 +18,27 @@ export default function DecksScreen() {
   const { open } = useLocalSearchParams<{ open?: string }>();
 
   const loadDecks = useCallback(() => {
-    api.listSavedDecks().then(setDecks).catch(() => setDecks([])).finally(() => setLoading(false));
+    return api
+      .listSavedDecks()
+      .then((d) => {
+        setDecks(d);
+        setLoadFailed(false);
+      })
+      // Don't collapse a failed fetch into an empty list: the empty state says
+      // "No saved decks yet", which is a confident lie when the request simply
+      // didn't come back, and it sends you looking for a deck that saved fine.
+      .catch(() => setLoadFailed(true))
+      .finally(() => setLoading(false));
   }, []);
 
-  useEffect(loadDecks, [loadDecks]);
+  // On focus, not just on mount — decks are saved from the Build tab, and this
+  // screen is already mounted by then, so a mount-only fetch leaves a freshly
+  // saved deck invisible until the app restarts.
+  useFocusEffect(
+    useCallback(() => {
+      void loadDecks();
+    }, [loadDecks]),
+  );
 
   const openDeckById = useCallback(async (id: string) => {
     setOpening(true);
@@ -134,9 +152,30 @@ export default function DecksScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16, gap: 12 }}
         ListEmptyComponent={
-          <Text className="text-center text-sm text-slate-500">
-            No saved decks yet — build one from the Build tab.
-          </Text>
+          loadFailed ? (
+            <View className="items-center">
+              <Text className="text-center text-sm text-slate-400">
+                Couldn't load your decks.
+              </Text>
+              <Text className="mt-1 text-center text-xs text-slate-500">
+                Your saved decks are safe — this is a connection problem.
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setLoading(true);
+                  loadDecks();
+                }}
+                activeOpacity={0.8}
+                className="mt-4 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2"
+              >
+                <Text className="text-sm font-medium text-slate-200">Try again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text className="text-center text-sm text-slate-500">
+              No saved decks yet — build one from the Build tab.
+            </Text>
+          )
         }
         renderItem={({ item }) => (
           <TouchableOpacity

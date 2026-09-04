@@ -1,6 +1,15 @@
-import { Image } from "expo-image";
+import { Image, type ImageContentPosition } from "expo-image";
 import { Text } from "react-native";
 import type { Printing } from "@mtg/shared";
+
+// Scryfall art_crops are 626×457 (~1.37:1); the deck banners are ~3:1, so cover
+// shows only the middle ~44% of the art's height. Centered, that reliably
+// decapitates the subject — MTG illustrations put the face and the action in
+// roughly the top third, not the middle. Biasing to 30% (CSS object-position
+// `50% 30%`) shifts the visible band to ~13–58% of the art, which frames the
+// subject on art that was previously cut off without pushing the well-centered
+// pieces off the top. Checked against real art crops rather than guessed.
+const ART_FOCUS: ImageContentPosition = { top: "30%", left: "50%" };
 
 type Size = "small" | "normal" | "large" | "art_crop";
 
@@ -67,10 +76,13 @@ export function CommanderArtImage({
   style,
   artCropUrl,
   artist,
+  contentPosition = ART_FOCUS,
 }: {
   name: string;
   className?: string;
   style?: object;
+  /** Override the default top-biased focus for an unusually composed banner. */
+  contentPosition?: ImageContentPosition;
   // Required, not optional: this renders nothing without a url, so an omitted
   // prop is a silently blank banner. Making it explicit means the compiler
   // catches a caller that forgets it — which is how the Decks tab shipped with
@@ -85,6 +97,7 @@ export function CommanderArtImage({
       <Image
         source={{ uri: artCropUrl }}
         contentFit="cover"
+        contentPosition={contentPosition}
         transition={300}
         className={className}
         style={style}

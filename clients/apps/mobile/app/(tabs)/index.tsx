@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import type { CollectionSummary, SavedDeckSummary } from "@mtg/shared";
 import { DATA_SOURCE_NOTICE, FAN_CONTENT_NOTICE } from "@mtg/shared";
 import { api } from "../../src/lib/api";
@@ -14,17 +14,22 @@ export default function HomeScreen() {
   const [deckCount, setDeckCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    Promise.all([
-      api.collectionSummary().then(setSummary).catch(() => null),
-      api.listSavedDecks()
-        .then((d) => {
-          setDeckCount(d.length);
-          setRecent([...d].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)).slice(0, 4));
-        })
-        .catch(() => []),
-    ]).finally(() => setLoading(false));
-  }, []);
+  // Refetch on focus, not just on mount: importing a collection or saving a
+  // deck happens on another tab, and Home would otherwise keep showing the
+  // counts from app launch — a fresh import reads as "0 cards" until restart.
+  useFocusEffect(
+    useCallback(() => {
+      Promise.all([
+        api.collectionSummary().then(setSummary).catch(() => null),
+        api.listSavedDecks()
+          .then((d) => {
+            setDeckCount(d.length);
+            setRecent([...d].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)).slice(0, 4));
+          })
+          .catch(() => []),
+      ]).finally(() => setLoading(false));
+    }, []),
+  );
 
   const greeting = user?.email?.split("@")[0] ?? "there";
 
