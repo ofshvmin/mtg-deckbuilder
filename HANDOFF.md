@@ -718,6 +718,23 @@ delete-behind-an-`Alert` per tile).
     stable `file://` — the RN analogue of the web component's `arrayBuffer()` workaround.
   - **Home refetches on focus now** (`useFocusEffect`). It used to load its stats once on mount, so
     a collection imported from the Collection tab left Home reading "0 cards" until an app restart.
+  - **`expo-file-system` is pinned to an exact `57.0.0`, and must stay pinned.** `npx expo install
+    expo-file-system` resolves to the newest release in `~57.0.0` (57.0.6 at the time), whose
+    compiled framework references `ExpoModulesCore.BaseModule.willDestroy()`. That method does not
+    exist in the `expo-modules-core@57.0.3` bundled with this project's `expo@57.0.4`, so dyld
+    aborts **at launch** before any JS runs:
+    `Termination Reason: DYLD 4 Symbol missing … Referenced from: ExpoFileSystem.framework`.
+    Build 14 shipped to TestFlight this way and crashed on open. `npx expo install --check` does
+    *not* flag it — it instead wants the whole SDK moved to 57.0.20 / RN 0.86.3, which is a separate
+    piece of work. If you ever do that upgrade, the pin can be relaxed.
+  - **A JS-only reload does not re-link native modules — and that is how the above shipped.**
+    `npx expo install <native module>` changes `package.json`, but the existing `ios/Podfile.lock`
+    keeps pointing at whatever was resolved before (here, the *nested* `expo/node_modules/
+    expo-file-system` at 57.0.0, which happened to be compatible). The simulator therefore ran a
+    binary that did not match the manifest and looked fine, while EAS did a clean prebuild and got
+    the broken pairing. **After touching a native dependency, `rm -rf ios && npx expo run:ios
+    --configuration Release` before trusting any result** — clean pods, and Release rather than
+    Debug. Both are free; a cloud build is not.
   - **No `app.json` plugin entry, deliberately.** expo-document-picker's config plugin only injects
     iCloud entitlements when `ios.usesIcloudStorage` is set (`plugin/build/withDocumentPickerIOS.js`).
     Leaving it unset means **no new capability and no provisioning-profile change** — reading a
