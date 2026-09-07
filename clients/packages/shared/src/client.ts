@@ -177,6 +177,15 @@ export class ApiClient {
     return this.request<CardSearchResult[]>("GET", `/collection/search-cards${qs}`);
   }
 
+  /**
+   * `file` must be a real `Blob` (web) or something implementing it — notably
+   * **not** React Native's `{uri, name, type}` descriptor. Expo replaces the
+   * global `fetch` with a WinterCG one whose multipart encoder accepts only
+   * strings, Blobs, and objects exposing `bytes()`, and throws "Unsupported
+   * FormDataPart implementation" on a `uri` part. Mobile passes an
+   * `expo-file-system` `File`, which implements Blob and carries its own
+   * `name`/`type`.
+   */
   importCollection(file: Blob, filename = "collection.csv", format?: string): Promise<ImportResult> {
     const form = new FormData();
     form.append("file", file, filename);

@@ -684,12 +684,65 @@ API — the backend needs **no changes** (JWT Bearer + REST work for native; COR
 
 **Screens (MVP, all built):** auth (`login`/`register` + `AuthProvider`), a `(tabs)` group —
 **Home** (stats + quick actions + recent decks), **Collection** (image `FlatList` grid + filter →
-`CardDetailModal`), **Build** (commander search → auto-build with strategy/theme **or** the AI
+`CardDetailModal`, plus **collection import** — see below), **Build** (commander search → auto-build with strategy/theme **or** the AI
 **Describe** brief **with conversational refinement** → save; the hero), **Decks** (commander-art
 tiles + bracket → full-screen `DeckDetailModal`, role-grouped with combos; in-use toggle and
 delete-behind-an-`Alert` per tile).
 
 **Status.** Phases 0–2 complete (auth + read + build). Recent fixes on the branch:
+- **Collection import on mobile** (`src/components/ImportCollectionModal.tsx`) — closes the app's
+  biggest gap: the empty Collection tab used to just tell users to go to the web app, so a
+  mobile-only user had no way to get started at all. Uses **expo-document-picker** (a native module,
+  so it needs `npx expo run:ios`, not just Metro). Three things are easy to get wrong here:
+  - **Upload the file as a Blob, never as RN's `{uri, name, type}` descriptor.** The usual RN advice
+    (pass a uri descriptor to `FormData`) is *wrong on Expo SDK 57*, which replaces the global
+    `fetch` with its WinterCG one (`expo/src/winter/fetch`). Its multipart encoder
+    (`convertFormData.ts`) accepts only strings, `Blob`s, and objects exposing `bytes()`, and throws
+    `Unsupported FormDataPart implementation` on a uri part. Mobile therefore passes an
+    **`expo-file-system` `File`** (`new File(asset.uri)`) — it implements `Blob` and carries its own
+    `name`/`type`, which is what the encoder reads for the part headers. `ApiClient.importCollection`
+    keeps its plain `Blob` signature; Expo's patched `FormData.append` honours the 3-arg
+    `(name, blob, filename)` form, so web and mobile share one code path.
+  - **That failure mode lies to you.** The body is encoded *before* the request is attempted (the
+    `normalizeBodyInitAsync` call sits outside `fetch.ts`'s try/catch), so an encoding bug throws a
+    plain `Error`, never reaches the network, and — under the web component's "anything that isn't an
+    `ApiError` is a network error" rule — got retried 4× and reported as *"Couldn't reach the
+    server"*. It reads exactly like a Fly cold start. The mobile modal now only retries errors whose
+    message starts with `"fetch failed:"` (Expo's `FetchError` prefix); anything else surfaces
+    immediately. **If import ever looks like an outage, check the backend log first — zero
+    `/collection/import` lines with healthy `/health` lines means the bug is client-side.**
+  - **The picker filter is `*/*` on purpose.** iOS maps `type` to UTIs, and CSVs arriving via iCloud
+    Drive, AirDrop or a mail attachment are routinely typed `public.data`. A strict MIME allowlist
+    greys out the user's own file in the picker with no explanation, so the extension is checked in
+    JS afterwards instead, where the rejection can say why. `copyToCacheDirectory: true` gives a
+    stable `file://` — the RN analogue of the web component's `arrayBuffer()` workaround.
+  - **Home refetches on focus now** (`useFocusEffect`). It used to load its stats once on mount, so
+    a collection imported from the Collection tab left Home reading "0 cards" until an app restart.
+  - **`expo-file-system` is pinned to an exact `57.0.0`, and must stay pinned.** `npx expo install
+    expo-file-system` resolves to the newest release in `~57.0.0` (57.0.6 at the time), whose
+    compiled framework references `ExpoModulesCore.BaseModule.willDestroy()`. That method does not
+    exist in the `expo-modules-core@57.0.3` bundled with this project's `expo@57.0.4`, so dyld
+    aborts **at launch** before any JS runs:
+    `Termination Reason: DYLD 4 Symbol missing … Referenced from: ExpoFileSystem.framework`.
+    Build 14 shipped to TestFlight this way and crashed on open. `npx expo install --check` does
+    *not* flag it — it instead wants the whole SDK moved to 57.0.20 / RN 0.86.3, which is a separate
+    piece of work. If you ever do that upgrade, the pin can be relaxed.
+  - **A JS-only reload does not re-link native modules — and that is how the above shipped.**
+    `npx expo install <native module>` changes `package.json`, but the existing `ios/Podfile.lock`
+    keeps pointing at whatever was resolved before (here, the *nested* `expo/node_modules/
+    expo-file-system` at 57.0.0, which happened to be compatible). The simulator therefore ran a
+    binary that did not match the manifest and looked fine, while EAS did a clean prebuild and got
+    the broken pairing. **After touching a native dependency, `rm -rf ios && npx expo run:ios
+    --configuration Release` before trusting any result** — clean pods, and Release rather than
+    Debug. Both are free; a cloud build is not.
+  - **No `app.json` plugin entry, deliberately.** expo-document-picker's config plugin only injects
+    iCloud entitlements when `ios.usesIcloudStorage` is set (`plugin/build/withDocumentPickerIOS.js`).
+    Leaving it unset means **no new capability and no provisioning-profile change** — reading a
+    user-picked iCloud Drive file works without the entitlement.
+
+  The scale-to-zero wake-up + retry ladder from the web `ImportCollection` is carried over verbatim;
+  it matters *more* on mobile, since picking a file is a long enough pause for the Fly machine to
+  autostop. Import **replaces** the collection, so a populated one is confirmed behind an `Alert`.
 - **AI-brief refinement** ported from web (transcript + "refine" input → rebuild via prior spec).
 - **Home** shows the true saved-deck count and opens a tapped recent deck directly.
 - **NativeWind was wired up** — it had been configured but never activated (no `babel.config.js`, Metro
@@ -720,48 +773,120 @@ notifications, offline caching, Android polish.
 
 ---
 
-## What to work on next
+## Backlog
 
-The **original 6-phase plan is complete**, plus a large second wave (see *Shipped 2026-07-10 →
-07-12* above).
+The **original 6-phase plan is complete**, plus several large waves since (see *What's built*).
+This is the single backlog — there are no GitHub issues and no other TODO file. Roughly ordered
+within each group; nothing here is committed to a date.
 
-**Open items that are not code** (from the 2026-08-03 third-party audit — these block nothing
-technically but two of them are addresses the shipped app already points users at):
+### Blocked on someone, not on code
 
 - **`app.support@dankodev.com` does not exist.** It is the contact in the outbound `User-Agent`
   every third-party API sees, and appears nine times across `privacy.html`, `terms.html` and
   `support.html` — including the GDPR data-rights channel and the password-recovery fallback.
   Create it as a Google Workspace alias (free, no extra seat) on `daniel@dankodev.com`.
-- **`appstore.review@dankodev.com` bounces** — it is a Grimoire account with no mailbox behind it,
+- **`appstore.review@dankodev.com` bounces** — a Grimoire account with no mailbox behind it,
   confirmed by a real send. If Apple's reviewers ever need a password reset they are stuck.
-- **Mobile Fan Content notice needs an EAS build** to reach users — it is a native change, so
-  unlike the web footer it does not ship on merge.
+- **`terms.html` describes no subscription at all** — zero mentions of billing, auto-renewal,
+  cancellation or refunds, while the app sells an auto-renewing subscription. Apple's standard EULA
+  in the App Description satisfies review; the page still doesn't describe what the app does.
 
-Remaining engineering work, all optional:
+### Correctness & compliance gaps found by comparing the two clients (2026-08-29)
+
+- **Web has no account deletion.** `deleteAccount` is wired on mobile only (`app/account.tsx`),
+  because Apple requires it. Web users have no self-service path, and `privacy.html` promises data
+  rights. The endpoint (`DELETE /auth/me`) already exists — this is a Settings page button.
+- **Mobile has no password reset.** `forgotPassword` is web-only. A user who forgets their password
+  on iOS has no in-app route back in. Backend endpoints already exist.
+- **Mobile can't edit preferences.** `updatePreferences` is web-only, so the max-card-price cap that
+  gates upgrade suggestions can only be set on the web.
+
+### Feature parity: mobile trails web
+
+Backed by an API-surface diff (`shared/src/client.ts` methods called by each app). Mobile is
+Commander-only and read-mostly; the backend already supports everything below.
+
+- **Standard and Legacy on mobile.** The backend serves three formats (`services/formats.py`:
+  Commander 99, Standard 60, Legacy 60) and the web has a picker via `listFormats`. Mobile hardcodes
+  Commander — commander search *is* the entry point to its Build tab, so this is a real screen
+  restructure, not a dropdown: the non-Commander formats have no commander step and use
+  colors + `deck_size`/`max_copies` instead.
+- **Collection editing on mobile** — `importCollection` shipped (see below); still no `addCard`,
+  `removeCard`, or `batchAddToCollection`, so cards can only be added a whole file at a time.
+- **Mobile decklist import** — web has it (`ImportDeckModal` → `POST /explore/import`); mobile needs
+  a paste screen against the same endpoint. Delete already shipped on both.
+- **Mobile collection filtering** — web got the full filter/sort bar (PR #64); mobile still filters
+  on card name alone. The predicates in `web/src/lib/collectionFilter.ts` are framework-agnostic and
+  would move to `packages/shared` cleanly.
+- **No Explore tab on mobile** — precons, EDHREC community decks and URL import are web-only
+  (`fetchPrecon`, `searchPrecons`, `searchExternalDecks`, `fetchEdhrecDeck`, `fetchExternalDeck`).
+- **No Compare, no manual builder, no upgrades/combo-finishers on mobile** — `composeDeck`,
+  `getUpgrades`, `getComboFinishers` are all web-only. Playtest and the scavenger PDF are too.
+
+### Android
+
+The code is closer than the tooling. `app.json` already has `android.package = com.grimoire.mtg`
+and a full adaptive-icon set, and `PremiumContext.tsx` already reads
+`EXPO_PUBLIC_REVENUECAT_ANDROID_KEY`. What's missing:
+
+- **Google Play developer account** ($25 one-time) and a Play Console app entry.
+- **`eas.json` has no Android anywhere** — no `android` block in any build profile, and
+  `submit.production` is iOS-only. Needs a Play service-account JSON for `eas submit`.
+- **RevenueCat Android** — the key is read but never set (only `EXPO_PUBLIC_REVENUECAT_IOS_KEY` is
+  in `eas.json`), and Play Billing products/entitlements need creating on the RevenueCat side.
+  Until then the paywall shows no packages on Android, exactly as it does for local iOS builds.
+- **Store listing**: feature graphic (1024×500), Android screenshot sizes, Data Safety form,
+  content rating questionnaire. Privacy policy URL already exists.
+- Budget cloud build quota for this — see the EAS discipline note in `CLAUDE.md`.
+
+### SEO (web)
+
+Worth knowing before estimating: **there is currently nothing for a crawler to index.** The app is
+a client-rendered SPA behind `clients/vercel.json`'s catch-all rewrite to `index.html`, and every
+route is auth-gated, so a crawler following any URL sees the login screen. `index.html` carries only
+charset, viewport, favicon and a title — no description, no Open Graph or Twitter tags, so shared
+links have no preview. There is no `robots.txt` and no `sitemap.xml`.
+
+Meta tags are the easy half hour; they will not move rankings on their own. The real question is
+whether to publish **crawlable content** — a marketing landing page at `/`, and possibly public
+read-only pages (a deck a user chooses to share, or per-commander pages built from data already in
+Mongo). That is a product decision about what Grimoire exposes publicly, and it should be made
+before anyone tunes a meta description.
+
+### Engineering health
+
+- **No CI at all.** There is no `.github/workflows`. 455 backend tests exist and run only when
+  someone remembers; a PR can merge red. A workflow running `pytest` plus both `tsc --noEmit`s is
+  the highest-leverage item in this section.
+- **No web test tooling.** Zero component tests — `clients/apps/web` has no test runner, so React
+  behaviour is verified by hand each time. Vitest + Testing Library.
+- **No error monitoring.** Backend exceptions live in Fly logs and nothing aggregates or alerts;
+  a 500 in production is invisible unless a user reports it.
+- **No analytics.** No signal about which features are used, so this backlog is ordered by
+  intuition rather than evidence.
+- **No rate limiting** on auth endpoints.
+- **CI/CD for the Fly backend** — deploys are a manual `flyctl deploy` from a working directory,
+  which is the deploy hazard documented under *Deployment*.
+
+### Product / engine
 
 - **AI deck brief — Phase 2:** conversational refinement ("lower the curve / cut the combos / more
   draw" adjusts the spec and rebuilds), unowned "acquire" suggestions from the brief (max-price
   capped), streaming the rationale, tool-use grounding (`search_owned_pool`), a *hard* combo-avoid.
-- **Server-side printing catalog — Phase 2** — `card_prints` handles images; next add **prices** so
-  market value and deck totals don't depend on per-client Scryfall calls.
-- **Mobile decklist import** — the web has it (`ImportDeckModal` → `POST /explore/import`); mobile
-  needs a paste screen against the same endpoint. Delete already shipped on both.
-- **Collection performance** — the grid renders 400 rows at a time behind a "Show more", and
-  filtering/sorting is client-side over the whole collection in memory. Fine to a few thousand
-  unique cards; past ~10K it wants virtualization and probably server-side filtering.
-- **Mobile collection filtering** — web has the full filter/sort bar (PR #64); the mobile
-  Collection tab still filters on card name only. The predicates in `lib/collectionFilter.ts` are
-  framework-agnostic and would move to `packages/shared` cleanly.
-- **CI/CD** for the Fly backend (deploys are manual `flyctl deploy`).
-- **Point brackets at the `game_changer` field** — `app/data/game_changers.json` is a hand-kept
-  copy of the WOTC list, and `services/brackets.py` still resolves it by name. The `cards` docs now
-  carry `game_changer` from Scryfall directly, so bracket scoring could read that and the JSON could
-  go. The two agree today (53 each), so this is cleanup, not a bug — but the JSON drifts the next
-  time WOTC revises the list and the field doesn't.
+- **Empty-collection onboarding** — a new account lands on an import screen with no sample data and
+  no way to try the builder first.
+- **Point brackets at the `game_changer` field** — `app/data/game_changers.json` is a hand-kept copy
+  of the WOTC list and `services/brackets.py` still resolves it by name. The `cards` docs now carry
+  `game_changer` from Scryfall directly. The two agree today (53 each), so this is cleanup, not a
+  bug — but the JSON drifts on the next WOTC revision and the field doesn't.
 - **Per-printing rarity** — the collection's rarity filter reads oracle-level `cards.rarity`, i.e.
   the rarity of whichever printing Scryfall picked as representative, so a card reprinted at another
   rarity reads as one value (Black Lotus comes back `bonus`). Exact per-printing rarity means adding
   `rarity` to `card_prints` and re-running that 113K-doc sync.
+- **Collection scale** — the grid renders 400 rows at a time behind a "Show more", and filtering /
+  sorting is client-side over the whole collection in memory. Fine to a few thousand unique cards;
+  past ~10K it wants virtualization and probably server-side filtering.
+- **Accessibility pass** on the web app — keyboard paths and contrast have never been audited.
 
 ---
 
@@ -773,7 +898,7 @@ Remaining engineering work, all optional:
   the Atlas URI + a generated `JWT_SECRET` (real values are not in git).
 - **Machine-local artifacts are now captured here.** Per-feature **design plans** lived under
   `~/.claude/plans/` and are transient — each has been implemented and shipped; their forward-looking
-  items are in **What to work on next** above. Project **memory** under `~/.claude/` (architecture
+  items are in the **Backlog** above. Project **memory** under `~/.claude/` (architecture
   decisions, the printing/inventory model + roadmap, the visual-verification recipe, the macOS SSL
   fix, deployment/workflow, engine caveats, and working preferences) has been folded into this
   document, so a fresh clone needs nothing from those files.
