@@ -46,6 +46,53 @@ export interface ApiClientOptions {
   onUnauthorized?: () => void;
 }
 
+/** One entry of FastAPI's 422 `detail` array. */
+interface ValidationDetail {
+  loc?: unknown[];
+  msg?: string;
+}
+
+/**
+ * Turn an error body into something worth showing a person.
+ *
+ * FastAPI sends `detail` two different ways: a plain string for the errors we
+ * raise ourselves (`"Invalid email or password."`), and an **array of objects**
+ * for request-validation failures (422). Reading `.detail` as a string and
+ * handing it to `new Error()` let the array through, where `String([{…}])`
+ * rendered it as the useless `"[object Object]"` — which is what the mobile
+ * login screen showed anyone who mistyped their email.
+ *
+ * Validation messages are phrased for API clients and can echo the submitted
+ * value, so only the `msg` text is surfaced and the field name is prefixed
+ * where we have one. The untouched body stays on `ApiError.body` for callers
+ * that want the details.
+ */
+function errorMessage(body: unknown, status: number): string {
+  const fallback = `Request failed (${status})`;
+  const detail = (body as { detail?: unknown } | null)?.detail;
+
+  if (typeof detail === "string" && detail) return detail;
+
+  if (Array.isArray(detail)) {
+    const parts = (detail as ValidationDetail[])
+      .map((d) => {
+        if (!d?.msg) return null;
+        // `loc` is like ["body", "email"] — the last segment is the field.
+        const field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : undefined;
+        return typeof field === "string" && field !== "body"
+          ? `${field}: ${d.msg}`
+          : d.msg;
+      })
+      .filter((m): m is string => !!m);
+    if (parts.length) return parts.join("\n");
+  }
+
+  // Some errors put a bare string in the body, or nothing usable at all.
+  if (typeof body === "string" && body.trim()) return body;
+
+  return fallback;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string, public body?: unknown) {
     super(message);
@@ -457,9 +504,7 @@ export class ApiClient {
 
     if (!res.ok) {
       const errBody = await this.safeJson(res);
-      const message =
-        (errBody as { detail?: string })?.detail || `Request failed (${res.status})`;
-      throw new ApiError(res.status, message, errBody);
+      throw new ApiError(res.status, errorMessage(errBody, res.status), errBody);
     }
 
     return (await this.safeJson(res)) as T;

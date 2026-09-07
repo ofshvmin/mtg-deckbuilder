@@ -311,6 +311,14 @@ CRUD + export.
 packages/shared/src/
   types.ts   — API types (GeneratedDeck, CollectionCard, Printing, …)
   client.ts  — framework-agnostic ApiClient w/ token refresh (composeDeck, listCollectionCards, …)
+               `errorMessage()` normalizes FastAPI's TWO `detail` shapes before it reaches
+               `new ApiError()`: a plain string for errors we raise, and an ARRAY of objects
+               for 422 request-validation failures. Reading `.detail` as a string let the
+               array reach `new Error()`, where `String([{…}])` rendered every 422 in both
+               clients as `[object Object]` — the mobile login screen showed exactly that to
+               anyone who mistyped their email. Only each entry's `msg` is surfaced (the
+               validation text can echo the submitted value); the raw body stays on
+               `ApiError.body`. Don't type `detail` as `string`.
 
 apps/web/src/
   App.tsx                    — routes: /login, /register, /forgot-password, /reset-password, Layout → /, /build, /explore, /decks, /compare
@@ -660,6 +668,14 @@ delete the throwaway user's `users` + `collection_items` + `decks` docs.
   calls are unavoidably anonymous — the policy targets server-side/bulk traffic, which we do control.
 - Mobile has **no forgot-password entry point** — the link exists only in the web `AuthForm`. An iOS
   user who forgets their password must use the web app or email support.
+- **Login has no cold-start retry, so a sleeping Fly machine looks like a broken app.** Observed on
+  the simulator against production 2026-09-07: the first sign-in after the machine autostops fails
+  with Expo's `fetch failed: Could not connect to the server.` and the user is simply stuck on the
+  login screen; a second tap works. This is the *first* screen a returning user sees, and
+  `min_machines_running=0` means it is a routine occurrence, not an edge case. `ImportCollectionModal`
+  already solves exactly this (wake-up ping + `[1500, 3000, 4500]` backoff, retrying only errors
+  prefixed `"fetch failed:"`) — the retry belongs in `ApiClient.request` so every call gets it, rather
+  than being copied per screen.
 - Mobile: `overflow-x: hidden` must be on `<html>` element (iOS Safari ignores it on inner divs).
   Mana costs and printing chips are hidden on mobile card rows to save horizontal space.
 - **Engine caveats (by design, revisit later):** the mana-source model is raw no-mulligan
@@ -673,7 +689,16 @@ delete the throwaway user's `users` + `collection_items` + `decks` docs.
 ## iOS / mobile app (React Native + Expo) — merged to `main`
 
 A native mobile app lives at **`clients/apps/mobile`** (an `@mtg/mobile` workspace member), now on
-**`main`** and in App Store submission prep (RevenueCat purchases wired up — see *Freemium* above).
+**`main`** and **shipped**: **1.0 went live on the App Store 2026-08-29** (build 13), and **1.1.0
+(build 15, collection import) is Waiting for Review** as of 2026-09-07, set to *manual* release.
+RevenueCat purchases wired up — see *Freemium* above.
+
+**Version strings can no longer be reused.** Apple only allows that while a version is unreleased,
+which stopped being true on 2026-08-29 — every release now needs a new `version` in
+`clients/apps/mobile/app.json` (and `backend/app/util.py`'s `USER_AGENT` in step with it). To check
+what is actually live without App Store Connect credentials:
+`curl -s "https://itunes.apple.com/lookup?id=6794916987&country=us"` — `resultCount: 0` means not
+publicly released; otherwise `version` and `currentVersionReleaseDate` tell you what shipped.
 It reuses `@mtg/shared` (the `ApiClient` + types) unchanged against the live Fly
 API — the backend needs **no changes** (JWT Bearer + REST work for native; CORS is browser-only).
 
@@ -867,6 +892,16 @@ before anyone tunes a meta description.
 - **No rate limiting** on auth endpoints.
 - **CI/CD for the Fly backend** — deploys are a manual `flyctl deploy` from a working directory,
   which is the deploy hazard documented under *Deployment*.
+- **The Expo SDK patch set has drifted, and it already cost a broken release.** `expo@57.0.4`
+  against an ecosystem at **57.0.20**, `react-native@0.86.0` vs **0.86.3**, plus expo-image,
+  expo-router, expo-secure-store, expo-status-bar and react-native-safe-area-context
+  (`npx expo install --check` lists all of them). This is not cosmetic: a fresh
+  `npx expo install expo-file-system` resolved a build compiled against a newer `ExpoModulesCore`
+  than `expo@57.0.4` ships, and TestFlight build 14 died at launch on a missing Swift symbol.
+  `expo-file-system` is pinned to an exact `57.0.0` as a guard, but **every future native module
+  install hits the same trap** until the SDK is moved forward together. Do it as its own change
+  with a clean `rm -rf ios` Release rebuild and a full pass on device — not bundled into a
+  feature release. The pin can be relaxed afterwards.
 
 ### Product / engine
 
