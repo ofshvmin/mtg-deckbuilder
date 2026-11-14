@@ -84,9 +84,12 @@ def is_premium(user: dict) -> bool:
     The `premium` sub-document is maintained by RevenueCat webhooks. A lifetime
     (non-expiring) purchase stores `expires_at = None`; subscriptions store the
     period end, so we treat an active entitlement as lapsed once it passes.
-    Exempt accounts (see `is_premium_exempt`) are Premium unconditionally.
+    Exempt accounts (see `is_premium_exempt`) are Premium unconditionally, and a
+    redeemed promo code (see `promo_premium_until`) grants it until its end date.
     """
     if is_premium_exempt(user):
+        return True
+    if promo_premium_until(user):
         return True
     premium = user.get("premium") or {}
     if not premium.get("active"):
@@ -98,6 +101,63 @@ def is_premium(user: dict) -> bool:
         return datetime.fromisoformat(expires_at) > datetime.now(timezone.utc)
     except (ValueError, TypeError):
         return False
+
+
+def promo_premium_until(user: dict) -> str | None:
+    """End of the user's promo-code Premium, if it is still running.
+
+    Kept in its own `promo` sub-document rather than `premium`: the RevenueCat
+    webhook overwrites `premium` wholesale, which would wipe a free year the
+    moment the user's (absent) subscription synced.
+    """
+    until = (user.get("promo") or {}).get("until")
+    if not until:
+        return None
+    try:
+        return until if datetime.fromisoformat(until) > datetime.now(timezone.utc) else None
+    except (ValueError, TypeError):
+        return None
+
+
+async def reserve_promo(db: AsyncDatabase, user_id: str, promo: dict) -> bool:
+    """Record a promo redemption on the user, unless they already have one.
+
+    Conditional on `promo` being absent, so it doubles as the one-code-per-account
+    lock: it runs *before* the code is claimed, and a second concurrent redemption
+    by the same user fails here instead of burning a second card.
+    """
+    result = await db.users.update_one(
+        {"_id": user_id, "promo": {"$exists": False}}, {"$set": {"promo": promo}}
+    )
+    return result.modified_count > 0
+
+
+async def release_promo(db: AsyncDatabase, user_id: str, code: str) -> None:
+    """Undo `reserve_promo` when the code itself turned out to be taken."""
+    await db.users.update_one({"_id": user_id, "promo.code": code}, {"$unset": {"promo": ""}})
+
+
+async def record_promo_failure(db: AsyncDatabase, user: dict, window_seconds: int) -> int:
+    """Count a failed redemption in the user's current window; return the new count."""
+    count = promo_failures_in_window(user, window_seconds) + 1
+    window_start = user["promo_failures"]["window_start"] if count > 1 else _now_iso()
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"promo_failures": {"count": count, "window_start": window_start}}},
+    )
+    return count
+
+
+def promo_failures_in_window(user: dict, window_seconds: int) -> int:
+    """Failed redemptions in the user's current window (0 once it has elapsed)."""
+    failures = user.get("promo_failures") or {}
+    try:
+        started = datetime.fromisoformat(failures.get("window_start", ""))
+    except (ValueError, TypeError):
+        return 0
+    if (datetime.now(timezone.utc) - started).total_seconds() >= window_seconds:
+        return 0
+    return failures.get("count", 0)
 
 
 async def set_premium(

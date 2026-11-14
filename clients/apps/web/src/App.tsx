@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { PremiumUpgradeProvider } from "./components/PremiumUpgrade";
 import ProtectedRoute from "./auth/ProtectedRoute";
+import RedeemPage from "./pages/RedeemPage";
 import LoginPage from "./auth/LoginPage";
 import RegisterPage from "./auth/RegisterPage";
 import ForgotPasswordPage from "./auth/ForgotPasswordPage";
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/redeem" element={<RedeemPage />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
               <Route path="/" element={<HomePage />} />

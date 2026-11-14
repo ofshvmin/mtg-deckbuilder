@@ -38,3 +38,7 @@ app/scripts/unmatched_cards.csv
 # Claude Code (per user preference)
 CLAUDE.md
 .claude/
+
+# Promo code exports are live, redeemable codes — never commit them.
+promo-codes-*.csv
+promo-cards-*.pdf

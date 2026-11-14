@@ -66,6 +66,11 @@ export function PremiumUpgradeProvider({ children }: { children: ReactNode }) {
               Once you upgrade there, your Premium features unlock here automatically with the same account.
             </div>
 
+            {/* A plain anchor: this provider sits outside the router. */}
+            <a href="/redeem" className="mt-3 block text-center text-sm text-emerald-400 hover:underline">
+              Have a promo card? Redeem your code
+            </a>
+
             <button
               onClick={close}
               className="mt-5 w-full rounded-lg bg-slate-800 py-2.5 text-sm font-semibold text-slate-100 transition hover:bg-slate-700"

@@ -29,6 +29,13 @@ export interface User {
   is_premium: boolean;
   /** ISO timestamp when a subscription lapses; null for lifetime unlocks. */
   premium_expires_at: string | null;
+  /** End of free Premium from a redeemed promo card; null once it has lapsed. */
+  promo_premium_until?: string | null;
+}
+
+export interface RedeemPromoResponse {
+  premium_until: string;
+  days: number;
 }
 
 // --- Card / deck domain ---

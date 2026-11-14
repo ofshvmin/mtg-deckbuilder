@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 
@@ -36,6 +37,26 @@ export default function SettingsPage() {
       <div>
         <h2 className="text-2xl font-semibold">Settings</h2>
         <p className="mt-1 text-sm text-slate-400">Signed in as {user?.email}</p>
+      </div>
+
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+        <h3 className="text-sm font-medium text-slate-200">Plan</h3>
+        <p className="mt-1 text-sm text-slate-400">
+          {user?.is_premium ? (
+            <>
+              <span className="text-amber-300">Premium ✦</span>
+              {user.promo_premium_until &&
+                ` — free from a promo card until ${new Date(user.promo_premium_until).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}`}
+            </>
+          ) : (
+            "Free plan"
+          )}
+        </p>
+        {!user?.is_premium && (
+          <Link to="/redeem" className="mt-2 inline-block text-sm text-emerald-400 hover:underline">
+            Have a promo card? Redeem your code
+          </Link>
+        )}
       </div>
 
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
