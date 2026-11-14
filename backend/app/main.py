@@ -17,6 +17,7 @@ from .routers.commanders import router as commanders_router
 from .routers.decks import router as decks_router
 from .routers.explore import router as explore_router
 from .routers.pool import router as pool_router
+from .routers.promo import router as promo_router
 from .routers.webhooks import router as webhooks_router
 
 settings = get_settings()
@@ -86,6 +87,7 @@ app.include_router(auth_router)
 app.include_router(collection_router)
 app.include_router(commanders_router)
 app.include_router(pool_router)
+app.include_router(promo_router)
 app.include_router(decks_router)
 app.include_router(explore_router)
 app.include_router(webhooks_router)

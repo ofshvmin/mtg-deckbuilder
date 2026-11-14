@@ -52,3 +52,5 @@ class UserResponse(BaseModel):
     preferences: UserPreferences = UserPreferences()
     is_premium: bool = False
     premium_expires_at: str | None = None
+    # End of free Premium from a redeemed promo card; None once it has lapsed.
+    promo_premium_until: str | None = None

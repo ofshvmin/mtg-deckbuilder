@@ -42,6 +42,7 @@ def _public(user: dict) -> UserResponse:
         preferences=UserPreferences(**(user.get("preferences") or {})),
         is_premium=users_repo.is_premium(user),
         premium_expires_at=(user.get("premium") or {}).get("expires_at"),
+        promo_premium_until=users_repo.promo_premium_until(user),
     )
 
 

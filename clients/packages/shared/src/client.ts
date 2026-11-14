@@ -24,6 +24,7 @@ import type {
   HealthStatus,
   ImportResult,
   PoolFilters,
+  RedeemPromoResponse,
   PoolResponse,
   SavedDeck,
   SavedDeckSummary,
@@ -170,6 +171,11 @@ export class ApiClient {
    * (collection + saved decks) on the server, then clear local tokens.
    * Irreversible. Required for App Store account-deletion compliance.
    */
+  /** Redeem a promo-card code for free Premium (web only — see backend routers/promo.py). */
+  redeemPromo(code: string): Promise<RedeemPromoResponse> {
+    return this.request<RedeemPromoResponse>("POST", "/promo/redeem", { body: { code } });
+  }
+
   async deleteAccount(): Promise<void> {
     await this.request("DELETE", "/auth/me");
     await this.tokens.clear();

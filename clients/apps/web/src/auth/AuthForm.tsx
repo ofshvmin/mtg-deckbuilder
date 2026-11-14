@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import Logo from "../components/Logo";
 
@@ -7,6 +7,11 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const { login, register } = useAuth();
   const navigate = useNavigate();
   const isRegister = mode === "register";
+  // Where to land after auth. Internal paths only — "//evil.com" is protocol-relative.
+  const [params] = useSearchParams();
+  const rawNext = params.get("next");
+  const next = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+  const carry = next === "/" ? "" : `?next=${encodeURIComponent(next)}`;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,7 +25,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     try {
       if (isRegister) await register(email, password);
       else await login(email, password);
-      navigate("/", { replace: true });
+      navigate(next, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -79,14 +84,14 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           {isRegister ? (
             <>
               Already have an account?{" "}
-              <Link to="/login" className="text-emerald-400 hover:underline">
+              <Link to={`/login${carry}`} className="text-emerald-400 hover:underline">
                 Sign in
               </Link>
             </>
           ) : (
             <>
               Need an account?{" "}
-              <Link to="/register" className="text-emerald-400 hover:underline">
+              <Link to={`/register${carry}`} className="text-emerald-400 hover:underline">
                 Create one
               </Link>
             </>

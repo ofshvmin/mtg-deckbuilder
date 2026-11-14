@@ -19,6 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+# scripts/promo_cards.py only — the server never imports it.
+promo = ["reportlab>=4"]
 
 [build-system]
 requires = ["setuptools>=68"]
