@@ -74,6 +74,15 @@ export interface CommanderOption {
   image_uris?: Record<string, string> | null;
 }
 
+/** Commander picker filters. `colors` is an exact color identity — ["G", "W"]
+ *  is Selesnya only. "C" adds a {C} pip in the cost (WUBRG + C is Ulalek); alone
+ *  it means colorless commanders. `max_mv` is inclusive. */
+export interface CommanderFilters {
+  colors?: string[];
+  max_mv?: number | null;
+  creature_type?: string;
+}
+
 export interface CardSummary {
   oracle_id: string;
   name: string;

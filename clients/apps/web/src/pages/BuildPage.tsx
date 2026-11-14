@@ -378,7 +378,7 @@ export default function BuildPage() {
       {needsCommander && (
         <div>
           <label className="text-sm font-medium text-slate-300">Commander</label>
-          <div className="mt-2 max-w-lg">
+          <div className="mt-2 max-w-2xl">
             <CommanderPicker onSelect={selectCommander} />
           </div>
         </div>
