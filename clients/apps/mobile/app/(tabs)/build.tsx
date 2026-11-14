@@ -4,11 +4,12 @@ import {
   ActivityIndicator, FlatList, KeyboardAvoidingView, Platform,
 } from "react-native";
 import { router } from "expo-router";
-import { ApiError, type BriefDeckResponse, type CommanderOption, type GeneratedDeck, type PoolFilters, type PoolScope, type StrategyOption } from "@mtg/shared";
+import { ApiError, type BriefDeckResponse, type CommanderFilters, type CommanderOption, type GeneratedDeck, type PoolFilters, type PoolScope, type StrategyOption } from "@mtg/shared";
 import { api } from "../../src/lib/api";
 import { usePremium } from "../../src/purchases/PremiumContext";
 import DeckDetailModal from "../../src/components/DeckDetailModal";
 import PoolControls from "../../src/components/PoolControls";
+import CommanderFilterBar, { hasCommanderFilters } from "../../src/components/CommanderFilterBar";
 
 type Mode = "auto" | "brief";
 type BriefTurn = { role: "user" | "assistant"; text: string };
@@ -19,6 +20,8 @@ export default function BuildScreen() {
   // Commander search
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<CommanderOption[]>([]);
+  const [commanderFilters, setCommanderFilters] = useState<CommanderFilters>({});
+  const [noMatch, setNoMatch] = useState(false);
   const [searching, setSearching] = useState(false);
   const [commander, setCommander] = useState<CommanderOption | null>(null);
 
@@ -56,18 +59,22 @@ export default function BuildScreen() {
     api.listStrategies().then(setStrategies).catch(() => {});
   }, []);
 
-  // Commander search with debounce
+  // Commander search with debounce. Filters alone are enough to browse, so a
+  // name is only required when nothing else narrows the list.
+  const filtering = hasCommanderFilters(commanderFilters);
   useEffect(() => {
-    if (query.length < 2) { setSuggestions([]); return; }
+    if (commander) return;
+    setNoMatch(false);
+    if (query.length < 2 && !filtering) { setSuggestions([]); return; }
     const t = setTimeout(() => {
       setSearching(true);
-      api.searchCommanders(query, 8)
-        .then(setSuggestions)
+      api.searchCommanders(query, filtering ? 40 : 8, commanderFilters)
+        .then((found) => { setSuggestions(found); setNoMatch(found.length === 0); })
         .catch(() => setSuggestions([]))
         .finally(() => setSearching(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [query]);
+  }, [query, commanderFilters, commander]);
 
   const poolFilters: PoolFilters = {
     pool_scope: poolScope,
@@ -245,7 +252,13 @@ export default function BuildScreen() {
             </TouchableOpacity>
           )}
         </View>
+        {!commander && (
+          <CommanderFilterBar filters={commanderFilters} onChange={setCommanderFilters} />
+        )}
         {searching && <ActivityIndicator size="small" color="#64748b" className="mt-2" />}
+        {!searching && !commander && filtering && noMatch && (
+          <Text className="mt-2 text-sm text-slate-500">No owned commanders match these filters.</Text>
+        )}
 
         {suggestions.length > 0 && !commander && (
           <View className="mt-1 rounded-lg border border-slate-700 bg-slate-800">

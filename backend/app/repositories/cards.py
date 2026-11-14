@@ -62,11 +62,60 @@ async def search(db: AsyncDatabase, query: str, limit: int = 20) -> list[dict]:
     return [doc async for doc in cursor]
 
 
+def commander_filter_query(
+    query: str = "",
+    colors: list[str] | None = None,
+    max_mv: float | None = None,
+    creature_type: str = "",
+) -> dict:
+    """The picker's filters as a Mongo query fragment.
+
+    `colors` is an *exact* color identity: ["G", "W"] means Selesnya commanders
+    only, not anything containing green and white — "I want a GW deck" is how
+    players pick. None or [] means no color filter.
+
+    "C" is the colorless mana symbol and combines with colors: it requires a {C}
+    pip in the casting cost, hybrid {C/W} included. Ulalek, Fused Atrocity
+    ({2}{C/W}{C/U}{C/B}{C/R}{C/G}) is WUBRG + C. On its own, "C" means colorless
+    commanders, pip or not — Karn as well as Kozilek — since that's what someone
+    asking for "colorless" wants.
+
+    `creature_type` matches a whole word in the subtype half of the type line, so
+    "Elf" finds "Legendary Creature — Elf Druid" but not "Elfball" in a name or
+    "Self" in rules text.
+    """
+    q: dict = {}
+    if query.strip():
+        q["name_normalized"] = {"$regex": _escape_regex(normalize_name(query))}
+    identity = [c for c in colors or [] if c != "C"]
+    if identity:
+        # $size pins the count, $all the members — together, set equality.
+        q["color_identity"] = {"$size": len(identity), "$all": identity}
+        if "C" in colors:
+            q["mana_cost"] = {"$regex": r"\{C[}/]"}
+    elif colors:
+        q["color_identity"] = {"$size": 0}
+    if max_mv is not None:
+        q["cmc"] = {"$lte": max_mv}
+    if creature_type.strip():
+        q["type_line"] = {
+            "$regex": rf"—.*\b{_escape_regex(creature_type.strip())}\b",
+            "$options": "i",
+        }
+    return q
+
+
 async def search_owned_commanders(
-    db: AsyncDatabase, owned_ids: list[str], query: str = "", limit: int = 20
+    db: AsyncDatabase,
+    owned_ids: list[str],
+    query: str = "",
+    limit: int = 20,
+    colors: list[str] | None = None,
+    max_mv: float | None = None,
+    creature_type: str = "",
 ) -> list[dict]:
     """Owned cards that can be a commander (legendary creatures, or anything whose
-    text says 'can be your commander'), optionally filtered by a name substring."""
+    text says 'can be your commander'), narrowed by the picker's filters."""
     if not owned_ids:
         return []
     mongo_query: dict = {
@@ -76,9 +125,8 @@ async def search_owned_commanders(
             {"type_line": {"$regex": "Legendary.*Creature"}},
             {"oracle_text": {"$regex": "[Cc]an be your commander"}},
         ],
+        **commander_filter_query(query, colors, max_mv, creature_type),
     }
-    if query.strip():
-        mongo_query["name_normalized"] = {"$regex": _escape_regex(normalize_name(query))}
     cursor = db.cards.find(mongo_query).sort("name", 1).limit(limit)
     return [doc async for doc in cursor]
 

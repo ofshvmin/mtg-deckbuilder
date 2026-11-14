@@ -16,6 +16,7 @@ import type {
   CollectionItem,
   CollectionSet,
   CollectionSummary,
+  CommanderFilters,
   CommanderOption,
   DeckFormat,
   ExternalDeckResponse,
@@ -258,9 +259,16 @@ export class ApiClient {
 
   // ---- Commanders & pool ----
 
-  searchCommanders(query: string, limit = 20): Promise<CommanderOption[]> {
-    const qs = `?q=${encodeURIComponent(query)}&limit=${limit}`;
-    return this.request<CommanderOption[]>("GET", `/commanders${qs}`);
+  searchCommanders(
+    query: string,
+    limit = 20,
+    filters: CommanderFilters = {},
+  ): Promise<CommanderOption[]> {
+    const params = new URLSearchParams({ q: query, limit: String(limit) });
+    if (filters.colors?.length) params.set("colors", filters.colors.join(""));
+    if (filters.max_mv != null) params.set("max_mv", String(filters.max_mv));
+    if (filters.creature_type?.trim()) params.set("creature_type", filters.creature_type.trim());
+    return this.request<CommanderOption[]>("GET", `/commanders?${params}`);
   }
 
   /** The user's legal owned pool.
