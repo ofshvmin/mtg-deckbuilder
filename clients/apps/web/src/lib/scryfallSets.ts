@@ -5,14 +5,9 @@ import { useEffect, useState } from "react";
 // session (memoized) and cache in localStorage (24h) to avoid refetching across
 // reloads. Matches the "owned-now, catalog-later" approach used for card images.
 
-export interface SetInfo {
-  name: string;
-  iconSvgUri: string;
-  released?: string; // ISO date, for ordering sets newest-first
-  parentCode?: string; // parent set code (e.g. "eoe" for "eoc")
-}
+import type { SetIndex, SetInfo } from "@mtg/shared";
 
-export type SetIndex = Map<string, SetInfo>;
+export type { SetIndex, SetInfo };
 
 const CACHE_KEY = "mtg.sets.v3";
 const TTL_MS = 24 * 60 * 60 * 1000;

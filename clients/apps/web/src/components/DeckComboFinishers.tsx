@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ComboFinisher } from "@mtg/shared";
 import { api } from "../lib/api";
-import { fetchPrices, type CardPrice } from "../lib/scryfallPrices";
+import { fetchPrices, type CardPrice } from "@mtg/shared";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import ManaCost from "./ManaCost";

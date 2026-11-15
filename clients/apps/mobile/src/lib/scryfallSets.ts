@@ -1,24 +1,20 @@
 import { useEffect, useState } from "react";
 import { File, Paths } from "expo-file-system";
+import type { SetIndex, SetInfo } from "@mtg/shared";
 
 // Set names and logos, from Scryfall's /sets — the web app's catalog, with its
 // localStorage cache swapped for a file in the app's cache directory. Our DB
 // stores only set codes, so this is where a set symbol comes from.
 
-export interface SetInfo {
-  name: string;
-  iconSvgUri: string;
-  released?: string;
-}
-
-export type SetIndex = Map<string, SetInfo>;
+export type { SetIndex, SetInfo };
 
 const TTL_MS = 24 * 60 * 60 * 1000;
 
 let inflight: Promise<SetIndex> | null = null;
 
+// v2: entries carry parentCode, which the pull list groups sets by.
 function cacheFile(): File {
-  return new File(Paths.cache, "scryfall-sets.v1.json");
+  return new File(Paths.cache, "scryfall-sets.v2.json");
 }
 
 async function fromCache(): Promise<SetIndex | null> {
@@ -45,11 +41,22 @@ async function fetchIndex(): Promise<SetIndex> {
   const res = await fetch("https://api.scryfall.com/sets");
   if (!res.ok) throw new Error("sets fetch failed");
   const body = (await res.json()) as {
-    data?: { code: string; name: string; icon_svg_uri: string; released_at?: string }[];
+    data?: {
+      code: string;
+      name: string;
+      icon_svg_uri: string;
+      released_at?: string;
+      parent_set_code?: string;
+    }[];
   };
   const index: SetIndex = new Map();
   for (const s of body.data ?? []) {
-    index.set(s.code.toLowerCase(), { name: s.name, iconSvgUri: s.icon_svg_uri, released: s.released_at });
+    index.set(s.code.toLowerCase(), {
+      name: s.name,
+      iconSvgUri: s.icon_svg_uri,
+      released: s.released_at,
+      parentCode: s.parent_set_code?.toLowerCase(),
+    });
   }
   toCache(index);
   return index;
