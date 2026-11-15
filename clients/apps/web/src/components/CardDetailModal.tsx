@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CollectionCard, Printing, Color } from "@mtg/shared";
 import { api } from "../lib/api";
-import { cheapestPrint, fetchCardDetail, type CardDetail } from "../lib/scryfallPrints";
+import { cheapestPrint, fetchCardDetail, type CardDetail } from "@mtg/shared";
 import { lookupSet, useScryfallSets } from "../lib/scryfallSets";
 import CardImage from "./CardImage";
 import ColorPips from "./ColorPips";

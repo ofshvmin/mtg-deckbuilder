@@ -13,7 +13,7 @@ import CommanderFeature from "./CommanderFeature";
 import DeckCardList from "./DeckCardList";
 import DeckComboFinishers from "./DeckComboFinishers";
 import DeckUpgrades from "./DeckUpgrades";
-import { cheapestPrint, fetchCardDetail } from "../lib/scryfallPrints";
+import { cheapestPrint, fetchCardDetail } from "@mtg/shared";
 import { buildScavengerData, downloadScavengerPdf } from "../lib/scavenger";
 import PlaytestModal from "./PlaytestModal";
 import ManaCurve from "./ManaCurve";

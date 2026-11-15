@@ -146,7 +146,9 @@ export default function DeckDetailModal({
       {selected && (
         <CardDetailModal
           card={{
+            oracle_id: selected.oracle_id,
             name: selected.name,
+            color_identity: selected.color_identity,
             mana_cost: selected.mana_cost,
             type_line: selected.type_line,
             printings: selected.printings,
