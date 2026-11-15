@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { Modal, View, Text, TextInput, ScrollView, TouchableOpacity } from "react-native";
 import {
   CARD_TYPES,
@@ -58,12 +58,14 @@ export default function CollectionFilterSheet({
 }: {
   visible: boolean;
   filters: FilterState;
-  onChange: (next: FilterState) => void;
+  /** A state setter: every change applies to the latest filters, so quick taps
+   *  made while the list is still re-filtering don't overwrite one another. */
+  onChange: Dispatch<SetStateAction<FilterState>>;
   /** Cards passing the filters right now, for the Done button. */
   resultCount: number;
   onClose: () => void;
 }) {
-  const set = (patch: Partial<FilterState>) => onChange({ ...filters, ...patch });
+  const set = (patch: Partial<FilterState>) => onChange((f) => ({ ...f, ...patch }));
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -95,10 +97,10 @@ export default function CollectionFilterSheet({
                 key={c}
                 color={c}
                 on={filters.colors.includes(c)}
-                onPress={() => set({ colors: toggleIn<Color>(filters.colors, c) })}
+                onPress={() => onChange((f) => ({ ...f, colors: toggleIn<Color>(f.colors, c) }))}
               />
             ))}
-            <ColorToggle color="C" on={filters.colorless} onPress={() => set({ colorless: !filters.colorless })} />
+            <ColorToggle color="C" on={filters.colorless} onPress={() => onChange((f) => ({ ...f, colorless: !f.colorless }))} />
           </Section>
           <View className="-mt-2 flex-row gap-2 pb-4">
             {(Object.keys(MODE_LABELS) as ColorMode[]).map((m) => (
@@ -110,7 +112,7 @@ export default function CollectionFilterSheet({
 
           <Section label="Type">
             {CARD_TYPES.map((t) => (
-              <Chip key={t} active={filters.types.includes(t)} onPress={() => set({ types: toggleIn(filters.types, t) })}>
+              <Chip key={t} active={filters.types.includes(t)} onPress={() => onChange((f) => ({ ...f, types: toggleIn(f.types, t) }))}>
                 {t}
               </Chip>
             ))}
@@ -124,7 +126,7 @@ export default function CollectionFilterSheet({
               <Chip
                 key={r}
                 active={filters.rarities.includes(r)}
-                onPress={() => set({ rarities: toggleIn(filters.rarities, r) })}
+                onPress={() => onChange((f) => ({ ...f, rarities: toggleIn(f.rarities, r) }))}
               >
                 {r}
               </Chip>
@@ -173,7 +175,7 @@ export default function CollectionFilterSheet({
               <Chip
                 key={n}
                 active={filters.minCopies === n}
-                onPress={() => set({ minCopies: filters.minCopies === n ? null : n })}
+                onPress={() => onChange((f) => ({ ...f, minCopies: f.minCopies === n ? null : n }))}
               >
                 {n === 4 ? "4+ (playsets)" : "2+"}
               </Chip>
@@ -181,10 +183,10 @@ export default function CollectionFilterSheet({
           </Section>
 
           <Section label="Lists">
-            <Chip active={filters.reservedOnly} onPress={() => set({ reservedOnly: !filters.reservedOnly })}>
+            <Chip active={filters.reservedOnly} onPress={() => onChange((f) => ({ ...f, reservedOnly: !f.reservedOnly }))}>
               Reserved List
             </Chip>
-            <Chip active={filters.gameChangersOnly} onPress={() => set({ gameChangersOnly: !filters.gameChangersOnly })}>
+            <Chip active={filters.gameChangersOnly} onPress={() => onChange((f) => ({ ...f, gameChangersOnly: !f.gameChangersOnly }))}>
               Game Changers
             </Chip>
           </Section>

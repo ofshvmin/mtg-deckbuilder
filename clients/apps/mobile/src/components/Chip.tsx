@@ -22,7 +22,7 @@ export default function Chip({
         (active ? "border-emerald-600 bg-emerald-600/20" : "border-slate-700")
       }
     >
-      <Text className={"text-xs capitalize " + (active ? "text-emerald-300" : "text-slate-400")}>{children}</Text>
+      <Text className={"text-xs " + (active ? "text-emerald-300" : "text-slate-400")}>{children}</Text>
     </TouchableOpacity>
   );
 }

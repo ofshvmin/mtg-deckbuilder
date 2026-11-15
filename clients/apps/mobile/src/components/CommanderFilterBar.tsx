@@ -45,7 +45,7 @@ export default function CommanderFilterBar({
   return (
     <View className="mt-3 gap-3">
       <View className="flex-row items-center gap-2">
-        <Text className="w-20 text-xs font-medium uppercase tracking-wider text-slate-400">Colors</Text>
+        <Text className="w-24 text-xs font-medium uppercase tracking-wider text-slate-400">Colors</Text>
         <View className="flex-row gap-1">
           {COLOR_TOGGLES.map((c) => (
             <ColorToggle
@@ -59,7 +59,7 @@ export default function CommanderFilterBar({
       </View>
 
       <View className="flex-row items-center">
-        <Text className="w-20 text-xs font-medium uppercase tracking-wider text-slate-400">Mana value</Text>
+        <Text className="w-24 text-xs font-medium uppercase tracking-wider text-slate-400">Mana value</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
           <TouchableOpacity
             onPress={() => onChange({ ...filters, max_mv: null })}
@@ -82,7 +82,7 @@ export default function CommanderFilterBar({
       </View>
 
       <View className="flex-row items-center">
-        <Text className="w-20 text-xs font-medium uppercase tracking-wider text-slate-400">Sets</Text>
+        <Text className="w-24 text-xs font-medium uppercase tracking-wider text-slate-400">Sets</Text>
         <View className="flex-1">
           <SetPicker
             sets={filters.sets ?? []}
@@ -94,7 +94,7 @@ export default function CommanderFilterBar({
       </View>
 
       <View className="flex-row items-center">
-        <Text className="w-20 text-xs font-medium uppercase tracking-wider text-slate-400">Type</Text>
+        <Text className="w-24 text-xs font-medium uppercase tracking-wider text-slate-400">Type</Text>
         <TextInput
           value={filters.creature_type ?? ""}
           onChangeText={(t) => onChange({ ...filters, creature_type: t })}

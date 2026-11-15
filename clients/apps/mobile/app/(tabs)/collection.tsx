@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import {
   View, Text, TextInput, FlatList, TouchableOpacity, ActivityIndicator, Dimensions,
   ActionSheetIOS, Alert, Platform,
@@ -135,7 +135,13 @@ export default function CollectionScreen() {
     });
   }, [navigation, exportCollection, exporting]);
 
-  const visible = useMemo(() => sortCards(filterCards(cards, filters), sort, dir), [cards, filters, sort, dir]);
+  // Re-filtering thousands of cards takes a moment, so the list follows the
+  // filters a beat behind and the controls stay responsive meanwhile.
+  const deferredFilters = useDeferredValue(filters);
+  const visible = useMemo(
+    () => sortCards(filterCards(cards, deferredFilters), sort, dir),
+    [cards, deferredFilters, sort, dir],
+  );
 
   function chooseSort() {
     const keys = Object.keys(SORT_LABELS) as SortKey[];
