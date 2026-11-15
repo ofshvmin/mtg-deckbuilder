@@ -11,7 +11,7 @@ import {
   type FilterState,
   type SortDir,
   type SortKey,
-} from "../lib/collectionFilter";
+} from "@mtg/shared";
 import { useLayout } from "../components/Layout";
 import AddCardSearch from "../components/AddCardSearch";
 import CollectionFilters from "../components/CollectionFilters";

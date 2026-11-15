@@ -1,7 +1,7 @@
 // Pure goldfish-simulation helpers. Operate on a deck's card list entirely
 // client-side — no backend. Colors aren't simulated; "mana" = lands in play,
 // which is enough to get a feel for a deck's opening consistency.
-import type { DeckCard } from "@mtg/shared";
+import type { DeckCard } from "./types";
 
 export interface LibCard {
   uid: string; // unique per physical copy (deck is singleton except basics)

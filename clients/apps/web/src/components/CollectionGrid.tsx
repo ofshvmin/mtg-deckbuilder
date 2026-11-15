@@ -7,7 +7,7 @@ import {
   cardValue,
   type SortDir,
   type SortKey,
-} from "../lib/collectionFilter";
+} from "@mtg/shared";
 import CardDetailModal from "./CardDetailModal";
 import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import ColorPips from "./ColorPips";

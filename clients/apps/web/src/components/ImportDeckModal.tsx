@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { ExternalDeckResponse } from "@mtg/shared";
 import { api } from "../lib/api";
-import { isPremiumRequired } from "../lib/premium";
+import { isPremiumRequired } from "@mtg/shared";
 import { usePremiumUpgrade } from "./PremiumUpgrade";
 import ColorPips from "./ColorPips";
 

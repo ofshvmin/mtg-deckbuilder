@@ -4,7 +4,7 @@ import type { Combo, DeckCard, GeneratedDeck, PoolFilters } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import ColorPips from "./ColorPips";
-import { isPremiumRequired } from "../lib/premium";
+import { isPremiumRequired } from "@mtg/shared";
 import { usePremiumUpgrade } from "./PremiumUpgrade";
 import BracketBadge from "./BracketBadge";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";

@@ -15,9 +15,3 @@ export const COLOR_PIP: Record<Color, string> = {
   R: "bg-red-500 text-white",
   G: "bg-emerald-600 text-white",
 };
-
-export const COLOR_ORDER: Color[] = ["W", "U", "B", "R", "G"];
-
-export function orderColors(colors: Color[]): Color[] {
-  return COLOR_ORDER.filter((c) => colors.includes(c));
-}

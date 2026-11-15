@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { DeckCard, GeneratedDeck, PoolCard, PoolFilters, PoolResponse } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
-import { isPremiumRequired } from "../lib/premium";
+import { isPremiumRequired } from "@mtg/shared";
 import { usePremiumUpgrade } from "./PremiumUpgrade";
 import BracketBadge from "./BracketBadge";
 import CardDetailModal, { type CardModalData } from "./CardDetailModal";

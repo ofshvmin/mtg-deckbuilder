@@ -1,5 +1,5 @@
 import type { Color } from "@mtg/shared";
-import { orderColors } from "../lib/format";
+import { orderColors } from "@mtg/shared";
 
 // Color identity as authentic MTG mana symbols (mana-font). Colorless / no
 // identity renders the colorless pip. `ms-cost` gives the rounded colored disc,

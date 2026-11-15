@@ -11,8 +11,8 @@ import {
   type FilterState,
   type SortDir,
   type SortKey,
-} from "../lib/collectionFilter";
-import { COLOR_ORDER } from "../lib/format";
+} from "@mtg/shared";
+import { COLOR_ORDER } from "@mtg/shared";
 import ColorPips from "./ColorPips";
 import ColorToggle from "./ColorToggle";
 import SetPicker from "./SetPicker";
