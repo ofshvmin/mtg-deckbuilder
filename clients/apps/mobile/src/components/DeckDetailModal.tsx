@@ -3,6 +3,7 @@ import { Modal, View, Text, ScrollView, TouchableOpacity, SectionList } from "re
 import type { DeckCard, GeneratedDeck } from "@mtg/shared";
 import CardImage from "./CardImage";
 import CardDetailModal from "./CardDetailModal";
+import { ColorPips, ManaCost } from "./ManaSymbols";
 
 const SLOTS: { key: string; label: string; color: string }[] = [
   { key: "land", label: "Lands", color: "#f59e0b" },
@@ -72,10 +73,11 @@ export default function DeckDetailModal({
             )}
           </View>
           <Text className="mt-2 text-xl font-bold text-white">{name}</Text>
-          <Text className="mt-0.5 text-sm text-slate-400">
-            {deck.commander ? `${deck.commander.name} · ` : ""}
-            {deck.color_identity.join("") || "C"} · {deck.total} cards
-          </Text>
+          <View className="mt-0.5 flex-row items-center gap-1.5">
+            {deck.commander && <Text className="text-sm text-slate-400">{deck.commander.name} ·</Text>}
+            <ColorPips colors={deck.color_identity} size={15} />
+            <Text className="text-sm text-slate-400">· {deck.total} cards</Text>
+          </View>
         </View>
 
         {/* Stats row */}
@@ -120,7 +122,7 @@ export default function DeckDetailModal({
                 {item.in_combo && <Text className="text-fuchsia-400"> ⚡</Text>}
                 {item.quality >= 0.3 && <Text className="text-emerald-400"> ◆</Text>}
               </Text>
-              <Text className="text-xs text-slate-500">{item.mana_cost}</Text>
+              <ManaCost cost={item.mana_cost} size={13} />
             </TouchableOpacity>
           )}
           stickySectionHeadersEnabled

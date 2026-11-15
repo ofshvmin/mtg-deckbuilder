@@ -5,6 +5,7 @@ import type { GeneratedDeck, SavedDeckSummary } from "@mtg/shared";
 import { api } from "../../src/lib/api";
 import { CommanderArtImage } from "../../src/components/CardImage";
 import DeckDetailModal from "../../src/components/DeckDetailModal";
+import { ColorPips } from "../../src/components/ManaSymbols";
 
 export default function DecksScreen() {
   const [decks, setDecks] = useState<SavedDeckSummary[]>([]);
@@ -209,10 +210,15 @@ export default function DecksScreen() {
               </View>
             </View>
             <View className="flex-row items-center justify-between gap-2 px-3 py-2">
-              <Text className="flex-1 text-xs text-slate-400" numberOfLines={1}>
-                {item.commander_name} · {item.color_identity.join("") || "C"} · {item.total} cards
-                {item.source ? ` · ${item.source}` : ""}
-              </Text>
+              <View className="flex-1 flex-row items-center gap-1.5">
+                <Text className="shrink text-xs text-slate-400" numberOfLines={1}>
+                  {item.commander_name} ·
+                </Text>
+                <ColorPips colors={item.color_identity} size={13} />
+                <Text className="shrink text-xs text-slate-400" numberOfLines={1}>
+                  · {item.total} cards{item.source ? ` · ${item.source}` : ""}
+                </Text>
+              </View>
               <TouchableOpacity
                 onPress={() => setInUse(item.id, !item.in_use)}
                 hitSlop={8}

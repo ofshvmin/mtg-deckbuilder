@@ -1,6 +1,7 @@
 import { Modal, View, Text, ScrollView, TouchableOpacity, Dimensions } from "react-native";
 import type { CollectionCard, DeckCard, Printing } from "@mtg/shared";
 import CardImage from "./CardImage";
+import { ManaCost } from "./ManaSymbols";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CARD_WIDTH = SCREEN_WIDTH * 0.75;
@@ -53,7 +54,9 @@ export default function CardDetailModal({ card, onSelectPrinting, onClose }: Pro
               <Text className="text-sm text-slate-400">{card.type_line}</Text>
             )}
             {card.mana_cost && (
-              <Text className="mt-1 text-sm text-slate-500">{card.mana_cost}</Text>
+              <View className="mt-1">
+                <ManaCost cost={card.mana_cost} size={16} />
+              </View>
             )}
             {card.oracle_text && (
               <Text className="mt-3 text-sm leading-5 text-slate-300">{card.oracle_text}</Text>

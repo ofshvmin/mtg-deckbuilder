@@ -1,23 +1,25 @@
 import { View, Text, TextInput, TouchableOpacity, ScrollView } from "react-native";
 import type { CommanderFilters } from "@mtg/shared";
+import { api } from "../lib/api";
+import ColorToggle, { COLOR_TOGGLES } from "./ColorToggle";
+import SetPicker, { type SetOption } from "./SetPicker";
 
 // Narrowing for the commander search, mirroring the web picker: exact color
-// identity, max mana value, creature type. Any filter on its own is enough to
-// browse, so a name is no longer required to find a commander.
+// identity, max mana value, creature type, sets owned in. Any filter on its own
+// is enough to browse, so a name is no longer required to find a commander.
 
-const COLORS: { key: string; label: string; on: string }[] = [
-  { key: "W", label: "White", on: "bg-amber-100 border-amber-300" },
-  { key: "U", label: "Blue", on: "bg-sky-400 border-sky-300" },
-  { key: "B", label: "Black", on: "bg-slate-500 border-slate-300" },
-  { key: "R", label: "Red", on: "bg-rose-500 border-rose-300" },
-  { key: "G", label: "Green", on: "bg-emerald-500 border-emerald-300" },
-  { key: "C", label: "Colorless", on: "bg-stone-300 border-stone-200" },
-];
+// Only sets you own a commander from, counted in commanders rather than cards.
+async function loadCommanderSets(): Promise<SetOption[]> {
+  const rows = await api.listCommanderSets();
+  return rows.map((s) => ({ code: s.code, name: s.name, count: s.commanders }));
+}
 
 const MANA_VALUES = [1, 2, 3, 4, 5, 6];
 
 export function hasCommanderFilters(f: CommanderFilters): boolean {
-  return (f.colors?.length ?? 0) > 0 || f.max_mv != null || !!f.creature_type?.trim();
+  return (
+    (f.colors?.length ?? 0) > 0 || f.max_mv != null || !!f.creature_type?.trim() || (f.sets?.length ?? 0) > 0
+  );
 }
 
 export default function CommanderFilterBar({
@@ -31,7 +33,7 @@ export default function CommanderFilterBar({
 
   // C combines with colors — it asks for a {C} pip in the cost (Ulalek is WUBRG + C).
   function toggleColor(key: string) {
-    const next = COLORS.map((c) => c.key).filter((c) =>
+    const next = COLOR_TOGGLES.map((c) => c.key).filter((c) =>
       c === key ? !colors.includes(c) : colors.includes(c),
     );
     onChange({ ...filters, colors: next });
@@ -44,27 +46,16 @@ export default function CommanderFilterBar({
     <View className="mt-3 gap-3">
       <View className="flex-row items-center gap-2">
         <Text className="w-20 text-xs font-medium uppercase tracking-wider text-slate-400">Colors</Text>
-        {COLORS.map((c) => {
-          const on = colors.includes(c.key);
-          return (
-            <TouchableOpacity
+        <View className="flex-row gap-1">
+          {COLOR_TOGGLES.map((c) => (
+            <ColorToggle
               key={c.key}
+              color={c.key}
+              on={colors.includes(c.key)}
               onPress={() => toggleColor(c.key)}
-              accessibilityLabel={c.label}
-              accessibilityState={{ selected: on }}
-              hitSlop={4}
-              activeOpacity={0.7}
-              className={
-                "h-8 w-8 items-center justify-center rounded-full border-2 " +
-                (on ? c.on : "border-slate-700 bg-slate-800")
-              }
-            >
-              <Text className={"text-sm font-semibold " + (on ? "text-slate-900" : "text-slate-500")}>
-                {c.key}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+            />
+          ))}
+        </View>
       </View>
 
       <View className="flex-row items-center">
@@ -88,6 +79,18 @@ export default function CommanderFilterBar({
             </TouchableOpacity>
           ))}
         </ScrollView>
+      </View>
+
+      <View className="flex-row items-center">
+        <Text className="w-20 text-xs font-medium uppercase tracking-wider text-slate-400">Sets</Text>
+        <View className="flex-1">
+          <SetPicker
+            sets={filters.sets ?? []}
+            onChange={(sets) => onChange({ ...filters, sets })}
+            loadSets={loadCommanderSets}
+            emptyText="No commanders in your collection."
+          />
+        </View>
       </View>
 
       <View className="flex-row items-center">
