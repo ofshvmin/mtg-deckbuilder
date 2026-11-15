@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { Combo, DeckCard, GeneratedDeck, PoolFilters } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
-import { formatColorIdentity } from "../lib/format";
+import ColorPips from "./ColorPips";
 import { isPremiumRequired } from "../lib/premium";
 import { usePremiumUpgrade } from "./PremiumUpgrade";
 import BracketBadge from "./BracketBadge";
@@ -273,8 +273,8 @@ export default function DeckView({
           <h2 className="text-2xl font-bold sm:text-3xl">{title}</h2>
           <p className="mt-1 text-sm text-slate-400">
             {deck.commander
-              ? `${deck.commander.name} · ${formatColorIdentity(deck.color_identity)} · ${deck.commander.type_line}`
-              : `${deck.format.charAt(0).toUpperCase()}${deck.format.slice(1)} · ${formatColorIdentity(deck.color_identity)}`}
+              ? <>{deck.commander.name} · <ColorPips colors={deck.color_identity} /> · {deck.commander.type_line}</>
+              : <>{deck.format.charAt(0).toUpperCase()}{deck.format.slice(1)} · <ColorPips colors={deck.color_identity} /></>}
           </p>
         </div>
         <div className="shrink-0 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-1.5 text-right">

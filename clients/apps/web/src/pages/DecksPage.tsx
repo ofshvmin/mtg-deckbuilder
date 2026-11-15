@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { GeneratedDeck, SavedDeckSummary } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
-import { formatColorIdentity } from "../lib/format";
+import ColorPips from "../components/ColorPips";
 import BracketBadge from "../components/BracketBadge";
 import CommanderArt from "../components/CommanderArt";
 import DeckView from "../components/DeckView";
@@ -294,7 +294,7 @@ export default function DecksPage() {
               </button>
               <div className="flex items-center justify-between gap-2 px-3 py-2">
                 <p className="min-w-0 truncate text-xs text-slate-400">
-                  {d.commander_name} · {formatColorIdentity(d.color_identity)} · {d.total} cards
+                  {d.commander_name} · <ColorPips colors={d.color_identity} /> · {d.total} cards
                   {d.source && <span className="ml-1 text-slate-600">· {d.source}</span>}
                 </p>
                 <div className="flex shrink-0 items-center gap-2">

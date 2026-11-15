@@ -21,9 +21,3 @@ export const COLOR_ORDER: Color[] = ["W", "U", "B", "R", "G"];
 export function orderColors(colors: Color[]): Color[] {
   return COLOR_ORDER.filter((c) => colors.includes(c));
 }
-
-/** ["B","R","G"] -> "BRG"; empty -> "C" (colorless). */
-export function formatColorIdentity(colors: Color[]): string {
-  const ordered = orderColors(colors);
-  return ordered.length ? ordered.join("") : "C";
-}

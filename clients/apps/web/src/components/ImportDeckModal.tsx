@@ -3,7 +3,7 @@ import type { ExternalDeckResponse } from "@mtg/shared";
 import { api } from "../lib/api";
 import { isPremiumRequired } from "../lib/premium";
 import { usePremiumUpgrade } from "./PremiumUpgrade";
-import { formatColorIdentity } from "../lib/format";
+import ColorPips from "./ColorPips";
 
 const PLACEHOLDER = `1x Ravos, Soultender (c16) 39 *F* [Commander{top}]
 1x Animate Dead (plst) EMA-78 [Enchantment]
@@ -139,7 +139,7 @@ export default function ImportDeckModal({
                 {preview.deck.commander?.name ?? "No commander found"}
                 {preview.deck.color_identity?.length > 0 && (
                   <span className="ml-2 text-slate-500">
-                    {formatColorIdentity(preview.deck.color_identity)}
+                    <ColorPips colors={preview.deck.color_identity} />
                   </span>
                 )}
               </p>

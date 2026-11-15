@@ -12,11 +12,14 @@ const MS_CLASS: Record<Color, string> = {
   G: "ms-g",
 };
 
-export default function ColorPips({ colors }: { colors: Color[] }) {
+export default function ColorPips({ colors, size = 15 }: { colors: Color[]; size?: number }) {
   const ordered = orderColors(colors);
   const symbols = ordered.length ? ordered.map((c) => MS_CLASS[c]) : ["ms-c"];
   return (
-    <span className="inline-flex items-center gap-0.5 align-middle text-[15px] leading-none">
+    <span
+      className="inline-flex items-center gap-0.5 align-middle leading-none"
+      style={{ fontSize: size }}
+    >
       {symbols.map((cls, i) => (
         <i key={i} className={`ms ${cls} ms-cost ms-shadow`} />
       ))}

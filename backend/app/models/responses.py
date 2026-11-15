@@ -10,6 +10,13 @@ class CommanderOption(BaseModel):
     image_uris: dict[str, str] | None = None
 
 
+class CommanderSetOut(BaseModel):
+    """One set the user owns an eligible commander from, for the picker's set filter."""
+    code: str
+    name: str
+    commanders: int    # distinct eligible commanders owned in a printing from this set
+
+
 class CardSummary(BaseModel):
     oracle_id: str
     name: str

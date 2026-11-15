@@ -15,6 +15,7 @@ import type {
   CollectionCard,
   CollectionItem,
   CollectionSet,
+  CommanderSet,
   CollectionSummary,
   CommanderFilters,
   CommanderOption,
@@ -274,7 +275,13 @@ export class ApiClient {
     if (filters.colors?.length) params.set("colors", filters.colors.join(""));
     if (filters.max_mv != null) params.set("max_mv", String(filters.max_mv));
     if (filters.creature_type?.trim()) params.set("creature_type", filters.creature_type.trim());
+    for (const code of filters.sets ?? []) params.append("sets", code);
     return this.request<CommanderOption[]>("GET", `/commanders?${params}`);
+  }
+
+  /** Sets the user owns an eligible commander from, with how many. */
+  listCommanderSets(): Promise<CommanderSet[]> {
+    return this.request<CommanderSet[]>("GET", "/commanders/sets");
   }
 
   /** The user's legal owned pool.

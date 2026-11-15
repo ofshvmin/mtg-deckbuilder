@@ -4,7 +4,6 @@ import { api } from "../lib/api";
 import { isPremiumRequired } from "../lib/premium";
 import { usePremiumUpgrade } from "../components/PremiumUpgrade";
 import { useLayout } from "../components/Layout";
-import { formatColorIdentity } from "../lib/format";
 import type { Color } from "@mtg/shared";
 import ColorPips from "../components/ColorPips";
 import CommanderArt from "../components/CommanderArt";
@@ -322,7 +321,7 @@ export default function ExplorePage() {
                   <div className="px-3 py-2">
                     <p className="truncate text-xs text-slate-400">
                       {p.commander_name
-                        ? <>{p.commander_name} · {formatColorIdentity((p.color_identity || []) as Color[])} · </>
+                        ? <>{p.commander_name} · <ColorPips colors={(p.color_identity || []) as Color[]} /> · </>
                         : null}
                       {p.release_date}
                     </p>
@@ -405,7 +404,7 @@ export default function ExplorePage() {
                   </CommanderArt>
                   <div className="px-3 py-2">
                     <p className="truncate text-xs text-slate-400">
-                      {d.commander_name} · {formatColorIdentity(d.color_identity as Color[])} · {d.card_count} cards
+                      {d.commander_name} · <ColorPips colors={d.color_identity as Color[]} /> · {d.card_count} cards
                     </p>
                     {d.price != null && <p className="mt-0.5 text-xs text-slate-500">${d.price}</p>}
                   </div>

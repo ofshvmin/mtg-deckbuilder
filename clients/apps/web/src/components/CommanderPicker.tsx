@@ -2,25 +2,24 @@ import { useEffect, useState } from "react";
 import type { CommanderOption } from "@mtg/shared";
 import { api } from "../lib/api";
 import ColorPips from "./ColorPips";
-
-const COLOR_TOGGLES: { key: string; label: string; cls: string }[] = [
-  { key: "W", label: "White", cls: "ms-w" },
-  { key: "U", label: "Blue", cls: "ms-u" },
-  { key: "B", label: "Black", cls: "ms-b" },
-  { key: "R", label: "Red", cls: "ms-r" },
-  { key: "G", label: "Green", cls: "ms-g" },
-  { key: "C", label: "Colorless", cls: "ms-c" },
-];
+import ColorToggle, { COLOR_TOGGLES } from "./ColorToggle";
+import SetPicker, { type SetOption } from "./SetPicker";
 
 const MANA_VALUES = [1, 2, 3, 4, 5, 6];
+
+// Only sets you own a commander from, counted in commanders rather than cards.
+async function loadCommanderSets(): Promise<SetOption[]> {
+  const rows = await api.listCommanderSets();
+  return rows.map((s) => ({ code: s.code, name: s.name, count: s.commanders }));
+}
 
 // One more than we show, so we can tell "that's all of them" from "there's more".
 const BROWSE_LIMIT = 60;
 
 /**
  * Commander search plus filters (exact color identity, a {C} pip in the cost,
- * max mana value, creature type). Results are an inline list rather than a dropdown so the filters alone
- * are enough to browse — no name required.
+ * max mana value, creature type, sets owned in). Results are an inline list
+ * rather than a dropdown so the filters alone are enough to browse — no name required.
  */
 export default function CommanderPicker({
   onSelect,
@@ -31,12 +30,14 @@ export default function CommanderPicker({
   const [colors, setColors] = useState<string[]>([]);
   const [maxMv, setMaxMv] = useState<number | null>(null);
   const [creatureType, setCreatureType] = useState("");
+  const [sets, setSets] = useState<string[]>([]);
   const [results, setResults] = useState<CommanderOption[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const hasFilters = colors.length > 0 || maxMv !== null || creatureType.trim() !== "";
+  const hasFilters =
+    colors.length > 0 || maxMv !== null || creatureType.trim() !== "" || sets.length > 0;
 
   // Debounced search on the query and filters.
   useEffect(() => {
@@ -47,6 +48,7 @@ export default function CommanderPicker({
           colors,
           max_mv: maxMv,
           creature_type: creatureType,
+          sets,
         });
         setTruncated(found.length > BROWSE_LIMIT);
         setResults(found.slice(0, BROWSE_LIMIT));
@@ -58,7 +60,7 @@ export default function CommanderPicker({
       }
     }, 200);
     return () => clearTimeout(handle);
-  }, [query, colors, maxMv, creatureType]);
+  }, [query, colors, maxMv, creatureType, sets]);
 
   // Kept in WUBRGC order so the query string is stable however they were clicked.
   // C combines with colors — it asks for a {C} pip in the cost (Ulalek is WUBRG + C).
@@ -73,6 +75,7 @@ export default function CommanderPicker({
     setColors([]);
     setMaxMv(null);
     setCreatureType("");
+    setSets([]);
   }
 
   const labelClass = "text-xs font-medium uppercase tracking-wider text-slate-400";
@@ -94,24 +97,14 @@ export default function CommanderPicker({
         <div className="flex items-center gap-2">
           <span className={labelClass}>Colors</span>
           <div className="flex gap-1">
-            {COLOR_TOGGLES.map((c) => {
-              const on = colors.includes(c.key);
-              return (
-                <button
-                  key={c.key}
-                  onClick={() => toggleColor(c.key)}
-                  title={c.label}
-                  aria-label={c.label}
-                  aria-pressed={on}
-                  className={
-                    "rounded-full p-0.5 text-[18px] leading-none transition " +
-                    (on ? "ring-2 ring-emerald-400" : "opacity-35 grayscale hover:opacity-70")
-                  }
-                >
-                  <i className={`ms ${c.cls} ms-cost ms-shadow`} />
-                </button>
-              );
-            })}
+            {COLOR_TOGGLES.map((c) => (
+              <ColorToggle
+                key={c.key}
+                color={c.key}
+                on={colors.includes(c.key)}
+                onClick={() => toggleColor(c.key)}
+              />
+            ))}
           </div>
         </div>
 
@@ -146,6 +139,19 @@ export default function CommanderPicker({
             className="w-32 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200 placeholder:text-slate-500"
           />
         </label>
+
+        <div className="flex items-center gap-2">
+          <span className={labelClass}>Sets</span>
+          <SetPicker
+            sets={sets}
+            loadSets={loadCommanderSets}
+            emptyText="No commanders in your collection."
+            onChange={(next) => {
+              setSets(next);
+              setOpen(true);
+            }}
+          />
+        </div>
 
         {hasFilters && (
           <button onClick={clearFilters} className="text-xs text-slate-400 underline hover:text-slate-200">
