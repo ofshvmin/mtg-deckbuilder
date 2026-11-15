@@ -4,7 +4,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import type { GeneratedDeck, SavedDeckSummary } from "@mtg/shared";
 import { api } from "../../src/lib/api";
 import { CommanderArtImage } from "../../src/components/CardImage";
-import DeckDetailModal from "../../src/components/DeckDetailModal";
+import DeckView from "../../src/components/DeckView";
 import { ColorPips } from "../../src/components/ManaSymbols";
 
 export default function DecksScreen() {
@@ -99,35 +99,6 @@ export default function DecksScreen() {
       ],
     );
   }, [loadDecks]);
-
-  /** Point a deck card at a different owned printing, and persist it.
-   *
-   *  Saved immediately rather than behind a Save button: the mobile deck view is
-   *  otherwise read-only, so there's no edit session for the change to sit in.
-   */
-  async function selectPrinting(oracleId: string, printingKey: string) {
-    if (!openDeck) return;
-    const updated: GeneratedDeck = {
-      ...openDeck.deck,
-      cards: openDeck.deck.cards.map((c) =>
-        c.oracle_id === oracleId
-          ? {
-              ...c,
-              selected_printing_key: printingKey,
-              // One printing takes the whole entry. Splitting across printings
-              // only happens automatically, when no single one has enough free.
-              printing_allocation: { [printingKey]: c.count },
-            }
-          : c,
-      ),
-    };
-    setOpenDeck({ ...openDeck, deck: updated });
-    try {
-      await api.updateSavedDeck(openDeck.id, { deck: updated });
-    } catch {
-      // Leave the optimistic change on screen; reopening the deck re-reads truth.
-    }
-  }
 
   // Opened from Home ("recent decks" tap) with an `open` deck id — show it, then
   // clear the param so the same deck can be reopened later.
@@ -242,12 +213,16 @@ export default function DecksScreen() {
       />
 
       {openDeck && (
-        <DeckDetailModal
+        <DeckView
+          key={openDeck.id}
           deck={openDeck.deck}
-          name={openDeck.name}
+          deckName={openDeck.name}
+          deckId={openDeck.id}
           inUse={openDeck.inUse}
-          onToggleInUse={() => setInUse(openDeck.id, !openDeck.inUse)}
-          onSelectPrinting={selectPrinting}
+          onSaved={() => void loadDecks()}
+          onInUseChange={(next) =>
+            setDecks((prev) => prev.map((d) => (d.id === openDeck.id ? { ...d, in_use: next } : d)))
+          }
           onClose={() => setOpenDeck(null)}
         />
       )}
