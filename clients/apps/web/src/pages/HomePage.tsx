@@ -4,7 +4,7 @@ import type { SavedDeckSummary } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useLayout } from "../components/Layout";
 import { useAuth } from "../auth/AuthContext";
-import { formatColorIdentity } from "../lib/format";
+import ColorPips from "../components/ColorPips";
 import BracketBadge from "../components/BracketBadge";
 import CommanderArt from "../components/CommanderArt";
 import ImportCollection from "../components/ImportCollection";
@@ -129,7 +129,7 @@ export default function HomePage() {
                   </div>
                 </CommanderArt>
                 <div className="truncate px-3 py-2 text-xs text-slate-400">
-                  {d.commander_name} · {formatColorIdentity(d.color_identity)}
+                  {d.commander_name} · <ColorPips colors={d.color_identity} />
                 </div>
               </button>
             ))}

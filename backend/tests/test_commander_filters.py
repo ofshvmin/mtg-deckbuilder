@@ -99,3 +99,77 @@ def test_creature_type_is_regex_escaped():
 def test_filters_combine():
     assert names(colors=["G"], max_mv=2, creature_type="Druid") == {"Marwyn"}
     assert names(colors=["G"], creature_type="Dryad") == set()
+
+
+# ---- set filter: which owned cards are even candidates ----
+
+def run_search(monkeypatch, sets):
+    """Call the router with a fake collection; return the owned ids it searched."""
+    import asyncio
+
+    from app.routers import commanders
+
+    async def owned_counts(db, user_id):
+        return {"trostani": 1, "atraxa": 2}
+
+    async def owned_printings(db, user_id):
+        return {
+            "trostani": [{"edition": "GPT"}, {"edition": "c19"}],
+            "atraxa": [{"edition": "c16"}],
+        }
+
+    searched = {}
+
+    async def search(db, owned_ids, **kwargs):
+        searched["ids"] = set(owned_ids)
+        return []
+
+    monkeypatch.setattr(commanders.db, "get_db", lambda: None)
+    monkeypatch.setattr(commanders.collection_repo, "owned_counts", owned_counts)
+    monkeypatch.setattr(commanders.collection_repo, "owned_printings", owned_printings)
+    monkeypatch.setattr(commanders.cards_repo, "search_owned_commanders", search)
+    asyncio.run(commanders.search_commanders(
+        q="", limit=20, colors="", max_mv=None, creature_type="", sets=sets, current_user={"_id": "u"}
+    ))
+    return searched["ids"]
+
+
+def test_no_sets_searches_the_whole_collection(monkeypatch):
+    assert run_search(monkeypatch, None) == {"trostani", "atraxa"}
+
+
+def test_sets_keep_commanders_owned_in_any_of_them(monkeypatch):
+    # Set codes match case-insensitively, as the collection browser's do.
+    assert run_search(monkeypatch, ["gpt"]) == {"trostani"}
+    assert run_search(monkeypatch, ["c16", "c19"]) == {"trostani", "atraxa"}
+    assert run_search(monkeypatch, ["m21"]) == set()
+
+
+def test_commander_sets_count_only_eligible_commanders(monkeypatch):
+    import asyncio
+
+    from app.routers import commanders
+
+    async def owned_printings(db, user_id):
+        return {
+            "trostani": [{"edition": "GPT"}, {"edition": "c19"}, {"edition": "c19"}],
+            "atraxa": [{"edition": "c16"}, {"edition": "C19"}],
+            "forest": [{"edition": "m21"}],  # not a commander: its set never appears
+        }
+
+    async def owned_commander_ids(db, owned_ids):
+        return {"trostani", "atraxa"} & set(owned_ids)
+
+    async def set_names(db, codes):
+        return {"c19": "Commander 2019"}
+
+    monkeypatch.setattr(commanders.db, "get_db", lambda: None)
+    monkeypatch.setattr(commanders.collection_repo, "owned_printings", owned_printings)
+    monkeypatch.setattr(commanders.cards_repo, "owned_commander_ids", owned_commander_ids)
+    monkeypatch.setattr(commanders.card_prints_repo, "set_names", set_names)
+    rows = asyncio.run(commanders.commander_sets(current_user={"_id": "u"}))
+    assert [(r.code, r.name, r.commanders) for r in rows] == [
+        ("c16", "C16", 1),
+        ("c19", "Commander 2019", 2),
+        ("gpt", "GPT", 1),
+    ]

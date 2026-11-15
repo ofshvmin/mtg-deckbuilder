@@ -88,6 +88,8 @@ export interface CommanderFilters {
   colors?: string[];
   max_mv?: number | null;
   creature_type?: string;
+  /** Set codes, lowercase — commanders owned in any of these sets. */
+  sets?: string[];
 }
 
 export interface CardSummary {
@@ -182,6 +184,14 @@ export interface CollectionSet {
   owned: number;
   /** Copies not committed to an in-use deck. May be negative when decks over-claim. */
   available: number;
+}
+
+/** A set the user owns an eligible commander from, for the commander picker. */
+export interface CommanderSet {
+  code: string;
+  name: string;
+  /** Distinct eligible commanders owned in a printing from this set. */
+  commanders: number;
 }
 
 // One owned printing (physical inventory unit) of a card: which set it's from,

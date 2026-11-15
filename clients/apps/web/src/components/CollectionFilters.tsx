@@ -13,6 +13,8 @@ import {
   type SortKey,
 } from "../lib/collectionFilter";
 import { COLOR_ORDER } from "../lib/format";
+import ColorPips from "./ColorPips";
+import ColorToggle from "./ColorToggle";
 import SetPicker from "./SetPicker";
 
 // The collection browser's controls.
@@ -126,7 +128,7 @@ export default function CollectionFilters({
   const narrowed = isFiltered(filters);
 
   // Every active narrowing, as one removable chip each.
-  const active: { key: string; label: string; clear: () => void }[] = [];
+  const active: { key: string; label: React.ReactNode; clear: () => void }[] = [];
   if (filters.q.trim()) {
     active.push({ key: "q", label: `“${filters.q.trim()}”`, clear: () => set({ q: "" }) });
   }
@@ -138,12 +140,15 @@ export default function CollectionFilters({
     });
   }
   if (filters.colors.length || filters.colorless) {
-    const pips = [...filters.colors].sort(
-      (a, b) => COLOR_ORDER.indexOf(a) - COLOR_ORDER.indexOf(b),
-    ).join("");
     active.push({
       key: "colors",
-      label: `${MODE_LABELS[filters.colorMode]} ${pips}${filters.colorless ? "C" : ""}`,
+      label: (
+        <>
+          {MODE_LABELS[filters.colorMode]}{" "}
+          {filters.colors.length > 0 && <ColorPips colors={filters.colors} />}
+          {filters.colorless && <ColorPips colors={[]} />}
+        </>
+      ),
       clear: () => set({ colors: [], colorless: false }),
     });
   }
@@ -210,34 +215,18 @@ export default function CollectionFilters({
 
         <div className="flex items-center gap-1">
           {COLOR_ORDER.map((c) => (
-            <button
+            <ColorToggle
               key={c}
+              color={c}
+              on={filters.colors.includes(c)}
               onClick={() => toggleColor(c)}
-              aria-pressed={filters.colors.includes(c)}
-              title={c}
-              className={
-                "h-7 w-7 rounded-full text-xs font-semibold transition " +
-                (filters.colors.includes(c)
-                  ? "bg-slate-700 text-slate-100 ring-2 ring-emerald-500"
-                  : "bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-slate-300")
-              }
-            >
-              {c}
-            </button>
+            />
           ))}
-          <button
+          <ColorToggle
+            color="C"
+            on={filters.colorless}
             onClick={() => set({ colorless: !filters.colorless })}
-            aria-pressed={filters.colorless}
-            title="Colorless"
-            className={
-              "h-7 w-7 rounded-full text-xs font-semibold transition " +
-              (filters.colorless
-                ? "bg-slate-700 text-slate-100 ring-2 ring-emerald-500"
-                : "bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-slate-300")
-            }
-          >
-            C
-          </button>
+          />
         </div>
 
         <select

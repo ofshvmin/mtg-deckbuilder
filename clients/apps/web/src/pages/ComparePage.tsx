@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { DeckCard, GeneratedDeck, SavedDeck } from "@mtg/shared";
 import { api } from "../lib/api";
-import { formatColorIdentity } from "../lib/format";
+import ColorPips from "../components/ColorPips";
 import type { Color } from "@mtg/shared";
 import ManaCurve from "../components/ManaCurve";
 
@@ -134,7 +134,7 @@ function DeckHeader({ name, deck }: { name: string; deck: GeneratedDeck }) {
       <h3 className="truncate text-lg font-semibold text-white">{name}</h3>
       <p className="mt-1 text-sm text-slate-400">
         {deck.commander ? `${deck.commander.name} · ` : ""}
-        {formatColorIdentity(deck.color_identity as Color[])}
+        <ColorPips colors={deck.color_identity as Color[]} />
       </p>
     </div>
   );

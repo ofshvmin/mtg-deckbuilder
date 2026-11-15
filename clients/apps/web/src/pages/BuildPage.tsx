@@ -6,7 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { isPremiumRequired } from "../lib/premium";
 import { usePremiumUpgrade } from "../components/PremiumUpgrade";
 import { useLayout } from "../components/Layout";
-import { formatColorIdentity } from "../lib/format";
+import ColorPips from "../components/ColorPips";
 import AiPlanPanel, { type BriefTurn } from "../components/AiPlanPanel";
 import CommanderFeature from "../components/CommanderFeature";
 import CommanderPicker from "../components/CommanderPicker";
@@ -601,9 +601,9 @@ export default function BuildPage() {
                       label="Colors"
                       value={
                         needsCommander
-                          ? formatColorIdentity(pool.color_identity)
+                          ? <ColorPips colors={pool.color_identity} size={22} />
                           : colors.length
-                            ? formatColorIdentity(colors as never)
+                            ? <ColorPips colors={colors as never} size={22} />
                             : "Auto"
                       }
                     />

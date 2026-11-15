@@ -119,16 +119,30 @@ async def search_owned_commanders(
     if not owned_ids:
         return []
     mongo_query: dict = {
+        **_owned_commander_query(owned_ids),
+        **commander_filter_query(query, colors, max_mv, creature_type),
+    }
+    cursor = db.cards.find(mongo_query).sort("name", 1).limit(limit)
+    return [doc async for doc in cursor]
+
+
+def _owned_commander_query(owned_ids: list[str]) -> dict:
+    return {
         "_id": {"$in": owned_ids},
         "legal_commander": "legal",
         "$or": [
             {"type_line": {"$regex": "Legendary.*Creature"}},
             {"oracle_text": {"$regex": "[Cc]an be your commander"}},
         ],
-        **commander_filter_query(query, colors, max_mv, creature_type),
     }
-    cursor = db.cards.find(mongo_query).sort("name", 1).limit(limit)
-    return [doc async for doc in cursor]
+
+
+async def owned_commander_ids(db: AsyncDatabase, owned_ids: list[str]) -> set[str]:
+    """Which of these owned cards can be a commander — every one, no filters."""
+    if not owned_ids:
+        return set()
+    cursor = db.cards.find(_owned_commander_query(owned_ids), {"_id": 1})
+    return {doc["_id"] async for doc in cursor}
 
 
 async def search_all_commanders(

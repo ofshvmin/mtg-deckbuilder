@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CollectionSet } from "@mtg/shared";
 import { api } from "../lib/api";
 import { lookupSet, useScryfallSets } from "../lib/scryfallSets";
 
@@ -12,11 +11,24 @@ import { lookupSet, useScryfallSets } from "../lib/scryfallSets";
 //
 // Set rows are fetched on first open rather than on mount: it's a secondary
 // control, and the counts go stale the moment a deck is marked in use.
+//
+// By default the rows are the collection's sets with copy counts. The commander
+// picker passes its own `loadSets` — only sets holding an eligible commander,
+// counted in commanders — since a set with no commanders in it is a dead end there.
+
+/** One row in the picker: a set and the number shown beside it. */
+export interface SetOption {
+  code: string;
+  name: string;
+  count: number;
+}
 
 export default function SetPicker({
   sets,
   onChange,
   countKey = "owned",
+  loadSets,
+  emptyText = "No sets in your collection.",
   disabled,
   align = "left",
 }: {
@@ -25,11 +37,15 @@ export default function SetPicker({
   onChange: (next: string[]) => void;
   /** Which number to show per set — copies owned, or copies still free. */
   countKey?: "owned" | "available";
+  /** Replaces the collection's set list (and `countKey`) with another source. */
+  loadSets?: () => Promise<SetOption[]>;
+  /** Shown when the source has no sets at all. */
+  emptyText?: string;
   disabled?: boolean;
   /** Which edge the popover hangs from, for pickers near the right margin. */
   align?: "left" | "right";
 }) {
-  const [available, setAvailable] = useState<CollectionSet[] | null>(null);
+  const [available, setAvailable] = useState<SetOption[] | null>(null);
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const setIndex = useScryfallSets();
@@ -37,8 +53,16 @@ export default function SetPicker({
 
   useEffect(() => {
     if (!open || available) return;
-    api.listCollectionSets().then(setAvailable).catch(() => setAvailable([]));
-  }, [open, available]);
+    const load =
+      loadSets ??
+      (async () =>
+        (await api.listCollectionSets()).map((s) => ({
+          code: s.code,
+          name: s.name,
+          count: countKey === "available" ? s.available : s.owned,
+        })));
+    load().then(setAvailable).catch(() => setAvailable([]));
+  }, [open, available, loadSets, countKey]);
 
   // Reopening after marking a deck in use should show fresh availability counts.
   useEffect(() => {
@@ -123,12 +147,12 @@ export default function SetPicker({
             {available === null && <p className="p-2 text-sm text-slate-500">Loading sets…</p>}
             {available !== null && visible.length === 0 && (
               <p className="p-2 text-sm text-slate-500">
-                {available.length === 0 ? "No sets in your collection." : "No matching sets."}
+                {available.length === 0 ? emptyText : "No matching sets."}
               </p>
             )}
             {visible.map((s) => {
               const icon = lookupSet(setIndex, s.code)?.iconSvgUri;
-              const count = countKey === "available" ? s.available : s.owned;
+              const count = s.count;
               return (
                 <label
                   key={s.code}
