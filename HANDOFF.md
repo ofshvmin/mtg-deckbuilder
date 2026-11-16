@@ -510,13 +510,27 @@ style preferences — they are the terms the data arrives with.
 
 ## Maintenance & data freshness
 
-- Re-sync reference data periodically (~weekly or when new sets drop):
-  - `backend/scripts/sync_scryfall.py` — oracle cards (38.6K)
-  - `backend/scripts/sync_card_prints.py` — per-printing images + prices + artist (113K, from
+- **Scheduled card sync (daily, automatic since 2026-11-15).** A Fly machine named `card-sync` in
+  the `mtg-deckbuilder-api` app wakes daily, runs `python -m app.jobs.sync_cards` (oracle cards,
+  then printings, art and prices), and stops. It's separate from the API on purpose: the sync peaks
+  around 420MB, too close to the API's 512MB. It has 1GB, and it's billed only for the ~2–3 minutes
+  it runs. It uses the app's own `MONGODB_URI` secret.
+  - Why: until then the syncs were manual, and they lapsed. The Star Trek precons (TRC, released
+    2026-11-13) showed no art and resolved the wrong commander until a manual re-sync.
+  - Check it: `fly machine list -a mtg-deckbuilder-api` and `fly logs -a mtg-deckbuilder-api -i
+    <machine id>`. Each run logs `cards: N oracle cards` and `card_prints: N printings`; a failure
+    exits non-zero.
+  - **`fly deploy` does not update this machine's image** — it isn't part of a process group. When
+    the sync code (`app/jobs/sync_cards.py`, `services/scryfall.py`, `services/card_prints.py`)
+    changes, point it at the new image: `fly machine update <id> --image <ref from fly image show>`.
+- Manual syncs still work, run **from your machine against prod Atlas**:
+  - `backend/scripts/sync_scryfall.py` — oracle cards (~39K)
+  - `backend/scripts/sync_card_prints.py` — per-printing images + prices + artist (~117K, from
     `default_cards` bulk)
-  - `backend/scripts/sync_spellbook.py` — combos (96K)
-- These run **from your machine against prod Atlas**, not on the server — no request path triggers
-  a sync, so a Fly deploy is never needed to refresh data.
+  - `backend/scripts/sync_spellbook.py` — combos (96K). **Not scheduled**: unlike the card syncs it
+    deletes then re-inserts, so combos vanish for the length of a run. Run it by hand after a set
+    drops, or convert it to upsert-then-prune before adding it to the schedule.
+- No request path triggers a sync, so a Fly deploy is never needed to refresh data.
 - **Adding a field to `doc_from_card` is a two-part change**: the code alone does nothing until a
   re-sync rewrites the 38.6K docs. `reserved` and `game_changer` were added this way (PR #64,
   re-synced 2026-08-18). Anything reading a new field must tolerate its absence until then.
