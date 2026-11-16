@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CommanderOption, ExternalDeckResponse } from "@mtg/shared";
 import { api } from "../lib/api";
 import { isPremiumRequired } from "../lib/premium";
+import { edhrecPreviewCards } from "@mtg/shared";
 import { usePremiumUpgrade } from "../components/PremiumUpgrade";
 import { useLayout } from "../components/Layout";
 import type { Color } from "@mtg/shared";
@@ -162,17 +163,8 @@ export default function ExplorePage() {
     setSavedId(null);
     try {
       const preview = await api.fetchEdhrecDeck(result.external_id);
-      if (!preview?.deck?.length) { setFetchError("Could not load deck."); return; }
-      const commanders = new Set(preview.commanders ?? []);
-      const cards = (preview.deck ?? [])
-        .filter((line: string) => line?.trim())
-        .map((line: string) => {
-          const first = line.trim().split(" ", 2);
-          const qty = parseInt(first[0], 10) || 1;
-          const name = line.trim().substring(first[0].length).trim();
-          return { name, quantity: qty, is_commander: commanders.has(name) };
-        })
-        .filter((c: { name: string }) => c.name);
+      const cards = preview ? edhrecPreviewCards(preview) : [];
+      if (!cards.length) { setFetchError("Could not load deck."); return; }
       const data = await api.resolveExternalDeck({
         cards, source: result.source, source_url: result.url, name: result.name, owner: result.owner,
       });
