@@ -145,8 +145,8 @@ export default function ExplorePage() {
     setSavedId(null);
     try {
       const preview = await api.fetchEdhrecDeck(result.external_id);
-      if (!preview?.deck?.length) { setFetchError("Could not load deck."); return; }
-      const cards = edhrecPreviewCards(preview);
+      const cards = preview ? edhrecPreviewCards(preview) : [];
+      if (!cards.length) { setFetchError("Could not load deck."); return; }
       const data = await api.resolveExternalDeck({
         cards, source: result.source, source_url: result.url, name: result.name, owner: result.owner,
       });

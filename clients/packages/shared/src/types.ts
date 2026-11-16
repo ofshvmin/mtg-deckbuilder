@@ -428,9 +428,17 @@ export interface PreconSummary {
   commander_artist?: string | null;
 }
 
-/** An EDHREC deck preview: "1 Sol Ring"-style lines plus which names are commanders. */
+/** EDHREC's current deck shape: commanders, then cards by type as [name, qty]. */
+export interface EdhrecDeckSections {
+  commander?: string[];
+  commander_v2?: [string, number][];
+  cards?: Record<string, [string, number][]>;
+}
+
+/** An EDHREC deck preview. `deck` was "1 Sol Ring"-style lines; EDHREC now
+ *  sends sections instead. edhrecPreviewCards reads either. */
 export interface EdhrecDeckPreview {
-  deck: string[];
+  deck: string[] | EdhrecDeckSections;
   commanders: string[];
   coloridentity: string[];
   url: string;
