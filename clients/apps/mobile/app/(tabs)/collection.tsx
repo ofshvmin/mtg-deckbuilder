@@ -69,7 +69,7 @@ function ActiveChip({ children, onClear }: { children: ReactNode; onClear: () =>
   );
 }
 
-const chipText = "text-xs capitalize text-slate-300";
+const chipText = "text-xs text-slate-300";
 
 export default function CollectionScreen() {
   const navigation = useNavigation();
