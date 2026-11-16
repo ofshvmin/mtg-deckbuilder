@@ -7,7 +7,7 @@ import {
   type PreconSummary,
 } from "@mtg/shared";
 import { api } from "../lib/api";
-import { edhrecPreviewCards, isPremiumRequired } from "@mtg/shared";
+import { isPremiumRequired } from "@mtg/shared";
 import { usePremiumUpgrade } from "../components/PremiumUpgrade";
 import { useLayout } from "../components/Layout";
 import type { Color } from "@mtg/shared";
