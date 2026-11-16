@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import type { BriefDeckResponse, ColorRationale, CommanderOption, DeckFormat, GeneratedDeck, PoolFilters, PoolResponse, PoolScope, StrategyOption } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
-import { isPremiumRequired } from "../lib/premium";
+import { isPremiumRequired } from "@mtg/shared";
 import { usePremiumUpgrade } from "../components/PremiumUpgrade";
 import { useLayout } from "../components/Layout";
 import ColorPips from "../components/ColorPips";

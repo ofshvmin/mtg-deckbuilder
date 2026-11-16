@@ -1,15 +1,44 @@
 import { useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
+import { View, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
 import { Redirect, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/AuthContext";
+import { api } from "../src/lib/api";
 import { usePremium } from "../src/purchases/PremiumContext";
 
 export default function AccountScreen() {
-  const { user, logout, deleteAccount } = useAuth();
+  const { user, logout, deleteAccount, setUser } = useAuth();
   const { isPremium } = usePremium();
   const [deleting, setDeleting] = useState(false);
   const insets = useSafeAreaInsets();
+
+  // Recommendation budget — the same preference as the web's Settings page, so a
+  // cap set on either side applies to both.
+  const current = user?.preferences?.max_card_price;
+  const [price, setPrice] = useState(current != null ? String(current) : "");
+  const [savingPrice, setSavingPrice] = useState(false);
+  const [priceSaved, setPriceSaved] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
+
+  async function savePrice() {
+    setPriceError(null);
+    setPriceSaved(false);
+    const trimmed = price.trim();
+    const max_card_price = trimmed === "" ? null : Number(trimmed);
+    if (max_card_price != null && (Number.isNaN(max_card_price) || max_card_price < 0)) {
+      setPriceError("Enter a non-negative dollar amount, or leave blank for no cap.");
+      return;
+    }
+    setSavingPrice(true);
+    try {
+      setUser(await api.updatePreferences({ max_card_price }));
+      setPriceSaved(true);
+    } catch (e) {
+      setPriceError(e instanceof Error ? e.message : "Couldn't save preferences.");
+    } finally {
+      setSavingPrice(false);
+    }
+  }
 
   const confirmDeleteAccount = () => {
     Alert.alert(
@@ -86,6 +115,43 @@ export default function AccountScreen() {
               {isPremium ? "Premium ✦" : "Free plan"}
             </Text>
           </View>
+        </View>
+
+        <View className="mt-8 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <Text className="text-sm font-medium text-slate-200">Recommendation budget</Text>
+          <Text className="mt-1 text-xs leading-4 text-slate-500">
+            Maximum price you'll pay for a recommended card you don't own. Cards above this are
+            hidden from combo finishers and budget upgrades. Leave blank for no cap. (Owned cards
+            are always shown.)
+          </Text>
+          <View className="mt-3 flex-row items-center gap-2">
+            <Text className="text-sm text-slate-400">$</Text>
+            <TextInput
+              value={price}
+              onChangeText={(t) => {
+                setPrice(t);
+                setPriceSaved(false);
+              }}
+              placeholder="No cap"
+              placeholderTextColor="#64748b"
+              keyboardType="decimal-pad"
+              className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200"
+            />
+            <TouchableOpacity
+              onPress={savePrice}
+              disabled={savingPrice}
+              className="rounded-lg bg-emerald-700 px-4 py-2"
+              activeOpacity={0.7}
+            >
+              {savingPrice ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Text className="text-sm font-medium text-white">Save</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          {priceError && <Text className="mt-2 text-xs text-rose-400">{priceError}</Text>}
+          {priceSaved && <Text className="mt-2 text-xs text-emerald-400">Saved.</Text>}
         </View>
 
         <TouchableOpacity

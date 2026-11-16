@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { GeneratedDeck } from "@mtg/shared";
-import { buildLibrary, sampleOpenerStats, shuffle, type LibCard, type OpenerStats } from "../lib/playtest";
+import { buildLibrary, sampleOpenerStats, shuffle, type LibCard, type OpenerStats } from "@mtg/shared";
 import { scryfallNamedImageUrl } from "../lib/scryfall";
 
 type Phase = "mulligan" | "bottoming" | "play";

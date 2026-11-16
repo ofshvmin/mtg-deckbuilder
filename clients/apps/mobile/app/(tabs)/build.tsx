@@ -10,6 +10,7 @@ import { usePremium } from "../../src/purchases/PremiumContext";
 import DeckDetailModal from "../../src/components/DeckDetailModal";
 import PoolControls from "../../src/components/PoolControls";
 import CommanderFilterBar, { hasCommanderFilters } from "../../src/components/CommanderFilterBar";
+import { ColorPips } from "../../src/components/ManaSymbols";
 
 type Mode = "auto" | "brief";
 type BriefTurn = { role: "user" | "assistant"; text: string };
@@ -269,10 +270,15 @@ export default function BuildScreen() {
                 className="border-b border-slate-700/50 px-3 py-2.5"
                 activeOpacity={0.6}
               >
-                <Text className="text-sm text-slate-200">{c.name}</Text>
-                <Text className="text-xs text-slate-500">
-                  {c.color_identity.join("") || "C"} · {c.type_line}
-                </Text>
+                <View className="flex-row items-center justify-between gap-3">
+                  <View className="flex-1">
+                    <Text className="text-sm text-slate-200">{c.name}</Text>
+                    <Text className="text-xs text-slate-500" numberOfLines={1}>
+                      {c.type_line}
+                    </Text>
+                  </View>
+                  <ColorPips colors={c.color_identity} size={15} />
+                </View>
               </TouchableOpacity>
             ))}
           </View>
@@ -301,9 +307,12 @@ export default function BuildScreen() {
             {/* Commander selected */}
             <View className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
               <Text className="text-lg font-semibold text-white">{commander.name}</Text>
-              <Text className="text-sm text-slate-400">
-                {commander.color_identity.join("") || "C"} · {commander.type_line}
-              </Text>
+              <View className="mt-0.5 flex-row items-center gap-1.5">
+                <ColorPips colors={commander.color_identity} size={15} />
+                <Text className="shrink text-sm text-slate-400" numberOfLines={1}>
+                  · {commander.type_line}
+                </Text>
+              </View>
               {poolSize != null && (
                 <Text className="mt-1 text-xs text-slate-500">
                   {poolSize.toLocaleString()} cards in pool

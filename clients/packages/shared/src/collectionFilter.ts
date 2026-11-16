@@ -1,5 +1,5 @@
-import type { CollectionCard, Color, Printing } from "@mtg/shared";
-import { COLOR_ORDER } from "./format";
+import type { CollectionCard, Color, Printing } from "./types";
+import { COLOR_ORDER } from "./colors";
 
 // Filtering and sorting the collection browser, kept as pure functions over the
 // cards the API already sent. The whole collection arrives in one request, so

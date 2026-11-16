@@ -70,8 +70,14 @@ export default function LoginScreen() {
           )}
         </TouchableOpacity>
 
+        <Link href="/forgot-password" asChild>
+          <TouchableOpacity className="mt-4 py-1" activeOpacity={0.7}>
+            <Text className="text-center text-sm text-slate-400">Forgot your password?</Text>
+          </TouchableOpacity>
+        </Link>
+
         <Link href="/register" asChild>
-          <TouchableOpacity className="mt-4 py-2" activeOpacity={0.7}>
+          <TouchableOpacity className="mt-2 py-2" activeOpacity={0.7}>
             <Text className="text-center text-sm text-slate-400">
               Don't have an account? <Text className="text-indigo-400">Register</Text>
             </Text>

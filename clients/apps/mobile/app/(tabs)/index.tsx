@@ -6,6 +6,7 @@ import { DATA_SOURCE_NOTICE, FAN_CONTENT_NOTICE } from "@mtg/shared";
 import { api } from "../../src/lib/api";
 import { useAuth } from "../../src/auth/AuthContext";
 import { CommanderArtImage } from "../../src/components/CardImage";
+import { ColorPips } from "../../src/components/ManaSymbols";
 
 export default function HomeScreen() {
   const { user } = useAuth();
@@ -98,9 +99,12 @@ export default function HomeScreen() {
                         <Text className="text-sm font-semibold text-white" numberOfLines={1}>
                           {d.name}
                         </Text>
-                        <Text className="text-xs text-slate-400">
-                          {d.commander_name} · {d.color_identity.join("") || "C"}
-                        </Text>
+                        <View className="flex-row items-center gap-1.5">
+                          <Text className="shrink text-xs text-slate-400" numberOfLines={1}>
+                            {d.commander_name} ·
+                          </Text>
+                          <ColorPips colors={d.color_identity} size={13} />
+                        </View>
                       </View>
                     </View>
                   </TouchableOpacity>

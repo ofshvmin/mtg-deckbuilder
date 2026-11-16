@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CommanderOption, ExternalDeckResponse } from "@mtg/shared";
 import { api } from "../lib/api";
-import { isPremiumRequired } from "../lib/premium";
-import { edhrecPreviewCards } from "@mtg/shared";
+import { edhrecPreviewCards, isPremiumRequired } from "@mtg/shared";
 import { usePremiumUpgrade } from "../components/PremiumUpgrade";
 import { useLayout } from "../components/Layout";
 import type { Color } from "@mtg/shared";

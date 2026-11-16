@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CardSearchResult } from "@mtg/shared";
 import { api } from "../lib/api";
-import { fetchPrintings, type PrintOption } from "../lib/scryfallPrints";
+import { fetchPrintings, type PrintOption } from "@mtg/shared";
 import { lookupSet, useScryfallSets } from "../lib/scryfallSets";
 import SetSymbol from "./SetSymbol";
 

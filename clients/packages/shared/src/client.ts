@@ -254,15 +254,12 @@ export class ApiClient {
   }
 
   async exportCollectionBlob(format = "Moxfield"): Promise<Blob> {
-    const access = await this.tokens.getAccess();
-    const headers: Record<string, string> = {};
-    if (access) headers["Authorization"] = `Bearer ${access}`;
-    const res = await fetch(
-      `${this.baseUrl}/collection/export?format=${encodeURIComponent(format)}`,
-      { headers },
-    );
-    if (!res.ok) throw new ApiError(res.status, "Export failed");
-    return res.blob();
+    return (await this.fetchExport(`/collection/export?format=${encodeURIComponent(format)}`)).blob();
+  }
+
+  /** The collection export as CSV text — for React Native, which can't write a Blob to a file. */
+  async exportCollectionText(format = "Moxfield"): Promise<string> {
+    return (await this.fetchExport(`/collection/export?format=${encodeURIComponent(format)}`)).text();
   }
 
   // ---- Commanders & pool ----
@@ -479,15 +476,26 @@ export class ApiClient {
   }
 
   async exportDeckBlob(deckId: string, format = "Moxfield"): Promise<Blob> {
+    return (await this.fetchExport(this.deckExportPath(deckId, format))).blob();
+  }
+
+  /** A saved deck's export as CSV text — for React Native, which can't write a Blob to a file. */
+  async exportDeckText(deckId: string, format = "Moxfield"): Promise<string> {
+    return (await this.fetchExport(this.deckExportPath(deckId, format))).text();
+  }
+
+  private deckExportPath(deckId: string, format: string): string {
+    return `/decks/saved/${encodeURIComponent(deckId)}/export?format=${encodeURIComponent(format)}`;
+  }
+
+  /** Exports are CSV, not JSON, so they skip `request` and read the body themselves. */
+  private async fetchExport(path: string): Promise<Response> {
     const access = await this.tokens.getAccess();
     const headers: Record<string, string> = {};
     if (access) headers["Authorization"] = `Bearer ${access}`;
-    const res = await fetch(
-      `${this.baseUrl}/decks/saved/${encodeURIComponent(deckId)}/export?format=${encodeURIComponent(format)}`,
-      { headers },
-    );
+    const res = await fetch(`${this.baseUrl}${path}`, { headers });
     if (!res.ok) throw new ApiError(res.status, "Export failed");
-    return res.blob();
+    return res;
   }
 
   // ---- Core request machinery ----

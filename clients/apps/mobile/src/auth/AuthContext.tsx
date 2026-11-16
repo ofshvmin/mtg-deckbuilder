@@ -10,6 +10,8 @@ interface AuthState {
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   deleteAccount: () => Promise<void>;
+  /** Replace the signed-in user, e.g. with what a preferences save returned. */
+  setUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthState>({
@@ -19,6 +21,7 @@ const AuthContext = createContext<AuthState>({
   register: async () => {},
   logout: async () => {},
   deleteAccount: async () => {},
+  setUser: () => {},
 });
 
 export function useAuth() {
@@ -68,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, register, logout, deleteAccount }}
+      value={{ user, loading, login, register, logout, deleteAccount, setUser }}
     >
       {children}
     </AuthContext.Provider>
