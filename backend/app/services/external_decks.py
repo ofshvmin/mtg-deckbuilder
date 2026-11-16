@@ -273,13 +273,19 @@ async def fetch_archidekt_deck(deck_id: str) -> dict:
 def extract_edhrec_cards(preview: dict) -> list[dict]:
     """Extract card entries from an EDHREC deck preview.
 
-    The preview's 'deck' field is a list of strings like "1 Sol Ring".
-    Returns list of dicts: {name, quantity, categories}
+    EDHREC has sent two shapes for 'deck': a list of strings like "1 Sol Ring"
+    (commanders listed separately in 'commanders'), and — since late 2026 —
+    sections: {"commander_v2": [[name, qty]], "cards": {"Sorcery": [[name, qty]], ...}}.
+    Both are read. Returns list of dicts: {name, quantity, categories}
     """
+    deck = preview.get("deck")
+    if isinstance(deck, dict):
+        return _extract_edhrec_sections(deck, preview.get("commanders") or [])
+
     cards: list[dict] = []
     commanders = set(preview.get("commanders") or [])
 
-    for line in preview.get("deck") or []:
+    for line in deck or []:
         if not isinstance(line, str) or not line.strip():
             continue
         parts = line.strip().split(" ", 1)
@@ -293,14 +299,40 @@ def extract_edhrec_cards(preview: dict) -> list[dict]:
         if not name:
             continue
         cats = ["Commander"] if name in commanders else []
-        cards.append({
-            "name": name,
-            "quantity": qty,
-            "categories": cats,
-            "set_code": "",
-            "collector_number": "",
-        })
+        cards.append(_edhrec_entry(name, qty, cats))
     return cards
+
+
+def _edhrec_entry(name: str, qty: int, categories: list[str]) -> dict:
+    return {
+        "name": name,
+        "quantity": qty,
+        "categories": categories,
+        "set_code": "",
+        "collector_number": "",
+    }
+
+
+def _extract_edhrec_sections(deck: dict, commanders: list[str]) -> list[dict]:
+    """The sectioned shape: commanders first, then every typed group of [name, qty]."""
+    pairs = deck.get("commander_v2") or [[n, 1] for n in (deck.get("commander") or commanders)]
+    cards = [
+        _edhrec_entry(str(pair[0]).strip(), _qty(pair), ["Commander"])
+        for pair in pairs
+        if isinstance(pair, (list, tuple)) and pair and str(pair[0]).strip()
+    ]
+    for group in (deck.get("cards") or {}).values():
+        for pair in group or []:
+            if isinstance(pair, (list, tuple)) and pair and str(pair[0]).strip():
+                cards.append(_edhrec_entry(str(pair[0]).strip(), _qty(pair), []))
+    return cards
+
+
+def _qty(pair) -> int:
+    try:
+        return int(pair[1]) if len(pair) > 1 else 1
+    except (TypeError, ValueError):
+        return 1
 
 
 def extract_archidekt_cards(raw: dict) -> list[dict]:
