@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Modal, View, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
 } from "react-native";
@@ -89,6 +89,9 @@ export default function DeckView({
   deckId: initialDeckId,
   inUse: initialInUse,
   poolFilters,
+  showOwnership,
+  saveSource,
+  banner,
   onSaved,
   onDeckChange,
   onInUseChange,
@@ -104,6 +107,13 @@ export default function DeckView({
   inUse?: boolean;
   /** Pool scope/sets the deck was built under, so a regenerate stays in bounds. */
   poolFilters?: PoolFilters;
+  /** Someone else's deck (Explore): grey out cards you don't own, and no
+   *  pin-and-regenerate — it isn't built from your pool. */
+  showOwnership?: boolean;
+  /** Where the deck came from, recorded when it's first saved. */
+  saveSource?: { source: string; source_url?: string };
+  /** Shown above the deck — Explore's source and ownership line. */
+  banner?: ReactNode;
   onSaved?: (saved: SavedDeck) => void;
   /** The deck's contents changed (regenerate), saved or not. */
   onDeckChange?: (deck: GeneratedDeck) => void;
@@ -195,7 +205,7 @@ export default function DeckView({
     try {
       const saved = deckId
         ? await api.updateSavedDeck(deckId, { name: name.trim(), deck })
-        : await api.saveDeck(name.trim(), deck);
+        : await api.saveDeck(name.trim(), deck, saveSource);
       setDeckId(saved.id);
       setSavedAs(saved.name);
       setDirty(false);
@@ -321,6 +331,8 @@ export default function DeckView({
         </View>
 
         <ScrollView className="flex-1" contentContainerClassName="gap-4 px-4 pb-16 pt-4" keyboardShouldPersistTaps="handled">
+          {banner}
+
           {/* Identity */}
           <View className="flex-row items-start gap-3">
             <View className="flex-1">
@@ -440,7 +452,7 @@ export default function DeckView({
           )}
 
           {/* Pin and regenerate */}
-          <View className="gap-2 rounded-lg border border-slate-800/60 bg-slate-900/30 px-3 py-2.5">
+          {!showOwnership && <View className="gap-2 rounded-lg border border-slate-800/60 bg-slate-900/30 px-3 py-2.5">
             <Text className="text-xs leading-4 text-slate-500">
               📌 Press and hold a card to pin it, then regenerate to rebuild the rest around your pins.
               {locked.size > 0 && <Text className="text-amber-400"> {locked.size} pinned</Text>}
@@ -466,7 +478,7 @@ export default function DeckView({
                 </Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </View>}
 
           {/* Cards by role */}
           {sections.map((s) => (
@@ -477,13 +489,17 @@ export default function DeckView({
                   {s.label} ({s.cards.reduce((n, c) => n + c.count, 0)})
                 </Text>
               </View>
-              {s.cards.map((card) => {
+              {s.cards.map((card, i) => {
                 const pinned = locked.has(card.oracle_id);
+                // In Explore, a card with no owned printing is one you'd need to acquire.
+                const unowned = !!showOwnership && !card.printings?.length;
                 return (
                   <TouchableOpacity
-                    key={card.oracle_id}
+                    // An imported list can repeat a card (two printings of it on
+                    // separate lines), so the id alone isn't a unique key.
+                    key={`${card.oracle_id}#${i}`}
                     onPress={() => openCard(card)}
-                    onLongPress={() => toggleLock(card.oracle_id)}
+                    onLongPress={showOwnership ? undefined : () => toggleLock(card.oracle_id)}
                     delayLongPress={300}
                     activeOpacity={0.6}
                     className={
@@ -492,7 +508,12 @@ export default function DeckView({
                     }
                   >
                     {pinned && <Text className="text-xs">📌</Text>}
-                    <Text className={"flex-1 text-sm " + (card.short ? "text-slate-600" : "text-slate-200")} numberOfLines={1}>
+                    <Text
+                      className={
+                        "flex-1 text-sm " + (card.short || unowned ? "italic text-slate-500" : "text-slate-200")
+                      }
+                      numberOfLines={1}
+                    >
                       {card.count > 1 && <Text className="text-slate-500">{card.count}× </Text>}
                       {card.name}
                       {/* Every copy is spoken for by an older in-use deck. */}

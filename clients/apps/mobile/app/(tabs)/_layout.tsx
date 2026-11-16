@@ -13,6 +13,7 @@ const TAB_ICONS: Record<string, IconName> = {
   // Wand rather than a hammer — the build flow's headline feature is the AI
   // brief, marked with ✦ elsewhere in the app.
   build: "auto-fix",
+  explore: "compass-outline",
   // A spellbook, for a deck builder called Grimoire.
   decks: "book-open-page-variant-outline",
 };
@@ -90,6 +91,13 @@ export default function TabsLayout() {
         options={{
           title: "Build",
           tabBarIcon: ({ color }) => <TabIcon name="build" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: "Explore",
+          tabBarIcon: ({ color }) => <TabIcon name="explore" color={color} />,
         }}
       />
       <Tabs.Screen

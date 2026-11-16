@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CommanderOption, ExternalDeckResponse } from "@mtg/shared";
+import {
+  edhrecPreviewCards,
+  type CommanderOption,
+  type ExternalDeckResponse,
+  type ExternalDeckSummary,
+  type PreconSummary,
+} from "@mtg/shared";
 import { api } from "../lib/api";
-import { edhrecPreviewCards, isPremiumRequired } from "@mtg/shared";
+import { isPremiumRequired } from "@mtg/shared";
 import { usePremiumUpgrade } from "../components/PremiumUpgrade";
 import { useLayout } from "../components/Layout";
 import type { Color } from "@mtg/shared";
@@ -22,31 +28,8 @@ function preconArtName(p: { commander_name?: string; name: string }): string {
     .trim();
 }
 
-interface SearchResult {
-  external_id: string;
-  source: string;
-  name: string;
-  owner: string;
-  card_count: number;
-  url: string;
-  commander_name: string;
-  color_identity: string[];
-  bracket: number | null;
-  price: number | null;
-  commander_art_crop?: string | null;
-  commander_artist?: string | null;
-}
-
-interface PreconResult {
-  file_name: string;
-  name: string;
-  code: string;
-  release_date: string;
-  commander_name?: string;
-  color_identity?: string[];
-  commander_art_crop?: string | null;
-  commander_artist?: string | null;
-}
+type SearchResult = ExternalDeckSummary;
+type PreconResult = PreconSummary;
 
 export default function ExplorePage() {
   const { refreshSummary, refreshSaved } = useLayout();

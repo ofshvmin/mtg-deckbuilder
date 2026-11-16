@@ -32,12 +32,17 @@ function cardEtbTapped(c: DeckCard): boolean {
 /** Expand a deck's cards into a flat library (one entry per physical copy). */
 export function buildLibrary(cards: DeckCard[]): LibCard[] {
   const lib: LibCard[] = [];
+  // Copies seen so far per card: an imported list can name a card on two lines
+  // (two printings), and each copy still needs its own uid.
+  const seen = new Map<string, number>();
   for (const c of cards) {
     const n = c.count ?? 1;
     const isLand = cardIsLand(c);
     const isCreature = cardIsCreature(c);
     const etbTapped = isLand && cardEtbTapped(c);
-    for (let i = 0; i < n; i++) {
+    const start = seen.get(c.oracle_id) ?? 0;
+    seen.set(c.oracle_id, start + n);
+    for (let i = start; i < start + n; i++) {
       lib.push({
         uid: `${c.oracle_id}#${i}`,
         oracle_id: c.oracle_id,
