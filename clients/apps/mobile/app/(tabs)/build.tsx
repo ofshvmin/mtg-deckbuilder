@@ -24,6 +24,7 @@ import DeckView from "../../src/components/DeckView";
 import PoolControls from "../../src/components/PoolControls";
 import CommanderFilterBar, { hasCommanderFilters } from "../../src/components/CommanderFilterBar";
 import CardDetailModal from "../../src/components/CardDetailModal";
+import CommanderCard from "../../src/components/CommanderCard";
 import ColorPicker from "../../src/components/ColorPicker";
 import LegalPoolList from "../../src/components/LegalPoolList";
 import ManualBuilder from "../../src/components/ManualBuilder";
@@ -475,22 +476,28 @@ export default function BuildScreen() {
 
         {pool && !deck && (
           <View className="mt-6 gap-4">
-            {/* Commander selected */}
+            {/* Commander selected — the card itself, as in the deck view */}
             {pool.commander && (
-              <View className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                <Text className="text-lg font-semibold text-white">{pool.commander.name}</Text>
-                <View className="mt-0.5 flex-row items-center gap-1.5">
-                  <ColorPips colors={pool.color_identity} size={15} />
-                  <Text className="shrink text-sm text-slate-400" numberOfLines={1}>
-                    · {pool.commander.type_line}
+              <CommanderCard
+                commander={pool.commander}
+                onPress={() =>
+                  pool.commander &&
+                  setDetail({
+                    oracle_id: pool.commander.oracle_id,
+                    name: pool.commander.name,
+                    mana_cost: pool.commander.mana_cost,
+                    type_line: pool.commander.type_line,
+                    color_identity: pool.color_identity,
+                  })
+                }
+                footer={
+                  <Text className="mt-2 text-xs text-slate-500">
+                    {pool.pool_size.toLocaleString()} cards in pool
+                    {poolScope === "available" ? " (available)" : ""}
+                    {poolSets.length > 0 && ` · ${poolSets.length} set${poolSets.length === 1 ? "" : "s"}`}
                   </Text>
-                </View>
-                <Text className="mt-1 text-xs text-slate-500">
-                  {pool.pool_size.toLocaleString()} cards in pool
-                  {poolScope === "available" ? " (available)" : ""}
-                  {poolSets.length > 0 && ` · ${poolSets.length} set${poolSets.length === 1 ? "" : "s"}`}
-                </Text>
-              </View>
+                }
+              />
             )}
 
             {editSeed?.deckName && (

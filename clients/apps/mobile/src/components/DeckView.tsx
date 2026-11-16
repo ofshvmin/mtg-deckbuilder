@@ -15,7 +15,7 @@ import {
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { exportFilename, pickExportFormat, shareCsv } from "../lib/exports";
-import CardImage from "./CardImage";
+import CommanderCard from "./CommanderCard";
 import CardDetailModal from "./CardDetailModal";
 import { BracketBadge, ManaCurve, StatTile } from "./DeckStats";
 import { ComboSection, DeckComboFinishers, DeckUpgrades, type CardRef } from "./DeckExtras";
@@ -357,7 +357,8 @@ export default function DeckView({
 
           {/* Commander */}
           {commander && (
-            <TouchableOpacity
+            <CommanderCard
+              commander={commander}
               onPress={() =>
                 setDetail({
                   oracle_id: commander.oracle_id,
@@ -367,29 +368,7 @@ export default function DeckView({
                   color_identity: deck.color_identity,
                 })
               }
-              activeOpacity={0.8}
-              className="flex-row gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3"
-            >
-              <CardImage
-                name={commander.name}
-                imageUrl={commander.image_uris?.normal}
-                style={{ width: 96, borderRadius: 6 }}
-              />
-              <View className="flex-1">
-                <Text className="text-base font-semibold text-white">{commander.name}</Text>
-                <Text className="text-xs text-slate-400">{commander.type_line}</Text>
-                {commander.mana_cost ? (
-                  <View className="mt-1">
-                    <ManaCost cost={commander.mana_cost} size={14} />
-                  </View>
-                ) : null}
-                {commander.oracle_text ? (
-                  <Text className="mt-2 text-xs leading-4 text-slate-300" numberOfLines={6}>
-                    {commander.oracle_text}
-                  </Text>
-                ) : null}
-              </View>
-            </TouchableOpacity>
+            />
           )}
 
           {/* Name + save */}
