@@ -1,13 +1,38 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import type { GeneratedDeck, SavedDeckSummary } from "@mtg/shared";
 import { api } from "../../src/lib/api";
 import { CommanderArtImage } from "../../src/components/CardImage";
 import DeckView from "../../src/components/DeckView";
+import ImportDeckModal from "../../src/components/ImportDeckModal";
+import CompareModal from "../../src/components/CompareModal";
 import { ColorPips } from "../../src/components/ManaSymbols";
 
+// Bracket badge tones, low (casual, cool) to high (spicy, warm) — the web's.
+const BRACKET_TONE: Record<number, string> = {
+  1: "border-slate-500 bg-slate-800/80",
+  2: "border-emerald-600 bg-emerald-950/80",
+  3: "border-sky-600 bg-sky-950/80",
+  4: "border-orange-600 bg-orange-950/80",
+  5: "border-rose-600 bg-rose-950/80",
+};
+const BRACKET_TEXT: Record<number, string> = {
+  1: "text-slate-200",
+  2: "text-emerald-300",
+  3: "text-sky-300",
+  4: "text-orange-300",
+  5: "text-rose-300",
+};
+
 export default function DecksScreen() {
+  const navigation = useNavigation();
+  const [importing, setImporting] = useState(false);
+  // Compare mode: tap two decks, then compare them.
+  const [comparing, setComparing] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [compareIds, setCompareIds] = useState<[string, string] | null>(null);
   const [decks, setDecks] = useState<SavedDeckSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -109,6 +134,47 @@ export default function DecksScreen() {
     }
   }, [open, openDeckById]);
 
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View className="mr-4 flex-row items-center gap-2">
+          <TouchableOpacity
+            onPress={() => {
+              setComparing((c) => !c);
+              setPicked([]);
+            }}
+            accessibilityRole="button"
+            className={
+              "rounded-full border px-3 py-1 " +
+              (comparing ? "border-emerald-600 bg-emerald-600/20" : "border-slate-700 bg-slate-900")
+            }
+            activeOpacity={0.7}
+          >
+            <Text className={"text-xs " + (comparing ? "text-emerald-300" : "text-slate-300")}>
+              {comparing ? "Cancel" : "Compare"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setImporting(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Import a deck"
+            hitSlop={{ top: 12, bottom: 12, left: 6, right: 6 }}
+            className="h-8 w-8 items-center justify-center rounded-full border border-slate-700 bg-slate-900"
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="tray-arrow-down" size={18} color="#cbd5e1" />
+          </TouchableOpacity>
+        </View>
+      ),
+    });
+  }, [navigation, comparing]);
+
+  function pickForCompare(id: string) {
+    setPicked((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 2 ? [...prev, id] : [prev[1], id],
+    );
+  }
+
   if (loading) {
     return (
       <View className="flex-1 items-center justify-center bg-slate-950">
@@ -119,6 +185,21 @@ export default function DecksScreen() {
 
   return (
     <View className="flex-1 bg-slate-950">
+      {comparing && (
+        <View className="flex-row items-center justify-between border-b border-slate-800 bg-slate-900/80 px-4 py-2.5">
+          <Text className="text-sm text-slate-300">
+            {picked.length < 2 ? `Pick two decks to compare (${picked.length}/2)` : "Ready to compare"}
+          </Text>
+          <TouchableOpacity
+            onPress={() => setCompareIds([picked[0], picked[1]])}
+            disabled={picked.length < 2}
+            className="rounded-lg bg-emerald-700 px-3 py-1.5 disabled:opacity-40"
+            activeOpacity={0.8}
+          >
+            <Text className="text-sm font-medium text-white">Compare</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <FlatList
         data={decks}
         keyExtractor={(item) => item.id}
@@ -145,16 +226,19 @@ export default function DecksScreen() {
             </View>
           ) : (
             <Text className="text-center text-sm text-slate-500">
-              No saved decks yet — build one from the Build tab.
+              No saved decks yet — build one from the Build tab, or import one with the button above.
             </Text>
           )
         }
         renderItem={({ item }) => (
           <TouchableOpacity
-            onPress={() => openDeckById(item.id)}
+            onPress={() => (comparing ? pickForCompare(item.id) : openDeckById(item.id))}
             disabled={opening}
             activeOpacity={0.7}
-            className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60"
+            className={
+              "overflow-hidden rounded-xl border bg-slate-900/60 " +
+              (comparing && picked.includes(item.id) ? "border-emerald-500" : "border-slate-800")
+            }
           >
             <View style={{ height: 120 }}>
               <CommanderArtImage
@@ -170,8 +254,20 @@ export default function DecksScreen() {
                 }}
               />
               {item.bracket != null && (
-                <View className="absolute right-2 top-2 rounded bg-black/70 px-1.5 py-0.5">
-                  <Text className="text-xs font-medium text-slate-200">B{item.bracket}</Text>
+                <View className={`absolute right-2 top-2 rounded border px-1.5 py-0.5 ${BRACKET_TONE[item.bracket] ?? BRACKET_TONE[2]}`}>
+                  <Text className={`text-xs font-semibold ${BRACKET_TEXT[item.bracket] ?? BRACKET_TEXT[2]}`}>
+                    B{item.bracket}
+                  </Text>
+                </View>
+              )}
+              {comparing && (
+                <View
+                  className={
+                    "absolute left-2 top-2 h-6 w-6 items-center justify-center rounded-full border-2 " +
+                    (picked.includes(item.id) ? "border-emerald-400 bg-emerald-600" : "border-slate-300 bg-black/50")
+                  }
+                >
+                  {picked.includes(item.id) && <Text className="text-xs font-bold text-white">✓</Text>}
                 </View>
               )}
               <View className="absolute bottom-0 left-0 right-0 p-3">
@@ -211,6 +307,18 @@ export default function DecksScreen() {
           </TouchableOpacity>
         )}
       />
+
+      {importing && (
+        <ImportDeckModal
+          onSaved={(id) => {
+            setImporting(false);
+            void loadDecks();
+            void openDeckById(id);
+          }}
+          onClose={() => setImporting(false)}
+        />
+      )}
+      {compareIds && <CompareModal ids={compareIds} onClose={() => setCompareIds(null)} />}
 
       {openDeck && (
         <DeckView
