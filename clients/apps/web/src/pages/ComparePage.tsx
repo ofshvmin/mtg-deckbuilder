@@ -1,21 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import type { DeckCard, GeneratedDeck, SavedDeck } from "@mtg/shared";
+import {
+  SLOT_LABELS,
+  SLOT_ORDER,
+  compareDeckCards,
+  type ComparedCard,
+  type GeneratedDeck,
+  type SavedDeck,
+} from "@mtg/shared";
 import { api } from "../lib/api";
 import ColorPips from "../components/ColorPips";
 import type { Color } from "@mtg/shared";
 import ManaCurve from "../components/ManaCurve";
-
-const SLOT_LABELS: Record<string, string> = {
-  land: "Lands",
-  ramp: "Ramp",
-  card_draw: "Card Draw",
-  removal: "Removal",
-  board_wipe: "Board Wipes",
-  game_plan: "Game Plan",
-};
-
-const SLOT_ORDER = ["land", "ramp", "card_draw", "removal", "board_wipe", "game_plan"];
 
 export default function ComparePage() {
   const [params] = useSearchParams();
@@ -162,46 +158,6 @@ function StatComparison({
       </div>
     </div>
   );
-}
-
-interface ComparedCard {
-  oracle_id: string;
-  name: string;
-  slot: string;
-  countA?: number;
-  countB?: number;
-}
-
-function compareDeckCards(a: GeneratedDeck, b: GeneratedDeck) {
-  const mapA = new Map<string, DeckCard>();
-  for (const c of a.cards) mapA.set(c.oracle_id, c);
-  const mapB = new Map<string, DeckCard>();
-  for (const c of b.cards) mapB.set(c.oracle_id, c);
-
-  const shared: ComparedCard[] = [];
-  const onlyA: ComparedCard[] = [];
-  const onlyB: ComparedCard[] = [];
-
-  for (const [id, card] of mapA) {
-    if (mapB.has(id)) {
-      shared.push({
-        oracle_id: id,
-        name: card.name,
-        slot: card.slot,
-        countA: card.count,
-        countB: mapB.get(id)!.count,
-      });
-    } else {
-      onlyA.push({ oracle_id: id, name: card.name, slot: card.slot, countA: card.count });
-    }
-  }
-  for (const [id, card] of mapB) {
-    if (!mapA.has(id)) {
-      onlyB.push({ oracle_id: id, name: card.name, slot: card.slot, countB: card.count });
-    }
-  }
-
-  return { shared, onlyA, onlyB };
 }
 
 function GroupedCards({ cards }: { cards: ComparedCard[] }) {
