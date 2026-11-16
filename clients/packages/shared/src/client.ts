@@ -16,6 +16,7 @@ import type {
   CollectionItem,
   CollectionSet,
   CommanderSet,
+  EdhrecDeckPreview,
   CollectionSummary,
   CommanderFilters,
   CommanderOption,
@@ -396,10 +397,7 @@ export class ApiClient {
   }
 
   /** Fetch a single EDHREC deck preview by hash (server-side proxy). */
-  fetchEdhrecDeck(hash: string): Promise<{
-    deck: string[]; commanders: string[]; coloridentity: string[];
-    url: string; header?: string; price?: number;
-  }> {
+  fetchEdhrecDeck(hash: string): Promise<EdhrecDeckPreview> {
     return this.request("GET", `/explore/edhrec-deck?hash=${encodeURIComponent(hash)}`);
   }
 
