@@ -16,6 +16,9 @@ import type {
   CollectionItem,
   CollectionSet,
   CommanderSet,
+  EdhrecDeckPreview,
+  ExternalDeckSummary,
+  PreconSummary,
   CollectionSummary,
   CommanderFilters,
   CommanderOption,
@@ -386,28 +389,18 @@ export class ApiClient {
   }
 
   /** Search EDHREC for commander decklists (fully server-side). */
-  searchExternalDecks(commander: string, pageSize = 20): Promise<{
-    external_id: string; source: string; name: string; owner: string;
-    card_count: number; url: string; commander_name: string;
-    color_identity: string[]; bracket: number | null; price: number | null;
-  }[]> {
+  searchExternalDecks(commander: string, pageSize = 20): Promise<ExternalDeckSummary[]> {
     const qs = `?commander=${encodeURIComponent(commander)}&page_size=${pageSize}`;
     return this.request("GET", `/explore/search${qs}`);
   }
 
   /** Fetch a single EDHREC deck preview by hash (server-side proxy). */
-  fetchEdhrecDeck(hash: string): Promise<{
-    deck: string[]; commanders: string[]; coloridentity: string[];
-    url: string; header?: string; price?: number;
-  }> {
+  fetchEdhrecDeck(hash: string): Promise<EdhrecDeckPreview> {
     return this.request("GET", `/explore/edhrec-deck?hash=${encodeURIComponent(hash)}`);
   }
 
   /** Search MTGJSON Commander precon decks. */
-  searchPrecons(query = "", limit = 30): Promise<{
-    file_name: string; name: string; code: string; release_date: string;
-    commander_name?: string; color_identity?: string[];
-  }[]> {
+  searchPrecons(query = "", limit = 30): Promise<PreconSummary[]> {
     const qs = `?q=${encodeURIComponent(query)}&limit=${limit}`;
     return this.request("GET", `/explore/precons${qs}`);
   }

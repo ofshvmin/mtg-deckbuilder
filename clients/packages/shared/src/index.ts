@@ -9,3 +9,4 @@ export * from "./scryfallPrints";
 export * from "./scryfallPrices";
 export * from "./scavenger";
 export * from "./deckCompare";
+export * from "./explore";

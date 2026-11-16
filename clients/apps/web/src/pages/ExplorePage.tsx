@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CommanderOption, ExternalDeckResponse } from "@mtg/shared";
+import {
+  edhrecPreviewCards,
+  type CommanderOption,
+  type ExternalDeckResponse,
+  type ExternalDeckSummary,
+  type PreconSummary,
+} from "@mtg/shared";
 import { api } from "../lib/api";
 import { isPremiumRequired } from "@mtg/shared";
 import { usePremiumUpgrade } from "../components/PremiumUpgrade";
@@ -22,31 +28,8 @@ function preconArtName(p: { commander_name?: string; name: string }): string {
     .trim();
 }
 
-interface SearchResult {
-  external_id: string;
-  source: string;
-  name: string;
-  owner: string;
-  card_count: number;
-  url: string;
-  commander_name: string;
-  color_identity: string[];
-  bracket: number | null;
-  price: number | null;
-  commander_art_crop?: string | null;
-  commander_artist?: string | null;
-}
-
-interface PreconResult {
-  file_name: string;
-  name: string;
-  code: string;
-  release_date: string;
-  commander_name?: string;
-  color_identity?: string[];
-  commander_art_crop?: string | null;
-  commander_artist?: string | null;
-}
+type SearchResult = ExternalDeckSummary;
+type PreconResult = PreconSummary;
 
 export default function ExplorePage() {
   const { refreshSummary, refreshSaved } = useLayout();
@@ -163,16 +146,7 @@ export default function ExplorePage() {
     try {
       const preview = await api.fetchEdhrecDeck(result.external_id);
       if (!preview?.deck?.length) { setFetchError("Could not load deck."); return; }
-      const commanders = new Set(preview.commanders ?? []);
-      const cards = (preview.deck ?? [])
-        .filter((line: string) => line?.trim())
-        .map((line: string) => {
-          const first = line.trim().split(" ", 2);
-          const qty = parseInt(first[0], 10) || 1;
-          const name = line.trim().substring(first[0].length).trim();
-          return { name, quantity: qty, is_commander: commanders.has(name) };
-        })
-        .filter((c: { name: string }) => c.name);
+      const cards = edhrecPreviewCards(preview);
       const data = await api.resolveExternalDeck({
         cards, source: result.source, source_url: result.url, name: result.name, owner: result.owner,
       });

@@ -399,6 +399,7 @@ export interface SavedDeckSummary {
   commander_artist?: string | null;
 }
 
+/** One community decklist from an Explore search (EDHREC). */
 export interface ExternalDeckSummary {
   external_id: string;
   source: string;
@@ -408,6 +409,33 @@ export interface ExternalDeckSummary {
   url: string;
   commander_name: string | null;
   color_identity: string[];
+  bracket: number | null;
+  price: number | null;
+  /** Credited commander art, when the backend has it (art and artist travel together). */
+  commander_art_crop?: string | null;
+  commander_artist?: string | null;
+}
+
+/** One official preconstructed deck from the Explore catalog. */
+export interface PreconSummary {
+  file_name: string;
+  name: string;
+  code: string;
+  release_date: string;
+  commander_name?: string;
+  color_identity?: string[];
+  commander_art_crop?: string | null;
+  commander_artist?: string | null;
+}
+
+/** An EDHREC deck preview: "1 Sol Ring"-style lines plus which names are commanders. */
+export interface EdhrecDeckPreview {
+  deck: string[];
+  commanders: string[];
+  coloridentity: string[];
+  url: string;
+  header?: string;
+  price?: number;
 }
 
 export interface ExternalDeckResponse {
