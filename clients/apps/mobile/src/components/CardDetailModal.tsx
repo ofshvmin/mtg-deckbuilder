@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { Modal, View, Text, ScrollView, TouchableOpacity, Dimensions, Alert, ActivityIndicator } from "react-native";
-import { cheapestPrint, fetchCardDetail, type CardDetail, type Color, type Printing } from "@mtg/shared";
+import {
+  cheapestPrint,
+  fetchCardDetail,
+  type CardDetail,
+  type CollectionCard,
+  type Color,
+  type Printing,
+} from "@mtg/shared";
 import { api } from "../lib/api";
 import { lookupSet, useScryfallSets } from "../lib/scryfallSets";
 import CardImage from "./CardImage";
@@ -13,6 +20,20 @@ import SetSymbol from "./SetSymbol";
 // opened from a deck, a separate list earmarks which physical copy the deck uses.
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
+
+// Cards opened without ownership data (a deck's commander, a combo piece) are
+// looked up in the collection, as the web's sheet does. One fetch serves every
+// sheet opened in the next minute.
+let collectionCache: { at: number; cards: Promise<CollectionCard[]> } | null = null;
+
+function ownedCopy(oracleId?: string, name?: string): Promise<CollectionCard | undefined> {
+  if (!collectionCache || Date.now() - collectionCache.at > 60_000) {
+    collectionCache = { at: Date.now(), cards: api.listCollectionCards().catch(() => []) };
+  }
+  return collectionCache.cards.then((cards) =>
+    cards.find((c) => (oracleId && c.oracle_id === oracleId) || c.name === name),
+  );
+}
 const CARD_WIDTH = SCREEN_WIDTH * 0.75;
 
 interface Props {
@@ -51,6 +72,7 @@ export default function CardDetailModal({ card, onSelectPrinting, onRemoved, onC
   const [detail, setDetail] = useState<CardDetail | null>(null);
   const [index, setIndexState] = useState(0);
   const [removing, setRemoving] = useState(false);
+  const [ownedCard, setOwnedCard] = useState<CollectionCard | null>(null);
 
   // Open on the copy the deck holds, not just the first one owned.
   useEffect(() => {
@@ -58,7 +80,11 @@ export default function CardDetailModal({ card, onSelectPrinting, onRemoved, onC
     const i = card.printings?.findIndex((p) => p.printing_key === card.selected_printing_key) ?? -1;
     setIndexState(i >= 0 ? i : 0);
     setDetail(null);
+    setOwnedCard(null);
     let cancelled = false;
+    if (!card.printings?.length) {
+      ownedCopy(card.oracle_id, card.name).then((c) => !cancelled && c && setOwnedCard(c));
+    }
     // Scryfall market data, for unowned cards and owned printings the DB has no price for.
     fetchCardDetail({ oracleId: card.oracle_id, name: card.name }).then((d) => {
       if (!cancelled) setDetail(d);
@@ -70,7 +96,8 @@ export default function CardDetailModal({ card, onSelectPrinting, onRemoved, onC
 
   if (!card) return null;
 
-  const owned = card.printings ?? [];
+  const owned = card.printings?.length ? card.printings : (ownedCard?.printings ?? []);
+  const totalCount = card.total_count ?? ownedCard?.total_count;
   const isOwned = owned.length > 0;
   const cheapest = detail ? cheapestPrint(detail.prints) : undefined;
   const current: Printing | undefined = isOwned
@@ -116,6 +143,7 @@ export default function CardDetailModal({ card, onSelectPrinting, onRemoved, onC
             setRemoving(true);
             try {
               await api.removeCard(card.oracle_id!);
+              collectionCache = null;
               onRemoved?.();
               onClose();
             } catch (e) {
@@ -224,9 +252,9 @@ export default function CardDetailModal({ card, onSelectPrinting, onRemoved, onC
               <Row label="Finish" value={foil ? "Foil" : "Nonfoil"} />
               {isOwned && <Row label="Condition" value={current?.condition} />}
             </View>
-            {isOwned && card.total_count != null ? (
+            {isOwned && totalCount != null ? (
               <Text className="mt-2 text-xs text-slate-500">
-                Total owned across all printings: {card.total_count}
+                Total owned across all printings: {totalCount}
               </Text>
             ) : !isOwned ? (
               <Text className="mt-2 text-xs text-slate-500">

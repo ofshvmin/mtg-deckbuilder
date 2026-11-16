@@ -7,7 +7,7 @@ import { router } from "expo-router";
 import { ApiError, type BriefDeckResponse, type CommanderFilters, type CommanderOption, type GeneratedDeck, type PoolFilters, type PoolScope, type StrategyOption } from "@mtg/shared";
 import { api } from "../../src/lib/api";
 import { usePremium } from "../../src/purchases/PremiumContext";
-import DeckDetailModal from "../../src/components/DeckDetailModal";
+import DeckView from "../../src/components/DeckView";
 import PoolControls from "../../src/components/PoolControls";
 import CommanderFilterBar, { hasCommanderFilters } from "../../src/components/CommanderFilterBar";
 import { ColorPips } from "../../src/components/ManaSymbols";
@@ -38,7 +38,10 @@ export default function BuildScreen() {
   const [deck, setDeck] = useState<GeneratedDeck | null>(null);
   const [deckName, setDeckName] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  // The saved deck's id once saved, so the deck view updates it rather than
+  // saving a second copy.
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const saved = savedId !== null;
   const [showDeckDetail, setShowDeckDetail] = useState(false);
 
   // Mode + strategy
@@ -92,7 +95,7 @@ export default function BuildScreen() {
     setPoolReady(false);
     setLoadingPool(true);
     setPoolError(null);
-    setSaved(false);
+    setSavedId(null);
     await loadPool(c, poolScope, poolSets);
     setDeckName(`${c.name} Deck`);
   }
@@ -145,7 +148,7 @@ export default function BuildScreen() {
     setDeck(null);
     setBriefResult(null);
     setConversation([]);
-    setSaved(false);
+    setSavedId(null);
     setBuildError(null);
     setBriefError(null);
   }
@@ -154,7 +157,7 @@ export default function BuildScreen() {
     if (!commander) return;
     setBuilding(true);
     setBuildError(null);
-    setSaved(false);
+    setSavedId(null);
     try {
       const opts: { strategy?: string; theme?: string } & PoolFilters = { ...poolFilters };
       if (selectedStrategy !== "Balanced") opts.strategy = selectedStrategy;
@@ -172,7 +175,7 @@ export default function BuildScreen() {
     if (!commander || !briefText.trim()) return;
     setBriefing(true);
     setBriefError(null);
-    setSaved(false);
+    setSavedId(null);
     try {
       const request = briefText.trim();
       const res = await api.briefDeck(commander.name, request, undefined, "commander", poolFilters);
@@ -199,7 +202,7 @@ export default function BuildScreen() {
     if (!commander || !briefResult || refining || !instruction) return;
     setRefining(true);
     setRefineText("");
-    setSaved(false);
+    setSavedId(null);
     setConversation((c) => [...c, { role: "user", text: instruction }]);
     try {
       const priorSpec = {
@@ -226,8 +229,8 @@ export default function BuildScreen() {
     if (!deck || saving) return;
     setSaving(true);
     try {
-      await api.saveDeck(deckName.trim() || `${commander?.name} Deck`, deck);
-      setSaved(true);
+      const res = await api.saveDeck(deckName.trim() || `${commander?.name} Deck`, deck);
+      setSavedId(res.id);
     } catch (e) {
       // 402 => hit the free-tier saved-deck cap; surface the paywall.
       if (e instanceof ApiError && e.status === 402) router.push("/paywall");
@@ -550,7 +553,20 @@ export default function BuildScreen() {
             </TouchableOpacity>
 
             {showDeckDetail && (
-              <DeckDetailModal deck={deck} name={deckName || `${commander.name} Deck`} onClose={() => setShowDeckDetail(false)} />
+              <DeckView
+                deck={deck}
+                deckName={saved ? deckName.trim() || `${commander.name} Deck` : undefined}
+                suggestedName={deckName}
+                deckId={savedId ?? undefined}
+                poolFilters={poolFilters}
+                onSaved={(res) => {
+                  setSavedId(res.id);
+                  setDeckName(res.name);
+                  setDeck(res.deck);
+                }}
+                onDeckChange={setDeck}
+                onClose={() => setShowDeckDetail(false)}
+              />
             )}
           </View>
         )}
