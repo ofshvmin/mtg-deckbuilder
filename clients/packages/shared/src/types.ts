@@ -410,6 +410,24 @@ export interface ExternalDeckSummary {
   color_identity: string[];
 }
 
+/** EDHREC's current deck shape: commanders, then cards by type as [name, qty]. */
+export interface EdhrecDeckSections {
+  commander?: string[];
+  commander_v2?: [string, number][];
+  cards?: Record<string, [string, number][]>;
+}
+
+/** An EDHREC deck preview. `deck` was "1 Sol Ring"-style lines; EDHREC now
+ *  sends sections instead. edhrecPreviewCards reads either. */
+export interface EdhrecDeckPreview {
+  deck: string[] | EdhrecDeckSections;
+  commanders: string[];
+  coloridentity: string[];
+  url: string;
+  header?: string;
+  price?: number;
+}
+
 export interface ExternalDeckResponse {
   source: string;
   source_url: string;
