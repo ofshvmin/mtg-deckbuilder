@@ -27,16 +27,18 @@ function Panel({
   title,
   subtitle,
   badge,
+  defaultOpen = false,
   onOpen,
   children,
 }: {
   title: string;
   subtitle?: string;
   badge?: ReactNode;
+  defaultOpen?: boolean;
   onOpen?: () => void;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <View className="rounded-xl border border-slate-800 bg-slate-900/40">
       <TouchableOpacity
@@ -122,13 +124,18 @@ export function DeckComboFinishers({
   deckCardIds,
   maxPrice,
   onOpenCard,
+  onAdd,
+  defaultOpen = false,
 }: {
   commanderName: string;
   deckCardIds: string[];
   maxPrice: number | null;
   onOpenCard: (c: CardRef) => void;
+  /** Manual builder: owned finishers get "+ Add" instead of an "Owned" tag. */
+  onAdd?: (oracleId: string) => void;
+  defaultOpen?: boolean;
 }) {
-  const [requested, setRequested] = useState(false);
+  const [requested, setRequested] = useState(defaultOpen);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -188,6 +195,7 @@ export function DeckComboFinishers({
           <Text className="rounded-full bg-emerald-900/50 px-2 text-xs text-emerald-300">{ownedCount} owned</Text>
         ) : undefined
       }
+      defaultOpen={defaultOpen}
       onOpen={() => setRequested(true)}
     >
       {loading && !loaded && <ActivityIndicator size="small" color="#64748b" />}
@@ -230,7 +238,17 @@ export function DeckComboFinishers({
                     </Text>
                   </View>
                   {f.owned ? (
-                    <Text className="text-xs text-emerald-400">Owned</Text>
+                    onAdd ? (
+                      <TouchableOpacity
+                        onPress={() => onAdd(f.oracle_id)}
+                        activeOpacity={0.7}
+                        className="rounded border border-emerald-700 px-2 py-0.5"
+                      >
+                        <Text className="text-xs font-medium text-emerald-300">+ Add</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <Text className="text-xs text-emerald-400">Owned</Text>
+                    )
                   ) : (
                     <Text className="text-sm text-slate-300">{fmtPrice(prices.get(f.oracle_id)?.usd)}</Text>
                   )}

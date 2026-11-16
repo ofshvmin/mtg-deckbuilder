@@ -92,6 +92,7 @@ export default function DeckView({
   showOwnership,
   saveSource,
   banner,
+  onEdit,
   onSaved,
   onDeckChange,
   onInUseChange,
@@ -114,6 +115,8 @@ export default function DeckView({
   saveSource?: { source: string; source_url?: string };
   /** Shown above the deck — Explore's source and ownership line. */
   banner?: ReactNode;
+  /** "Edit cards": hand the deck (and its saved id/name) to the manual builder. */
+  onEdit?: (deck: GeneratedDeck, deckId?: string, deckName?: string) => void;
   onSaved?: (saved: SavedDeck) => void;
   /** The deck's contents changed (regenerate), saved or not. */
   onDeckChange?: (deck: GeneratedDeck) => void;
@@ -412,6 +415,14 @@ export default function DeckView({
 
           {/* Actions */}
           <View className="flex-row flex-wrap gap-2">
+            {onEdit && commander && !showOwnership && (
+              <ActionButton
+                label="Edit cards"
+                // The deck as shown, unsaved changes included — the editor's
+                // Update saves the lot.
+                onPress={() => onEdit(deck, deckId, savedAs ?? undefined)}
+              />
+            )}
             <ActionButton label="Playtest" onPress={() => setPlaytesting(true)} />
             <ActionButton label="Pull list" onPress={() => setPulling(true)} />
             {deckId && (

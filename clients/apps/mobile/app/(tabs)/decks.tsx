@@ -37,7 +37,7 @@ export default function DecksScreen() {
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [openDeck, setOpenDeck] = useState<
-    { id: string; name: string; deck: GeneratedDeck; inUse: boolean } | null
+    { id: string; name: string; deck: GeneratedDeck; inUse: boolean; source?: string | null } | null
   >(null);
   const [opening, setOpening] = useState(false);
 
@@ -71,7 +71,7 @@ export default function DecksScreen() {
     try {
       const saved = await api.getSavedDeck(id);
       setOpenDeck({
-        id: saved.id, name: saved.name, deck: saved.deck, inUse: !!saved.in_use,
+        id: saved.id, name: saved.name, deck: saved.deck, inUse: !!saved.in_use, source: saved.source,
       });
     } catch {
       // silent
@@ -328,6 +328,16 @@ export default function DecksScreen() {
           deckId={openDeck.id}
           inUse={openDeck.inUse}
           onSaved={() => void loadDecks()}
+          // Imported decks (precons, community lists) aren't editable here, as on the web.
+          onEdit={
+            openDeck.source
+              ? undefined
+              : () => {
+                  const id = openDeck.id;
+                  setOpenDeck(null);
+                  router.navigate({ pathname: "/build", params: { edit: id } });
+                }
+          }
           onInUseChange={(next) =>
             setDecks((prev) => prev.map((d) => (d.id === openDeck.id ? { ...d, in_use: next } : d)))
           }
