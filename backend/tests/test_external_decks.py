@@ -87,6 +87,27 @@ class TestExtractEdhrecCards:
         assert extract_edhrec_cards({}) == []
         assert extract_edhrec_cards({"deck": []}) == []
 
+    def test_sectioned_format(self):
+        # EDHREC's current shape: commanders, then cards grouped by type.
+        preview = {
+            "commanders": ["Omo, Queen of Vesuva"],
+            "deck": {
+                "commander": ["Omo, Queen of Vesuva"],
+                "commander_v2": [["Omo, Queen of Vesuva", 1]],
+                "cards": {"Sorcery": [["All Is Dust", 1]], "Land": [["Forest", 9]]},
+            },
+        }
+        cards = extract_edhrec_cards(preview)
+        assert [(c["name"], c["quantity"], c["categories"]) for c in cards] == [
+            ("Omo, Queen of Vesuva", 1, ["Commander"]),
+            ("All Is Dust", 1, []),
+            ("Forest", 9, []),
+        ]
+
+    def test_sectioned_format_without_v2(self):
+        preview = {"deck": {"commander": ["Omo, Queen of Vesuva"], "cards": {}}}
+        assert extract_edhrec_cards(preview)[0]["categories"] == ["Commander"]
+
     def test_malformed_lines_skipped(self):
         preview = {"deck": ["", "  ", "nocount"], "commanders": []}
         cards = extract_edhrec_cards(preview)
