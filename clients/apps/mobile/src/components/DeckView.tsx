@@ -581,7 +581,7 @@ export default function DeckView({
                   fit and efficiency
                   {commander
                     ? " (no EDHREC data for this commander)"
-                    : ` (no community ranking data exists for ${deck.format}, so copies owned and role coverage decide)`}
+                    : `, then by how widely each card is played across Magic`}
                   .
                 </>
               )}

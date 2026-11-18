@@ -378,3 +378,29 @@ class ExternalDeckResponse(BaseModel):
 class BatchAddResult(BaseModel):
     added: int
     skipped: int
+
+
+class AnalysisCard(BaseModel):
+    oracle_id: str
+    name: str
+    count: int
+    mana_cost: str = ""
+    type_line: str = ""
+    owned: bool = True
+    price_usd: float | None = None   # cheapest printing; set for cards to buy
+
+
+class AnalysisSwap(BaseModel):
+    cut: AnalysisCard
+    add: AnalysisCard
+    source: str          # "owned" | "buy"
+    reason: str
+
+
+class AnalysisResponse(BaseModel):
+    verdict: str
+    swaps: list[AnalysisSwap]
+    # False when Claude was unavailable or unusable and the swaps are the
+    # deterministic pairing (no reasons beyond the scoring notes).
+    ai: bool = True
+    cached: bool = False

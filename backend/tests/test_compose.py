@@ -57,3 +57,14 @@ def test_compose_empty():
     assert deck.cards == []
     assert deck.land_count == 0
     assert deck.nonland_count == 0
+
+
+def test_repeated_ids_become_one_entry_with_a_count():
+    """A 60-card playset composes to "4x Card", like an auto-built deck."""
+    from app.services.formats import get_format
+
+    d = {"_id": "x", "name": "X", "name_normalized": "x", "type_line": "Instant", "cmc": 1,
+         "mana_cost": "{R}", "oracle_text": "", "colors": ["R"], "color_identity": ["R"]}
+    deck = generator.compose([d, d, d, d], ["R"], spec=get_format("standard"))
+    assert [(c.oracle_id, c.count) for c in deck.cards] == [("x", 4)]
+    assert deck.nonland_count == 4

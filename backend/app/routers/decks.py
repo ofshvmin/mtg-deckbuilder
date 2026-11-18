@@ -29,18 +29,21 @@ from ..models.responses import (
     SavedDeckSummary,
     UpdateDeckRequest,
     UpgradeSuggestion,
+    AnalysisCard,
+    AnalysisResponse,
+    AnalysisSwap,
 )
 from ..repositories import card_prints as card_prints_repo
 from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
 from ..repositories import decks as decks_repo
 from ..repositories import users as users_repo
-from ..services import ai_brief, availability, brackets, color_select, csv_formats, edhrec, formats, generator
+from ..services import ai_brief, ai_upgrade, availability, deck_analysis, brackets, color_select, csv_formats, edhrec, formats, generator
 from ..services import card_choice as card_choice_service
 from ..services import pool as pool_service
 from ..services import roles as roles_service
 from ..services import spellbook, strategies, themes
-from ..util import normalize_name
+from ..util import card_castable_in, normalize_name
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
@@ -386,11 +389,6 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         deck.warnings.append(
             "EDHREC data unavailable for this commander — ranked by curve and role fit only."
         )
-    elif not spec.supports_quality:
-        deck.warnings.append(
-            f"{spec.label} has no community ranking data — cards chosen by role, curve "
-            "and how many copies you own."
-        )
     if theme_matches is not None and len(theme_matches) == 0:
         deck.warnings.append(
             f"No cards in your pool matched the '{body.theme}' theme — deck built without theme bias."
@@ -553,11 +551,6 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(require_pr
         deck.warnings.append(
             "EDHREC data unavailable for this commander — ranked by curve and role fit only."
         )
-    elif not fmt.supports_quality:
-        deck.warnings.append(
-            f"{fmt.label} has no community ranking data — cards chosen by role, curve "
-            "and how many copies you own."
-        )
 
     deck_ids = {dc.oracle_id for dc in deck.cards}
     if result.commander:
@@ -603,6 +596,9 @@ class ComposeRequest(PoolScopeMixin):
     format: str = "commander"
     # Repeat an id to represent multiple copies (constructed formats run up to 4).
     oracle_ids: list[str]
+    # Also accept legal cards the user doesn't own, and basics ("basic:G") — for a
+    # deck that's had upgrade swaps applied, which may include cards to buy.
+    include_unowned: bool = False
 
 
 @router.post("/compose", response_model=GeneratedDeckResponse)
@@ -617,6 +613,8 @@ async def compose_deck(body: ComposeRequest, current_user: dict = Depends(get_cu
     # Keep only ids that are actually in the legal owned pool. Repeats are preserved
     # so a 4-of arrives as four entries and `compose` counts it as four cards.
     pool_by_id = {card["_id"]: card for card in result.pool}
+    if body.include_unowned:
+        await _add_unowned_to(database, pool_by_id, body.oracle_ids, spec)
     chosen_docs = [pool_by_id[oid] for oid in body.oracle_ids if oid in pool_by_id]
 
     quality: dict[str, float] = {}
@@ -1087,3 +1085,250 @@ async def export_saved_deck(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---- Analyze & upgrade (Premium) ----
+
+ANALYSES_PER_DAY = 25    # fresh (uncached) analyses per user per day; each is a Claude call
+
+
+class AnalyzeCardIn(BaseModel):
+    oracle_id: str
+    count: int = 1
+
+
+class AnalyzeRequest(BaseModel):
+    commander: str | None = None
+    format: str = "commander"
+    cards: list[AnalyzeCardIn]
+    strategy: str | None = None
+    colors: list[str] | None = None   # 60-card: the deck's colors; derived if missing
+    budget: float | None = None       # max per card bought; defaults to the user's preference
+
+
+def _analysis_key(user_id: str, body: AnalyzeRequest, budget: float | None) -> str:
+    import hashlib
+    import json as _json
+
+    cards = sorted((c.oracle_id, c.count) for c in body.cards)
+    raw = _json.dumps(
+        [user_id, body.format, body.commander, body.strategy, sorted(body.colors or []), budget, cards]
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _analysis_card(c: deck_analysis.Candidate, count: int, owned: bool) -> AnalysisCard:
+    d = c.doc
+    return AnalysisCard(
+        oracle_id=d["_id"], name=d["name"], count=count,
+        mana_cost=d.get("mana_cost", ""), type_line=d.get("type_line", ""),
+        owned=owned, price_usd=None if owned else c.price,
+    )
+
+
+@router.post("/analyze", response_model=AnalysisResponse)
+async def analyze_deck(body: AnalyzeRequest, current_user: dict = Depends(require_premium)):
+    """Premium: a verdict on the deck plus cut-X/add-Y swaps.
+
+    Candidates come from the deterministic scorer (`deck_analysis`); Claude only
+    chooses among them, and every swap is validated. Results are cached per deck
+    version, so reopening an analysis doesn't cost another call.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    database = db.get_db()
+    user_id = current_user["_id"]
+    spec = formats.get_format(body.format)
+    prefs = current_user.get("preferences") or {}
+    budget = body.budget if body.budget is not None else prefs.get("max_card_price")
+
+    key = _analysis_key(user_id, body, budget)
+    cached = await database.analysis_cache.find_one({"_id": key})
+    if cached:
+        return AnalysisResponse(**cached["result"], cached=True)
+
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    if await database.analysis_cache.count_documents(
+        {"user_id": user_id, "created_at": {"$gte": since}}
+    ) >= ANALYSES_PER_DAY:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "That's today's limit for deck analyses — try again tomorrow.",
+        )
+
+    # The deck and the owned legal pool.
+    if spec.requires_commander:
+        if not body.commander:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{spec.label} requires a commander.")
+        try:
+            result = await pool_service.get_pool(database, user_id, body.commander)
+        except pool_service.CommanderNotFound as e:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No card found matching '{e.name}'.")
+    else:
+        result = await pool_service.get_pool_for_format(database, user_id, spec)
+    commander = result.commander
+
+    counts: dict[str, int] = {}
+    for c in body.cards:
+        if c.oracle_id.startswith("basic:") or (commander and c.oracle_id == commander["_id"]):
+            continue
+        counts[c.oracle_id] = counts.get(c.oracle_id, 0) + max(1, c.count)
+    deck_docs = {
+        d["_id"]: d async for d in database.cards.find({"_id": {"$in": list(counts)}})
+    }
+    nonland = [
+        (d, counts[oid]) for oid, d in deck_docs.items() if not deck_analysis._is_land(d)
+    ]
+    if not nonland:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The deck has no spells to analyze.")
+
+    if spec.requires_commander:
+        colors = list(result.color_identity)
+    else:
+        colors = body.colors or sorted({c for d, _ in nonland for c in (d.get("colors") or [])})
+    allowed = set(colors)
+
+    strat = strategies.get_strategy(body.strategy, spec)
+    tuning_rank = spec.rank_weight
+
+    quality: dict[str, float] = {}
+    if spec.supports_quality and commander:
+        score_map = await edhrec.get_score_map(database, commander)
+        top = max(score_map.values(), default=0.0)
+        if top > 0:
+            quality = {
+                d["_id"]: score_map.get(d["name_normalized"], 0.0) / top
+                for d in list(deck_docs.values()) + result.pool
+            }
+
+    deck_ids = set(counts) | ({commander["_id"]} if commander else set())
+    combo_names: list[str] = []
+    combo_pieces: set[str] = set()
+    finisher_ids: set[str] = set()
+    if spec.supports_combos:
+        full, _near = await spellbook.detect(database, deck_ids, colors, format_key=spec.key)
+        combo_pieces = {oid for combo in full for oid in combo["cards"]}
+        combo_names = [" + ".join(c.get("card_names", [])) for c in full[:8]]
+        finishers = await spellbook.combo_finishers(database, deck_ids, colors, format_key=spec.key)
+        finisher_ids = {f["oracle_id"] for f in finishers[:60]}
+
+    shape = deck_analysis.deck_shape(nonland, spec, strat)
+    cuts = deck_analysis.cut_candidates(nonland, shape, quality, combo_pieces, tuning_rank)
+
+    # Owned adds: legal owned cards in colors, with copies left over after the deck.
+    owned_pool = [
+        d for d in result.pool
+        if (not commander or d["_id"] != commander["_id"])
+        and (spec.requires_commander or card_castable_in(d, allowed))
+    ]
+    owned_allowed = {
+        d["_id"]: min(d.get("copies_owned", 1) or 1, spec.max_copies) - counts.get(d["_id"], 0)
+        for d in owned_pool
+    }
+    owned_adds = deck_analysis.add_candidates(
+        owned_pool, shape, quality, finisher_ids, owned=True, copies_allowed=owned_allowed
+    )
+
+    # Cards to buy: widely played, legal, in colors, not owned.
+    owned_ids = set(await collection_repo.owned_counts(database, user_id))
+    query = {
+        spec.legality_field: "legal",
+        "rank_score": {"$gte": 0.25},
+        "_id": {"$nin": list(owned_ids | deck_ids)},
+        "color_identity": {"$not": {"$elemMatch": {"$nin": colors}}},
+    }
+    buy_docs = [
+        d async for d in database.cards.find(query).sort("rank_score", -1).limit(600)
+        if spec.requires_commander
+        or (card_castable_in(d, allowed) and not cards_repo.needs_a_commander(d))
+    ]
+    prices = await _cheapest_prices(database, [d["_id"] for d in buy_docs])
+    buy_adds = deck_analysis.add_candidates(
+        buy_docs, shape, quality, finisher_ids, owned=False,
+        copies_allowed={d["_id"]: spec.max_copies for d in buy_docs},
+        prices=prices, max_price=budget,
+    )
+
+    cut_keys = {f"c{i}": c for i, c in enumerate(cuts, 1)}
+    add_keys = {f"o{i}": a for i, a in enumerate(owned_adds, 1)}
+    add_keys.update({f"b{i}": a for i, a in enumerate(buy_adds, 1)})
+
+    verdict, swaps, ai = "", [], True
+    try:
+        raw = await ai_upgrade.judge(
+            format_label=spec.label.split(" — ")[0],
+            commander=commander,
+            strategy=strat.name,
+            deck_list=[f"{n}x {d['name']}" for d, n in nonland],
+            shape=shape.summary(),
+            combos=combo_names,
+            cuts=[deck_analysis.prompt_entry(k, c) for k, c in cut_keys.items()],
+            owned_adds=[deck_analysis.prompt_entry(k, a) for k, a in add_keys.items() if k[0] == "o"],
+            buy_adds=[deck_analysis.prompt_entry(k, a) for k, a in add_keys.items() if k[0] == "b"],
+            budget=budget,
+        )
+        verdict = str(raw.get("verdict") or "").strip()
+        swaps = deck_analysis.validate_swaps(raw.get("swaps") or [], cut_keys, add_keys, spec.max_copies)
+    except (ai_upgrade.AnalysisUnavailable, ai_upgrade.AnalysisError):
+        ai = False
+    if not swaps:
+        ai = False
+        swaps = deck_analysis.pair_swaps(cuts, owned_adds + buy_adds, spec.max_copies)
+        swaps.sort(key=lambda s: -s.add.score)
+    if not verdict:
+        short = [r.replace("_", " ") for r in deck_analysis.QUOTA_ROLES if shape.role_short(r)]
+        verdict = (
+            f"Short on {', '.join(short)} for a {strat.name} plan." if short
+            else "The deck covers its roles; these swaps trade weaker cards for stronger ones."
+        )
+
+    response = AnalysisResponse(
+        verdict=verdict,
+        swaps=[
+            AnalysisSwap(
+                cut=_analysis_card(s.cut, s.cut_count, owned=True),
+                add=_analysis_card(s.add, s.add_count, owned=s.add.owned),
+                source="owned" if s.add.owned else "buy",
+                reason=s.reason,
+            )
+            for s in swaps
+        ],
+        ai=ai,
+    )
+    await database.analysis_cache.replace_one(
+        {"_id": key},
+        {
+            "_id": key,
+            "user_id": user_id,
+            "created_at": datetime.now(timezone.utc),
+            "result": response.model_dump(exclude={"cached"}),
+        },
+        upsert=True,
+    )
+    return response
+
+
+async def _add_unowned_to(database, pool_by_id: dict, oracle_ids: list[str], spec) -> None:
+    """Extend a compose pool with what an upgraded deck may hold beyond the owned
+    pool: legal cards bought as upgrades (0 copies owned) and basic lands."""
+    basics = await _basics_by_color(database)
+    for oid in set(oracle_ids) - set(pool_by_id):
+        if oid.startswith("basic:"):
+            color = oid.split(":", 1)[1]
+            if color in basics:
+                pool_by_id[oid] = {**basics[color], "_id": oid, "is_basic_land": True}
+    missing = [oid for oid in set(oracle_ids) - set(pool_by_id) if not oid.startswith("basic:")]
+    if missing:
+        async for doc in database.cards.find({"_id": {"$in": missing}, spec.legality_field: "legal"}):
+            pool_by_id[doc["_id"]] = {**doc, "copies_owned": 0}
+
+
+async def _cheapest_prices(database, oracle_ids: list[str]) -> dict[str, float]:
+    """Cheapest USD price across each card's printings."""
+    if not oracle_ids:
+        return {}
+    cursor = await database.card_prints.aggregate([
+        {"$match": {"oracle_id": {"$in": oracle_ids}, "price_usd": {"$ne": None}}},
+        {"$group": {"_id": "$oracle_id", "price": {"$min": "$price_usd"}}},
+    ])
+    return {row["_id"]: float(row["price"]) async for row in cursor}

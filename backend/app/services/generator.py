@@ -576,9 +576,17 @@ def compose(
 
     chosen: list[DeckCard] = []
     land_cards: list[DeckCard] = []
+    # A repeated id is another copy: one entry with a count, the way `generate`
+    # represents a playset, rather than four identical rows.
+    by_id: dict[str, DeckCard] = {}
     for doc, rset in tagged:
+        if doc["_id"] in by_id:
+            by_id[doc["_id"]].count += 1
+            continue
         if roles.LAND in rset:
-            land_cards.append(_deck_card(doc, rset, "land", "Land", printings=printings))
+            card = _deck_card(doc, rset, "land", "Land", printings=printings)
+            land_cards.append(card)
+            by_id[doc["_id"]] = card
             continue
         role = next((r for r in ROLE_FILL_ORDER if r in rset), None)
         if role:
@@ -587,7 +595,9 @@ def compose(
             slot, reason = "game_plan", "High-synergy pick (popular with this commander)"
         else:
             slot, reason = "game_plan", "Game plan"
-        chosen.append(_deck_card(doc, rset, slot, reason, quality=q(doc["_id"]), printings=printings))
+        card = _deck_card(doc, rset, slot, reason, quality=q(doc["_id"]), printings=printings)
+        chosen.append(card)
+        by_id[doc["_id"]] = card
 
     deck.cards = land_cards + chosen
     _allocate_printings(deck.cards)
