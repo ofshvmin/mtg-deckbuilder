@@ -493,3 +493,40 @@ export interface BatchAddResult {
   added: number;
   skipped: number;
 }
+
+// ---- Analyze & upgrade (Premium) ----
+
+export interface AnalysisCard {
+  oracle_id: string;
+  name: string;
+  count: number;
+  mana_cost: string;
+  type_line: string;
+  owned: boolean;
+  /** Cheapest printing, for cards to buy. */
+  price_usd: number | null;
+}
+
+export interface AnalysisSwap {
+  cut: AnalysisCard;
+  add: AnalysisCard;
+  source: "owned" | "buy";
+  reason: string;
+}
+
+export interface AnalysisResponse {
+  verdict: string;
+  swaps: AnalysisSwap[];
+  /** False when the swaps came from the quick, non-AI pairing. */
+  ai: boolean;
+  cached: boolean;
+}
+
+export interface AnalyzeRequest {
+  commander: string | null;
+  format: string;
+  cards: { oracle_id: string; count: number }[];
+  strategy?: string | null;
+  colors?: string[];
+  budget?: number | null;
+}

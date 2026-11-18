@@ -12,6 +12,7 @@ import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import CommanderFeature from "./CommanderFeature";
 import DeckCardList from "./DeckCardList";
 import DeckComboFinishers from "./DeckComboFinishers";
+import AnalyzePanel from "./AnalyzePanel";
 import DeckUpgrades from "./DeckUpgrades";
 import { cheapestPrint, fetchCardDetail } from "@mtg/shared";
 import { buildScavengerData } from "@mtg/shared";
@@ -459,6 +460,14 @@ export default function DeckView({
         )}
       </div>
 
+      <AnalyzePanel
+        deck={deck}
+        onApply={(next) => {
+          setDeck(next);
+          setDirty(true);
+        }}
+      />
+
       {/* Combo finishers work in every format (Spellbook tags each combo's
           legality); budget upgrades come from EDHREC, which is Commander-only. */}
       <DeckComboFinishers
@@ -513,7 +522,7 @@ export default function DeckView({
             ranked by curve fit and efficiency
             {deck.commander
               ? " (no EDHREC data for this commander)"
-              : ` (no community ranking data exists for ${deck.format}, so copies owned and role coverage decide)`}
+              : `, then by how widely each card is played across Magic`}
             .
           </>
         )}

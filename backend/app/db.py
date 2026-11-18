@@ -86,6 +86,11 @@ async def ensure_indexes(db: AsyncDatabase) -> None:
 
     await db.combos.create_index("cards")     # multikey — combo detection by owned oracle_ids
     await db.combos.create_index("identity")
+    await db.combos.create_index("legal_in")
+
+    # Premium deck analyses, cached per deck version; Mongo drops them after 3 days.
+    await db.analysis_cache.create_index("created_at", expireAfterSeconds=3 * 24 * 3600)
+    await db.analysis_cache.create_index([("user_id", 1), ("created_at", -1)])
 
     # Per-printing image URLs (seeded from Scryfall default_cards bulk data).
     await db.card_prints.create_index([("set", 1), ("collector_number", 1)])

@@ -22,6 +22,8 @@ import type {
   CollectionSummary,
   CommanderFilters,
   CommanderOption,
+  AnalysisResponse,
+  AnalyzeRequest,
   CardChoice,
   CatalogFormat,
   DeckFormat,
@@ -373,16 +375,27 @@ export class ApiClient {
     });
   }
 
-  /** Analyze an exact chosen card list into deck categories + stats (manual builder). */
+  /** Analyze an exact chosen card list into deck categories + stats (manual builder).
+   *  `includeUnowned` also accepts cards to buy and basics ("basic:G") — for a deck
+   *  with upgrade swaps applied. */
   composeDeck(
     commanderName: string | null,
     oracleIds: string[],
     format = "commander",
     filters?: PoolFilters,
+    includeUnowned = false,
   ): Promise<GeneratedDeck> {
     return this.request<GeneratedDeck>("POST", "/decks/compose", {
-      body: { commander: commanderName, oracle_ids: oracleIds, format, ...filters },
+      body: {
+        commander: commanderName, oracle_ids: oracleIds, format, ...filters,
+        ...(includeUnowned ? { include_unowned: true } : {}),
+      },
     });
+  }
+
+  /** Premium: a verdict on the deck plus cut/add swaps (402 for free accounts). */
+  analyzeDeck(req: AnalyzeRequest): Promise<AnalysisResponse> {
+    return this.request<AnalysisResponse>("POST", "/decks/analyze", { body: req });
   }
 
   /** Cards that would complete a combo with the given deck cards (owned first).
