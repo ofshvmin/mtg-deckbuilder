@@ -20,6 +20,7 @@ import { loadSetIndex } from "../lib/scryfallSets";
 import PlaytestModal from "./PlaytestModal";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
+import { cardChoiceField, storedCardChoice } from "../lib/cardChoice";
 
 const EXPORT_FORMATS = ["Moxfield", "Archidekt", "Dragon Shield", "Deckbox", "ManaBox"] as const;
 
@@ -145,6 +146,7 @@ export default function DeckView({
         ...opts,
         format: deck.format,
         ...poolFilters,
+        ...cardChoiceField(storedCardChoice()),
         // A deck rebuilding itself must not treat its own copies as taken.
         ...(deckId ? { exclude_deck_id: deckId } : {}),
       });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { DeckCard, GeneratedDeck, PoolCard, PoolFilters, PoolResponse } from "@mtg/shared";
+import type { CardChoice, DeckCard, GeneratedDeck, PoolCard, PoolFilters, PoolResponse } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { isPremiumRequired } from "@mtg/shared";
@@ -13,6 +13,7 @@ import DeckComboFinishers from "./DeckComboFinishers";
 import ManaCost from "./ManaCost";
 import ManaCurve from "./ManaCurve";
 import StatTile from "./StatTile";
+import { cardChoiceField, storedCardChoice } from "../lib/cardChoice";
 
 const POOL_CAP = 300;
 
@@ -106,8 +107,9 @@ export default function ManualBuilder({
   async function fetchSuggestions() {
     setLoadingSuggestions(true);
     try {
-      const opts: { strategy?: string; theme?: string } & PoolFilters = {
+      const opts: { strategy?: string; theme?: string; card_choice?: CardChoice } & PoolFilters = {
         ...poolFilters,
+        ...cardChoiceField(storedCardChoice()),
         ...(deckId ? { exclude_deck_id: deckId } : {}),
       };
       if (strategy && strategy !== "Balanced") opts.strategy = strategy;

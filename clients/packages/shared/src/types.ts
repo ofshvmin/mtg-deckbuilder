@@ -131,6 +131,19 @@ export interface DeckFormat {
 
 export type FormatFamily = "commander" | "constructed";
 
+/** How much a build leans on what the community plays. Missing = "balanced". */
+export type CardChoice = "staples" | "balanced" | "hidden_gems";
+
+export const CARD_CHOICES: { key: CardChoice; label: string; description: string }[] = [
+  { key: "staples", label: "Staples", description: "Proven, widely played cards" },
+  { key: "balanced", label: "Balanced", description: "Strong picks that fit the plan" },
+  {
+    key: "hidden_gems",
+    label: "Hidden gems",
+    description: "Solid cards fewer players run, with a little variety each build",
+  },
+];
+
 /** A `/decks/formats/catalog` entry: the two-step picker's data. */
 export interface CatalogFormat {
   key: string;

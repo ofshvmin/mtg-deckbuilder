@@ -46,6 +46,28 @@ THEME_WEIGHT = 2.5
 # rank_score at or above this (about the top 150 cards by edhrec_rank) earns the
 # "Widely played" reason when card rank is in use.
 WIDELY_PLAYED = 0.5
+
+# Hidden gems: cards that are played, but not staples. The bonus is full across
+# the sweet spot (rank_score 0.2-0.35 ≈ ranks 800-3,900), ramps up from the floor
+# (0.1 ≈ rank 10,000: below it a card is more likely unplayable or brand new than
+# undiscovered) and fades out toward the staples (0.6 ≈ rank 60).
+GEM_FLOOR = 0.1
+GEM_SWEET = (0.2, 0.35)
+GEM_CEILING = 0.6
+# gem_bonus at or above this earns the "Hidden gem" reason.
+HIDDEN_GEM = 0.75
+
+
+def gem_bonus(rank_score: float) -> float:
+    """0-1 bonus for being played, but rarely."""
+    low, high = GEM_SWEET
+    if rank_score < GEM_FLOOR or rank_score >= GEM_CEILING:
+        return 0.0
+    if rank_score < low:
+        return (rank_score - GEM_FLOOR) / (low - GEM_FLOOR)
+    if rank_score <= high:
+        return 1.0
+    return (GEM_CEILING - rank_score) / (GEM_CEILING - high)
 # Target nonland mana-curve shape (fractions by MV bucket 0..7, 7 = 7+).
 CURVE_WEIGHTS = {0: 0.03, 1: 0.12, 2: 0.22, 3: 0.20, 4: 0.15, 5: 0.11, 6: 0.08, 7: 0.09}
 
@@ -239,9 +261,11 @@ def generate(
     spec: FormatSpec | None = None,
     locked_counts: dict[str, int] | None = None,
     rank_weight: float | None = None,
+    quality_weight: float | None = None,
 ) -> GeneratedDeck:
     fmt = spec or get_format(None)
     effective_rank_weight = fmt.rank_weight if rank_weight is None else rank_weight
+    effective_quality_weight = QUALITY_WEIGHT if quality_weight is None else quality_weight
     strat = strategy or get_strategy(None, fmt)
     # Explicit params override strategy defaults
     effective_land_count = land_count if land_count is not None else strat.land_count
@@ -333,10 +357,15 @@ def generate(
                     score += 3.0
                     break
             b = _bucket(doc.get("cmc", 0))
-            if curve_remaining.get(b, 0) > 0:
+            curve_need = curve_remaining.get(b, 0) > 0
+            if curve_need:
                 score += 1.5
-            score += QUALITY_WEIGHT * q_norm(doc["_id"])  # EDHREC community signal
-            score += effective_rank_weight * (doc.get("rank_score") or 0.0)  # card rank
+            score += effective_quality_weight * q_norm(doc["_id"])  # EDHREC community signal
+            rank = doc.get("rank_score") or 0.0
+            if effective_rank_weight >= 0:
+                score += effective_rank_weight * rank  # card rank
+            elif fills or curve_need:
+                score += -effective_rank_weight * gem_bonus(rank)  # hidden gems
             # Rising bonus for going deeper on a card already in the deck: the 2nd copy
             # of the best card outbids the 1st copy of the 10th-best, which is what
             # makes 60-card output a spine of playsets rather than a singleton pile.
@@ -378,6 +407,8 @@ def generate(
             )
         elif effective_rank_weight > 0 and (doc.get("rank_score") or 0.0) >= WIDELY_PLAYED:
             slot, reason = "game_plan", "Widely played"
+        elif effective_rank_weight < 0 and gem_bonus(doc.get("rank_score") or 0.0) >= HIDDEN_GEM:
+            slot, reason = "game_plan", "Hidden gem"
         else:
             slot, reason = "game_plan", f"Game plan / curve filler (MV {b if b < 7 else '7+'})"
         if copy_index > 0:
