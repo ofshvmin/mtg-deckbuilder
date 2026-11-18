@@ -54,6 +54,12 @@ def print_doc(card: dict) -> dict:
     # The set's display name, so the set picker doesn't have to show bare codes.
     # Web could look this up from Scryfall's /sets index client-side, but mobile
     # has no such cache — carrying it here serves both from one place.
+    # Rarity per printing, and whether it exists in paper or on MTGO: Pauper
+    # Commander's commander must be a creature printed at uncommon there.
+    if card.get("rarity"):
+        doc["rarity"] = card["rarity"]
+    if {"paper", "mtgo"} & set(card.get("games") or []):
+        doc["paper"] = True
     set_name = (card.get("set_name") or "").strip()
     if set_name:
         doc["set_name"] = set_name

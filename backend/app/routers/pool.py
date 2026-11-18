@@ -59,13 +59,15 @@ async def get_pool(
         try:
             result = await pool_service.get_pool(
                 database, current_user["_id"], commander,
-                scope=scope, sets=sets, exclude_deck_id=exclude_deck_id,
+                scope=scope, sets=sets, exclude_deck_id=exclude_deck_id, spec=spec,
             )
         except pool_service.CommanderNotFound as e:
             detail = f"No card found matching '{e.name}'."
             if e.suggestions:
                 detail += " Did you mean: " + ", ".join(e.suggestions[:5])
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+        except pool_service.CommanderNotEligible as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     else:
         result = await pool_service.get_pool_for_format(
             database, current_user["_id"], spec,

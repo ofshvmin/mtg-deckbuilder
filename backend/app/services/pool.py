@@ -26,6 +26,17 @@ class CommanderNotFound(Exception):
         super().__init__(f"No card found matching '{name}'.")
 
 
+class CommanderNotEligible(Exception):
+    """The card exists but can't lead a deck in this format."""
+
+    def __init__(self, name: str, format_label: str):
+        self.name = name
+        super().__init__(
+            f"{name} can't be a {format_label} commander — it needs to be a creature "
+            "printed at uncommon."
+        )
+
+
 @dataclass
 class Pool:
     # None for formats without a commander (Standard, Legacy).
@@ -104,25 +115,32 @@ async def get_pool(
     scope: str = availability.SCOPE_OWNED,
     sets: list[str] | None = None,
     exclude_deck_id: str | None = None,
+    spec: FormatSpec | None = None,
 ) -> Pool:
+    """A commander-led deck's pool. `spec` picks the format (Commander when None):
+    which cards may sit in the 99, and who may be the commander."""
+    fmt = spec or get_format(None)
     commander = await cards_repo.find_commander(db, commander_name)
     if commander is None:
         suggestions = [c["name"] for c in await cards_repo.search(db, commander_name, limit=10)]
         raise CommanderNotFound(commander_name, suggestions)
+    if fmt.key == "paupercommander" and not await cards_repo.pdh_commander_ids(db, [commander["_id"]]):
+        raise CommanderNotEligible(commander["name"], fmt.label)
 
     identity = commander.get("color_identity", [])
     printings, owned = await _load_inventory(
         db, user_id, scope=scope, sets=sets, exclude_deck_id=exclude_deck_id
     )
     pool = await cards_repo.get_legal_pool(
-        db, allowed_colors=identity, owned_counts=owned, exclude_oracle_id=commander["_id"]
+        db, allowed_colors=identity, owned_counts=owned, exclude_oracle_id=commander["_id"],
+        legality_field=fmt.legality_field,
     )
     return Pool(
         commander=commander,
         color_identity=identity,
         pool=pool,
         printings=printings,
-        format_key="commander",
+        format_key=fmt.key,
         colors=identity,
         scope=scope,
         sets=list(sets or []),
@@ -155,7 +173,7 @@ async def get_pool_for_format(
             raise ValueError(f"{fmt.label} requires a commander")
         return await get_pool(
             db, user_id, commander_name,
-            scope=scope, sets=sets, exclude_deck_id=exclude_deck_id,
+            scope=scope, sets=sets, exclude_deck_id=exclude_deck_id, spec=fmt,
         )
 
     printings, owned = await _load_inventory(

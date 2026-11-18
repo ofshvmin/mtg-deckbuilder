@@ -113,7 +113,10 @@ export default function BuildPage() {
   useEffect(() => {
     if (editApplied.current) return;
     const st = location.state as
-      | { editCommander?: string; editSelected?: string[]; editDeckId?: string; editDeckName?: string }
+      | {
+          editCommander?: string; editSelected?: string[]; editDeckId?: string; editDeckName?: string;
+          editFormat?: string;
+        }
       | null;
     if (!st?.editCommander) return;
     editApplied.current = true;
@@ -123,12 +126,16 @@ export default function BuildPage() {
       setDeck(null);
       setMode("manual");
       setPoolCommander(st.editCommander!);
+      // Pauper Commander decks edit against their own pool, not Commander's.
+      const editFormat = st.editFormat ?? "commander";
+      setFormat(editFormat);
       try {
         // Editing a saved deck: its own copies must read as available, or every
         // card it already holds would look taken by itself.
         setPool(
           await api.getPool({
             commander: st.editCommander!,
+            format: editFormat,
             ...poolFilters,
             ...(st.editDeckId ? { exclude_deck_id: st.editDeckId } : {}),
           }),
@@ -369,7 +376,8 @@ export default function BuildPage() {
         <div>
           <label className="text-sm font-medium text-slate-300">Commander</label>
           <div className="mt-2 max-w-2xl">
-            <CommanderPicker onSelect={selectCommander} />
+            {/* Keyed by format: the filters and set list belong to one format's rules. */}
+            <CommanderPicker key={format} format={format} onSelect={selectCommander} />
           </div>
         </div>
       )}

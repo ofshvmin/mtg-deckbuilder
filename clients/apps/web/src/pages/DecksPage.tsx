@@ -125,6 +125,7 @@ export default function DecksPage() {
     navigate("/build", {
       state: {
         editCommander: deck.commander!.name,
+        editFormat: deck.format,
         editSelected: deck.cards
           .filter((c) => !c.oracle_id.startsWith("basic:"))
           .map((c) => c.oracle_id),

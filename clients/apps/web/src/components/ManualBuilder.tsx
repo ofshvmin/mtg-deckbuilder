@@ -107,7 +107,8 @@ export default function ManualBuilder({
   async function fetchSuggestions() {
     setLoadingSuggestions(true);
     try {
-      const opts: { strategy?: string; theme?: string; card_choice?: CardChoice } & PoolFilters = {
+      const opts: { strategy?: string; theme?: string; card_choice?: CardChoice; format?: string } & PoolFilters = {
+        format: pool.format,
         ...poolFilters,
         ...cardChoiceField(storedCardChoice()),
         ...(deckId ? { exclude_deck_id: deckId } : {}),
