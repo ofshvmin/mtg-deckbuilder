@@ -184,6 +184,41 @@ async def pdh_commander_ids(db: AsyncDatabase, card_ids: list[str]) -> set[str]:
     return {doc["_id"] async for doc in cursor}
 
 
+async def find_commanders(db: AsyncDatabase, query: str, limit: int = 8) -> list[dict]:
+    """Commander-eligible cards for free text, best match first.
+
+    Only cards that can lead a deck are considered — "borg" must find Borg Queen
+    and Locutus of Borg, never the Borg token. Ranked: exact name, name starts
+    with the text, a word starts with it, anywhere; ties by how widely played.
+    """
+    norm = normalize_name(query)
+    if len(norm) < 2:
+        return []
+    cursor = db.cards.find({
+        "legal_commander": "legal",
+        "$or": [
+            {"type_line": {"$regex": "Legendary.*Creature"}},
+            {"oracle_text": {"$regex": "[Cc]an be your commander"}},
+        ],
+        "name_normalized": {"$regex": _escape_regex(norm)},
+    }).limit(200)
+    docs = [doc async for doc in cursor]
+
+    def rank(doc: dict) -> tuple:
+        name = doc.get("name_normalized") or ""
+        words = re.split(r"[\s,'-]+", name)
+        tier = (
+            0 if name == norm
+            else 1 if name.startswith(norm)
+            else 2 if any(w.startswith(norm) for w in words)
+            else 3
+        )
+        return (tier, -(doc.get("rank_score") or 0.0), doc.get("name") or "")
+
+    docs.sort(key=rank)
+    return docs[:limit]
+
+
 async def search_all_commanders(
     db: AsyncDatabase, query: str = "", limit: int = 10
 ) -> list[dict]:

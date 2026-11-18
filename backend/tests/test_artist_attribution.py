@@ -88,13 +88,20 @@ class TestArtByName:
     def _db(self, docs):
         class FakeColl:
             def find(self, query, projection=None, *a, **k):
-                wanted = set(query["name_lower"]["$in"])
+                import re
+
+                if "$or" in query:  # the front-face pass for double-faced cards
+                    patterns = [re.compile(c["name_lower"]["$regex"]) for c in query["$or"]]
+                    match = lambda name: any(p.search(name) for p in patterns)  # noqa: E731
+                else:
+                    wanted = set(query["name_lower"]["$in"])
+                    match = lambda name: name in wanted  # noqa: E731
                 # Mirror the real query's $exists guards.
                 return FakeCursor(
                     [
                         d
                         for d in docs
-                        if d["name_lower"] in wanted
+                        if match(d["name_lower"])
                         and d.get("artist")
                         and (d.get("image_uris") or {}).get("art_crop")
                     ]
@@ -147,3 +154,13 @@ class TestArtByName:
 
         assert asyncio.run(repo.art_by_name(FakeDB(), [])) == {}
         assert asyncio.run(repo.art_by_name(FakeDB(), ["", None])) == {}
+
+
+    def test_double_faced_cards_match_by_front_face(self):
+        """EDHREC names double-faced commanders by the front face alone."""
+        db = self._db([{
+            "name_lower": "sephiroth, fabled soldier // sephiroth, one-winged angel",
+            "image_uris": {"art_crop": "u"}, "artist": "Maji",
+        }])
+        out = asyncio.run(repo.art_by_name(db, ["Sephiroth, Fabled SOLDIER"]))
+        assert out == {"sephiroth, fabled soldier": {"art_crop": "u", "artist": "Maji"}}

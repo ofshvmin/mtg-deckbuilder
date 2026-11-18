@@ -1,6 +1,8 @@
 """Explore endpoints: resolve external deck card lists against our DB."""
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -19,7 +21,7 @@ from ..models.responses import (
 from ..repositories import card_prints as card_prints_repo
 from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
-from ..services import deck_text, external_decks
+from ..services import deck_text, explore_search, external_decks
 from ..services.generator import compose
 from ..util import normalize_name, strip_diacritics
 
@@ -76,17 +78,12 @@ async def search_decks(
     to get the full name (e.g. "Caesar, Legion's Emperor").
     """
     database = db.get_db()
-    # Resolve partial name to full commander name via our DB
+    # Resolve the text against commander-eligible cards only. Matching any card
+    # sent "borg" to EDHREC as the Borg token, which leads no decks.
     search_name = commander.strip()
-    card = await cards_repo.find_by_normalized_name(database, search_name)
-    if card is None:
-        # Try substring search for partial matches
-        docs = await cards_repo.search(database, search_name, limit=5)
-        # Prefer legendary creatures
-        legendary = [d for d in docs if "Legendary" in d.get("type_line", "")]
-        card = legendary[0] if legendary else (docs[0] if docs else None)
-    if card:
-        search_name = card["name"]
+    matches = await cards_repo.find_commanders(database, search_name, limit=1)
+    if matches:
+        search_name = matches[0]["name"]
 
     try:
         results = await external_decks.search_edhrec(search_name, page_size)
@@ -652,3 +649,145 @@ async def _resolve_external_deck(
     )
 
     return deck_response, unowned_count, owned_count
+
+
+# ---- One search box: commanders, themes, decks by name ----
+
+
+class FindCommander(BaseModel):
+    oracle_id: str
+    name: str
+    color_identity: list[str]
+    commander_art_crop: str | None = None
+    commander_artist: str | None = None
+
+
+class FindTheme(BaseModel):
+    name: str
+    slug: str
+    decks: int
+
+
+class FindDeck(BaseModel):
+    kind: str                      # "archidekt" | "precon"
+    id: str                        # Archidekt deck id, or the precon's file name
+    name: str
+    owner: str
+    color_identity: list[str] = []
+    card_count: int = 0
+    views: int | None = None
+    bracket: int | None = None
+    url: str = ""
+    commander_name: str | None = None
+    release_date: str | None = None
+    commander_art_crop: str | None = None
+    commander_artist: str | None = None
+
+
+class FindResponse(BaseModel):
+    commanders: list[FindCommander]
+    themes: list[FindTheme]
+    decks: list[FindDeck]
+    # Sources that didn't answer this time; the rest still return.
+    unavailable: list[str] = []
+
+
+@router.get("/find", response_model=FindResponse)
+async def find(
+    q: str = Query(..., min_length=2),
+    current_user: dict = Depends(get_current_user),
+):
+    """Everything a search matches, grouped: commanders (ours, eligible only),
+    themes (EDHREC), and decks by name (Archidekt and the precons). Each source
+    is independent — one being down never empties the others."""
+    database = db.get_db()
+    query = q.strip()
+
+    async def themes():
+        return explore_search.match_themes(await explore_search.theme_index(), query)
+
+    async def precons():
+        return await external_decks.search_precons(query, 6)
+
+    commander_docs, theme_res, archidekt_res, precon_res = await asyncio.gather(
+        cards_repo.find_commanders(database, query, limit=8),
+        themes(),
+        explore_search.search_archidekt(query, 12),
+        precons(),
+        return_exceptions=True,
+    )
+    unavailable = []
+    if isinstance(theme_res, BaseException):
+        theme_res, unavailable = [], unavailable + ["EDHREC themes"]
+    if isinstance(archidekt_res, BaseException):
+        archidekt_res, unavailable = [], unavailable + ["Archidekt"]
+    if isinstance(precon_res, BaseException):
+        precon_res, unavailable = [], unavailable + ["precons"]
+    if isinstance(commander_docs, BaseException):
+        raise commander_docs
+
+    name_art = await card_prints_repo.art_by_name(
+        database,
+        [d["name"] for d in commander_docs] + [p.get("commander_name") or "" for p in precon_res],
+    )
+    print_art = await card_prints_repo.art_by_print_ids(
+        database, [d.get("art_print_id") for d in archidekt_res]
+    )
+
+    decks = [
+        FindDeck(
+            kind="precon", id=p.get("fileName", ""), name=p.get("name", "Untitled"),
+            owner="Official precon", color_identity=p.get("color_identity") or [],
+            card_count=100, commander_name=p.get("commander_name"),
+            release_date=p.get("releaseDate"),
+            commander_art_crop=(name_art.get((p.get("commander_name") or "").lower()) or {}).get("art_crop"),
+            commander_artist=(name_art.get((p.get("commander_name") or "").lower()) or {}).get("artist"),
+        )
+        for p in precon_res
+    ] + [
+        FindDeck(
+            kind="archidekt", id=d["id"], name=d["name"], owner=d["owner"],
+            color_identity=d["color_identity"], card_count=d["card_count"], views=d["views"],
+            bracket=d["bracket"], url=d["url"],
+            commander_art_crop=(print_art.get(d.get("art_print_id") or "") or {}).get("art_crop"),
+            commander_artist=(print_art.get(d.get("art_print_id") or "") or {}).get("artist"),
+        )
+        for d in archidekt_res
+    ]
+
+    return FindResponse(
+        commanders=[
+            FindCommander(
+                oracle_id=d["_id"], name=d["name"], color_identity=d.get("color_identity", []),
+                commander_art_crop=(name_art.get(d["name"].lower()) or {}).get("art_crop"),
+                commander_artist=(name_art.get(d["name"].lower()) or {}).get("artist"),
+            )
+            for d in commander_docs
+        ],
+        themes=[FindTheme(**t) for t in theme_res],
+        decks=decks,
+        unavailable=unavailable,
+    )
+
+
+@router.get("/theme", response_model=list[SearchSummary])
+async def theme_decks(
+    slug: str = Query(..., min_length=1, pattern=r"^[a-z0-9-]+$"),
+    current_user: dict = Depends(get_current_user),
+):
+    """A theme's community decks across its top commanders (EDHREC)."""
+    try:
+        results = await explore_search.theme_decks(slug)
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "EDHREC is unavailable right now.")
+    art = await card_prints_repo.art_by_name(
+        db.get_db(), [r.get("commander_name", "") for r in results]
+    )
+    return [
+        SearchSummary(
+            **r,
+            commander_art_crop=(art.get((r.get("commander_name") or "").lower()) or {}).get("art_crop"),
+            commander_artist=(art.get((r.get("commander_name") or "").lower()) or {}).get("artist"),
+        )
+        for r in results
+    ]

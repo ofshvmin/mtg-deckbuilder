@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   edhrecPreviewCards,
-  type CommanderOption,
+  type ExploreFindDeck,
+  type ExploreFindResponse,
   type ExternalDeckResponse,
   type ExternalDeckSummary,
   type PreconSummary,
@@ -16,7 +17,8 @@ import CommanderArt from "../components/CommanderArt";
 import DeckView from "../components/DeckView";
 import ImportCardsModal from "../components/ImportCardsModal";
 
-type Tab = "community" | "precons";
+// What the deck grid is showing: one commander's or one theme's community decks.
+type Focus = { kind: "commander" | "theme"; label: string; key: string };
 
 /** Best-effort card name for Scryfall art when commander_name isn't available. */
 function preconArtName(p: { commander_name?: string; name: string }): string {
@@ -34,44 +36,22 @@ type PreconResult = PreconSummary;
 export default function ExplorePage() {
   const { refreshSummary, refreshSaved } = useLayout();
   const { showUpgrade } = usePremiumUpgrade();
-  const [tab, setTab] = useState<Tab>("precons");
-  const [commander, setCommander] = useState("");
+  const [query, setQuery] = useState("");
   const [urlInput, setUrlInput] = useState("");
 
-  // Commander autocomplete
-  const [suggestions, setSuggestions] = useState<CommanderOption[]>([]);
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const suggestRef = useRef<HTMLDivElement>(null);
+  // One search box: commanders, themes and decks by name, grouped.
+  const [found, setFound] = useState<ExploreFindResponse | null>(null);
+  const [finding, setFinding] = useState(false);
+  const [findError, setFindError] = useState<string | null>(null);
+  const findSeq = useRef(0);
 
-  useEffect(() => {
-    if (commander.length < 2) { setSuggestions([]); return; }
-    const t = setTimeout(() => {
-      api.searchAllCommanders(commander, 8).then(setSuggestions).catch(() => setSuggestions([]));
-    }, 200);
-    return () => clearTimeout(t);
-  }, [commander]);
-
-  useEffect(() => {
-    function onClick(e: MouseEvent) {
-      if (suggestRef.current && !suggestRef.current.contains(e.target as Node)) setSuggestOpen(false);
-    }
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, []);
-
-  function pickCommander(c: CommanderOption) {
-    setCommander(c.name);
-    setSuggestOpen(false);
-    setSuggestions([]);
-  }
-
-  // Community (EDHREC) state
+  // A commander or theme the player picked from the results: its community decks.
+  const [focus, setFocus] = useState<Focus | null>(null);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  // Precon state
-  const [preconQuery, setPreconQuery] = useState("");
+  // Landing: the newest precons, until something is searched.
   const [precons, setPrecons] = useState<PreconResult[]>([]);
   const [preconsLoading, setPreconsLoading] = useState(false);
   const [preconsError, setPreconsError] = useState<string | null>(null);
@@ -102,24 +82,57 @@ export default function ExplorePage() {
     }
   }
 
-  const handleSearch = useCallback(async () => {
-    const q = commander.trim();
-    if (!q) return;
+  // Search as you type (debounced). Each source answers on its own, and a newer
+  // query always wins over a slower older one.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setFound(null);
+      setFindError(null);
+      return;
+    }
+    const t = setTimeout(() => void runFind(q), 400);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  async function runFind(q: string) {
+    const mine = ++findSeq.current;
+    setFinding(true);
+    setFindError(null);
+    setFocus(null);
+    try {
+      const data = await api.exploreFind(q);
+      if (mine === findSeq.current) setFound(data);
+    } catch (e) {
+      if (mine === findSeq.current) setFindError(e instanceof Error ? e.message : "Search failed");
+    } finally {
+      if (mine === findSeq.current) setFinding(false);
+    }
+  }
+
+  const openFocus = useCallback(async (next: Focus) => {
+    setFocus(next);
     setSearching(true);
     setSearchError(null);
-    setFetchedDeck(null);
-    setSavedId(null);
+    setResults([]);
     try {
-      const data = await api.searchExternalDecks(q);
+      const data = next.kind === "commander"
+        ? await api.searchExternalDecks(next.key)
+        : await api.exploreTheme(next.key);
       setResults(data);
-      if (data.length === 0) setSearchError("No decks found for that commander on EDHREC.");
+      if (data.length === 0) {
+        setSearchError(
+          next.kind === "commander"
+            ? `EDHREC has no community decks for ${next.label} yet.`
+            : `No community decks found for ${next.label}.`,
+        );
+      }
     } catch (e) {
       setSearchError(e instanceof Error ? e.message : "Search failed");
-      setResults([]);
     } finally {
       setSearching(false);
     }
-  }, [commander]);
+  }, []);
 
   async function handleFetchByUrl() {
     const u = urlInput.trim();
@@ -168,6 +181,27 @@ export default function ExplorePage() {
       setFetchedDeck(data);
     } catch (e) {
       setFetchError(e instanceof Error ? e.message : "Failed to load precon");
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  async function handleFetchFound(d: ExploreFindDeck) {
+    if (d.kind === "precon") {
+      return handleFetchPrecon({
+        file_name: d.id, name: d.name, code: "", release_date: d.release_date ?? "",
+        commander_name: d.commander_name ?? undefined, color_identity: d.color_identity,
+        source: "precon",
+      } as PreconResult);
+    }
+    setFetching(true);
+    setFetchError(null);
+    setFetchedDeck(null);
+    setSavedId(null);
+    try {
+      setFetchedDeck(await api.fetchExternalDeck({ url: d.url }));
+    } catch (e) {
+      setFetchError(e instanceof Error ? e.message : "Failed to fetch deck");
     } finally {
       setFetching(false);
     }
@@ -240,154 +274,190 @@ export default function ExplorePage() {
     );
   }
 
-  const tabClass = (t: Tab) =>
-    "rounded-lg px-4 py-2 text-sm font-medium transition " +
-    (tab === t ? "bg-slate-800 text-white" : "text-slate-400 hover:text-slate-200");
+  const q = query.trim();
+  const showLanding = q.length < 2;
+  const nothingFound =
+    found && !finding && found.commanders.length + found.themes.length + found.decks.length === 0;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="text-2xl font-semibold">Explore Decks</h2>
-        <div className="flex rounded-lg border border-slate-700 p-0.5">
-          <button className={tabClass("precons")} onClick={() => setTab("precons")}>Precons</button>
-          <button className={tabClass("community")} onClick={() => setTab("community")}>Community</button>
+      <h2 className="text-2xl font-semibold">Explore Decks</h2>
+
+      <div className="space-y-2">
+        <input type="search" value={query} autoFocus
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && q.length >= 2 && void runFind(q)}
+          placeholder="Search commanders, themes or deck names — “Atraxa”, “aristocrats”, “Borg”…"
+          className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-200 placeholder:text-slate-500" />
+        <div className="flex gap-2">
+          <input type="text" value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleFetchByUrl()}
+            placeholder="Or paste an EDHREC or Archidekt deck link…"
+            className="min-w-0 flex-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-300 placeholder:text-slate-600" />
+          <button onClick={handleFetchByUrl} disabled={fetching || !urlInput.trim()}
+            className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:opacity-50">
+            {fetching ? "…" : "Open"}
+          </button>
         </div>
       </div>
 
       {fetchError && <p className="text-sm text-rose-400">{fetchError}</p>}
       {fetching && <p className="text-sm text-slate-400">Loading deck…</p>}
 
-      {tab === "precons" && (
-        <div className="space-y-4">
-          <div className="flex gap-2">
-            <input type="text" value={preconQuery}
-              onChange={(e) => setPreconQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && loadPrecons(preconQuery)}
-              placeholder="Search precons by name or set code…"
-              className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500" />
-            <button onClick={() => loadPrecons(preconQuery)} disabled={preconsLoading}
-              className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50">
-              {preconsLoading ? "…" : "Search"}
+      {/* A commander's or theme's community decks */}
+      {focus && (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-lg font-semibold text-slate-100">
+              {focus.kind === "commander" ? `Community decks for ${focus.label}` : `${focus.label} decks`}
+            </h3>
+            <button onClick={() => setFocus(null)} className="text-sm text-slate-400 hover:text-slate-200">
+              ← All results for “{q}”
             </button>
           </div>
-          {preconsError && <p className="text-sm text-rose-400">{preconsError}</p>}
-          {precons.length > 0 && (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {precons.map((p) => (
-                <button key={p.file_name} onClick={() => handleFetchPrecon(p)} disabled={fetching}
-                  className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 text-left transition hover:border-slate-700 disabled:opacity-50">
-                  <CommanderArt
-                    name={preconArtName(p)}
-                    className="h-36"
-                    artCropUrl={p.commander_art_crop}
-                    artist={p.commander_artist}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
-                    <div className="absolute right-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-slate-200">
-                      {p.code.toUpperCase()}
-                    </div>
-                    <div className="absolute inset-x-0 bottom-0 p-3">
-                      <h3 className="truncate text-sm font-semibold text-white drop-shadow transition group-hover:text-emerald-300">
-                        {p.name}
-                      </h3>
-                    </div>
-                  </CommanderArt>
-                  <div className="px-3 py-2">
-                    <p className="truncate text-xs text-slate-400">
-                      {p.commander_name
-                        ? <>{p.commander_name} · <ColorPips colors={(p.color_identity || []) as Color[]} /> · </>
-                        : null}
-                      {p.release_date}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
+          {searching && <p className="text-sm text-slate-400">Searching EDHREC…</p>}
+          {searchError && <p className="text-sm text-slate-400">{searchError}</p>}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {results.map((d) => (
+              <DeckTile key={d.external_id} onClick={() => handleFetchResult(d)} disabled={fetching}
+                name={d.name} art={d.commander_art_crop} artist={d.commander_artist}
+                artName={d.commander_name || "Unknown"}
+                badge={d.bracket != null ? `B${d.bracket}` : null}
+                line={<>{d.commander_name} · <ColorPips colors={d.color_identity as Color[]} /> · {d.card_count} cards</>}
+                sub={d.price != null ? `$${d.price}` : null} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Grouped search results */}
+      {!focus && !showLanding && (
+        <div className="space-y-8">
+          {finding && !found && <p className="text-sm text-slate-400">Searching…</p>}
+          {findError && <p className="text-sm text-rose-400">{findError}</p>}
+          {nothingFound && (
+            <p className="text-sm text-slate-400">Nothing matched “{q}”. Try a commander, a theme like “tokens”, or part of a deck name.</p>
           )}
-          {!preconsLoading && precons.length === 0 && !preconsError && (
-            <p className="text-sm text-slate-500">No precons found.</p>
+          {found && found.unavailable.length > 0 && (
+            <p className="text-xs text-slate-500">{found.unavailable.join(" and ")} didn't answer — showing the rest.</p>
+          )}
+
+          {found && found.commanders.length > 0 && (
+            <section className="space-y-3">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-slate-500">Commanders</h3>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {found.commanders.map((c) => (
+                  <button key={c.oracle_id}
+                    onClick={() => void openFocus({ kind: "commander", label: c.name, key: c.name })}
+                    className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 text-left transition hover:border-slate-600">
+                    <CommanderArt name={c.name} className="h-20" artCropUrl={c.commander_art_crop} artist={c.commander_artist}>
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
+                    </CommanderArt>
+                    <div className="flex items-center justify-between gap-2 px-3 py-2">
+                      <span className="truncate text-sm text-slate-100 group-hover:text-emerald-300">{c.name}</span>
+                      <ColorPips colors={c.color_identity as Color[]} />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {found && found.themes.length > 0 && (
+            <section className="space-y-3">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-slate-500">Themes</h3>
+              <div className="flex flex-wrap gap-2">
+                {found.themes.map((t) => (
+                  <button key={t.slug}
+                    onClick={() => void openFocus({ kind: "theme", label: t.name, key: t.slug })}
+                    className="rounded-full border border-slate-700 px-3 py-1.5 text-sm text-slate-200 transition hover:border-emerald-600 hover:text-emerald-300">
+                    {t.name} <span className="text-xs text-slate-500">{t.decks.toLocaleString()} decks</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {found && found.decks.length > 0 && (
+            <section className="space-y-3">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-slate-500">Decks</h3>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {found.decks.map((d) => (
+                  <DeckTile key={`${d.kind}:${d.id}`} onClick={() => void handleFetchFound(d)} disabled={fetching}
+                    name={d.name} art={d.commander_art_crop} artist={d.commander_artist}
+                    artName={d.commander_name || d.name}
+                    badge={d.kind === "precon" ? "Precon" : d.bracket != null ? `B${d.bracket}` : null}
+                    line={<>
+                      {d.kind === "precon" ? d.commander_name ?? "Official precon" : <>by {d.owner}</>}
+                      {d.color_identity.length > 0 && <> · <ColorPips colors={d.color_identity as Color[]} /></>}
+                    </>}
+                    sub={d.kind === "archidekt"
+                      ? `Archidekt${d.views ? ` · ${d.views.toLocaleString()} views` : ""}`
+                      : d.release_date ?? null} />
+                ))}
+              </div>
+            </section>
           )}
         </div>
       )}
 
-      {tab === "community" && (
-        <div className="space-y-4">
-          <div className="flex gap-2" ref={suggestRef}>
-            <div className="relative min-w-0 flex-1">
-              <input type="text" value={commander}
-                onChange={(e) => { setCommander(e.target.value); setSuggestOpen(true); }}
-                onFocus={() => suggestions.length > 0 && setSuggestOpen(true)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { setSuggestOpen(false); handleSearch(); }
-                  if (e.key === "Escape") setSuggestOpen(false);
-                }}
-                placeholder="Search by commander name…"
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500" />
-              {suggestOpen && suggestions.length > 0 && (
-                <div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-slate-700 bg-slate-900 shadow-xl">
-                  {suggestions.map((c) => (
-                    <button key={c.oracle_id}
-                      onClick={() => pickCommander(c)}
-                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-800">
-                      <span className="text-slate-100">{c.name}</span>
-                      <ColorPips colors={c.color_identity} />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button onClick={() => { setSuggestOpen(false); handleSearch(); }} disabled={searching || !commander.trim()}
-              className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50">
-              {searching ? "Searching…" : "Search"}
-            </button>
+      {/* Landing: newest precons */}
+      {showLanding && (
+        <section className="space-y-3">
+          <h3 className="text-xs font-medium uppercase tracking-wider text-slate-500">Newest precons</h3>
+          {preconsError && <p className="text-sm text-rose-400">{preconsError}</p>}
+          {preconsLoading && <p className="text-sm text-slate-400">Loading…</p>}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {precons.map((p) => (
+              <DeckTile key={p.file_name} onClick={() => handleFetchPrecon(p)} disabled={fetching}
+                name={p.name} art={p.commander_art_crop} artist={p.commander_artist}
+                artName={preconArtName(p)} badge={p.code.toUpperCase()}
+                line={p.commander_name
+                  ? <>{p.commander_name} · <ColorPips colors={(p.color_identity || []) as Color[]} /></>
+                  : <>Official precon</>}
+                sub={p.release_date} />
+            ))}
           </div>
-          <div className="flex gap-2">
-            <input type="text" value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleFetchByUrl()}
-              placeholder="Or paste an EDHREC or Archidekt URL…"
-              className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500" />
-            <button onClick={handleFetchByUrl} disabled={fetching || !urlInput.trim()}
-              className="shrink-0 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:opacity-50">
-              {fetching ? "…" : "Import"}
-            </button>
-          </div>
-          {searchError && <p className="text-sm text-rose-400">{searchError}</p>}
-          {results.length > 0 && (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {results.map((d) => (
-                <button key={d.external_id} onClick={() => handleFetchResult(d)} disabled={fetching}
-                  className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 text-left transition hover:border-slate-700 disabled:opacity-50">
-                  <CommanderArt
-                    name={d.commander_name || "Unknown"}
-                    className="h-36"
-                    artCropUrl={d.commander_art_crop}
-                    artist={d.commander_artist}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
-                    {d.bracket != null && (
-                      <div className="absolute right-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-slate-200">
-                        B{d.bracket}
-                      </div>
-                    )}
-                    <div className="absolute inset-x-0 bottom-0 p-3">
-                      <h3 className="truncate text-sm font-semibold text-white drop-shadow transition group-hover:text-emerald-300">
-                        {d.name}
-                      </h3>
-                    </div>
-                  </CommanderArt>
-                  <div className="px-3 py-2">
-                    <p className="truncate text-xs text-slate-400">
-                      {d.commander_name} · <ColorPips colors={d.color_identity as Color[]} /> · {d.card_count} cards
-                    </p>
-                    {d.price != null && <p className="mt-0.5 text-xs text-slate-500">${d.price}</p>}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        </section>
       )}
     </div>
+  );
+}
+
+function DeckTile({
+  onClick, disabled, name, art, artist, artName, badge, line, sub,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  name: string;
+  art?: string | null;
+  artist?: string | null;
+  artName: string;
+  badge?: string | null;
+  line: ReactNode;
+  sub?: string | null;
+}) {
+  return (
+    <button onClick={onClick} disabled={disabled}
+      className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 text-left transition hover:border-slate-700 disabled:opacity-50">
+      <CommanderArt name={artName} className="h-36" artCropUrl={art} artist={artist}>
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+        {badge && (
+          <div className="absolute right-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-slate-200">
+            {badge}
+          </div>
+        )}
+        <div className="absolute inset-x-0 bottom-0 p-3">
+          <h3 className="truncate text-sm font-semibold text-white drop-shadow transition group-hover:text-emerald-300">
+            {name}
+          </h3>
+        </div>
+      </CommanderArt>
+      <div className="px-3 py-2">
+        <p className="truncate text-xs text-slate-400">{line}</p>
+        {sub && <p className="mt-0.5 truncate text-xs text-slate-500">{sub}</p>}
+      </div>
+    </button>
   );
 }
