@@ -133,6 +133,7 @@ def _build(
     strategy: Strategy,
     basics_by_color: dict[str, dict],
     theme_matches: set[str] | None,
+    rank_weight: float | None = None,
 ):
     colors = [c for c in COLOR_ORDER if c in combo]
     subset = [doc for doc in pool if _castable_in(doc, combo)]
@@ -144,6 +145,7 @@ def _build(
         spec=spec,
         strategy=strategy,
         theme_matches=theme_matches,
+        rank_weight=rank_weight,
     )
     return deck, subset
 
@@ -156,6 +158,7 @@ def select_colors(
     theme_matches: set[str] | None = None,
     locked_colors: list[str] | None = None,
     auto_fill: bool = True,
+    rank_weight: float | None = None,
 ) -> ColorChoice:
     """Choose the deck's colors.
 
@@ -173,7 +176,7 @@ def select_colors(
     # Explicit colors: the user has decided. Build once so the rationale panel still
     # has real numbers, but don't search.
     if locked and not auto_fill:
-        deck, _ = _build(pool, set(locked), spec, strategy, basics_by_color, theme_matches)
+        deck, _ = _build(pool, set(locked), spec, strategy, basics_by_color, theme_matches, rank_weight)
         score, components = _score_deck(deck, spec, strategy, set(locked))
         return ColorChoice(
             colors=locked,
@@ -189,7 +192,7 @@ def select_colors(
             combo_set = set(combo)
             if not locked_set <= combo_set:
                 continue
-            deck, _ = _build(pool, combo_set, spec, strategy, basics_by_color, theme_matches)
+            deck, _ = _build(pool, combo_set, spec, strategy, basics_by_color, theme_matches, rank_weight)
             score, components = _score_deck(deck, spec, strategy, combo_set)
             scored.append((score, list(combo), components))
 

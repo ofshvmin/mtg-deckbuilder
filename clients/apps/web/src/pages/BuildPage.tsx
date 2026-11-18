@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import type { BriefDeckResponse, CatalogFormat, ColorRationale, CommanderOption, GeneratedDeck, PoolFilters, PoolResponse, PoolScope, StrategyOption } from "@mtg/shared";
+import { CARD_CHOICES } from "@mtg/shared";
+import type { BriefDeckResponse, CardChoice, CatalogFormat, ColorRationale, CommanderOption, GeneratedDeck, PoolFilters, PoolResponse, PoolScope, StrategyOption } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { isPremiumRequired } from "@mtg/shared";
@@ -15,6 +16,7 @@ import ManaCurve from "../components/ManaCurve";
 import ManualBuilder from "../components/ManualBuilder";
 import ColorPicker from "../components/ColorPicker";
 import FormatPicker from "../components/FormatPicker";
+import { cardChoiceField, saveCardChoice, storedCardChoice } from "../lib/cardChoice";
 import PoolControls from "../components/PoolControls";
 import PoolTable from "../components/PoolTable";
 import StatTile from "../components/StatTile";
@@ -72,6 +74,7 @@ export default function BuildPage() {
   const [autoFillColors, setAutoFillColors] = useState(true);
   const [poolScope, setPoolScope] = useState<PoolScope>(storedScope);
   const [poolSets, setPoolSets] = useState<string[]>(storedSets);
+  const [cardChoice, setCardChoice] = useState<CardChoice>(storedCardChoice);
   // Kept separately from `deck` because the color picker lives on the build screen,
   // where `deck` is null — the rationale has to outlive the deck that produced it.
   const [colorRationale, setColorRationale] = useState<ColorRationale | null>(null);
@@ -257,8 +260,8 @@ export default function BuildPage() {
     try {
       const opts: {
         strategy?: string; theme?: string; format?: string;
-        colors?: string[]; auto_fill_colors?: boolean;
-      } & PoolFilters = { format, ...poolFilters };
+        colors?: string[]; auto_fill_colors?: boolean; card_choice?: CardChoice;
+      } & PoolFilters = { format, ...poolFilters, ...cardChoiceField(cardChoice) };
       if (selectedStrategy && selectedStrategy !== strategies[0]?.name) {
         opts.strategy = selectedStrategy;
       }
@@ -295,7 +298,7 @@ export default function BuildPage() {
     setBriefError(null);
     try {
       const res = await api.briefDeck(
-        pool.commander?.name ?? null, request, undefined, format, poolFilters,
+        pool.commander?.name ?? null, request, undefined, format, poolFilters, cardChoice,
       );
       setBriefResult(res);
       setDeck(res.deck);
@@ -325,7 +328,7 @@ export default function BuildPage() {
         core_cards: briefResult.core_cards.map((c) => c.name),
       };
       const res = await api.briefDeck(
-        pool.commander?.name ?? null, instruction, priorSpec, format, poolFilters,
+        pool.commander?.name ?? null, instruction, priorSpec, format, poolFilters, cardChoice,
       );
       setBriefResult(res);
       setDeck(res.deck);
@@ -480,6 +483,33 @@ export default function BuildPage() {
                   )}
                 </div>
               )}
+
+              {/* Card choice — applies to every build mode, including the fill
+                  after Claude's core in the AI brief. */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Card choice</label>
+                <div>
+                  <div className="inline-flex rounded-lg border border-slate-700 p-0.5">
+                    {CARD_CHOICES.map((c) => (
+                      <button
+                        key={c.key}
+                        onClick={() => {
+                          setCardChoice(c.key);
+                          saveCardChoice(c.key);
+                        }}
+                        aria-pressed={cardChoice === c.key}
+                        title={c.description}
+                        className={toggleClass(cardChoice === c.key)}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500">
+                  {CARD_CHOICES.find((c) => c.key === cardChoice)?.description}
+                </p>
+              </div>
 
               {/* Colors — a generation knob, so it lives with strategy and theme and
                   shares their instant-regenerate behavior. Kept visible in brief mode

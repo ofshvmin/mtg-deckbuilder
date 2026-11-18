@@ -36,6 +36,7 @@ from ..repositories import collection as collection_repo
 from ..repositories import decks as decks_repo
 from ..repositories import users as users_repo
 from ..services import ai_brief, availability, brackets, color_select, csv_formats, edhrec, formats, generator
+from ..services import card_choice as card_choice_service
 from ..services import pool as pool_service
 from ..services import roles as roles_service
 from ..services import spellbook, strategies, themes
@@ -69,6 +70,8 @@ class GenerateRequest(PoolScopeMixin):
     strategy: str | None = None
     theme: str | None = None
     locked: list[str] | None = None   # oracle_ids to keep and build around
+    # Staples / Balanced / Hidden gems. Missing = Balanced = the deck we always built.
+    card_choice: str | None = None
 
 
 async def _resolve_pool(database, user_id: str, body):
@@ -316,6 +319,8 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
     strat = strategies.get_strategy(body.strategy, spec)
     theme_matches = themes.compute_theme_matches(result.pool, body.theme)
 
+    tuning = card_choice_service.tuning(body.card_choice, spec)
+
     # Colors. Commander takes them from the commander's identity; constructed formats
     # either use what the user locked or search for the best combination by building
     # a deck for each candidate. The pool stays unfiltered so the client can retoggle
@@ -329,6 +334,7 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
             theme_matches=theme_matches,
             locked_colors=body.colors,
             auto_fill=body.auto_fill_colors,
+            rank_weight=tuning.rank_weight,
         )
         identity = color_choice.colors
         allowed = set(identity)
@@ -359,8 +365,10 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         strategy=strat if body.strategy else None,
         theme_matches=theme_matches,
         locked_ids=locked_ids,
-        jitter=use_jitter,
+        jitter=max(use_jitter, tuning.jitter),
         spec=spec,
+        rank_weight=tuning.rank_weight,
+        quality_weight=tuning.quality_weight,
     )
     # Attach theme string so frontend can display it
     deck.theme = body.theme if body.theme and body.theme.strip() else None
@@ -406,6 +414,7 @@ class BriefRequest(PoolScopeMixin):
     # When refining an existing brief-built deck: the prior spec + core card names,
     # so Claude adjusts the current build instead of starting over.
     prior_spec: dict | None = None
+    card_choice: str | None = None
 
 
 @router.post("/brief", response_model=BriefDeckResponse)
@@ -468,6 +477,8 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(require_pr
     strat = strategies.get_strategy(spec["strategy"], fmt) if spec["strategy"] else None
     theme_matches = themes.compute_theme_matches(result.pool, spec["theme"])
 
+    tuning = card_choice_service.tuning(body.card_choice, fmt)
+
     # Colors: Claude's pick if it gave one, otherwise the collection-based search.
     color_choice = None
     identity = result.color_identity
@@ -481,6 +492,7 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(require_pr
             theme_matches=theme_matches,
             locked_colors=spec["colors"] or None,
             auto_fill=not spec["colors"],
+            rank_weight=tuning.rank_weight,
         )
         identity = color_choice.colors
         allowed = set(identity)
@@ -514,6 +526,9 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(require_pr
         locked_counts=core_counts,
         avoid_combos=spec["avoid_combos"],
         spec=fmt,
+        jitter=tuning.jitter,
+        rank_weight=tuning.rank_weight,
+        quality_weight=tuning.quality_weight,
     )
     deck.theme = spec["theme"]
     if fmt.supports_quality and not edhrec_available:

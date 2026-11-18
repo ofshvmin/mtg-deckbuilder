@@ -22,6 +22,7 @@ import type {
   CollectionSummary,
   CommanderFilters,
   CommanderOption,
+  CardChoice,
   CatalogFormat,
   DeckFormat,
   ExternalDeckResponse,
@@ -346,6 +347,7 @@ export class ApiClient {
       format?: string;
       colors?: string[];
       auto_fill_colors?: boolean;
+      card_choice?: CardChoice;
     } & PoolFilters,
   ): Promise<GeneratedDeck> {
     return this.request<GeneratedDeck>("POST", "/decks/generate", {
@@ -361,9 +363,13 @@ export class ApiClient {
     priorSpec?: Record<string, unknown>,
     format = "commander",
     filters?: PoolFilters,
+    cardChoice?: CardChoice,
   ): Promise<BriefDeckResponse> {
     return this.request<BriefDeckResponse>("POST", "/decks/brief", {
-      body: { commander: commanderName, brief, prior_spec: priorSpec, format, ...filters },
+      body: {
+        commander: commanderName, brief, prior_spec: priorSpec, format, ...filters,
+        ...(cardChoice ? { card_choice: cardChoice } : {}),
+      },
     });
   }
 
