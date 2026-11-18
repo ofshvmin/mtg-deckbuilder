@@ -1,6 +1,8 @@
 """Deck generation and saved-deck management endpoints."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -29,6 +31,7 @@ from ..models.responses import (
     UpgradeSuggestion,
 )
 from ..repositories import card_prints as card_prints_repo
+from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
 from ..repositories import decks as decks_repo
 from ..repositories import users as users_repo
@@ -134,6 +137,28 @@ async def _basics_by_color(database) -> dict[str, dict]:
 async def list_formats():
     """Formats the build UI can offer. Drives the format picker."""
     return formats.list_formats()
+
+
+@router.get("/formats/catalog")
+async def format_catalog(current_user: dict = Depends(get_current_user)):
+    """Every format, with its family and how many of the user's cards it allows.
+
+    The count answers "which format should I build in?" before the user picks —
+    the thing only a collection-aware builder can say.
+    """
+    database = db.get_db()
+    owned_ids = list(await collection_repo.owned_counts(database, current_user["_id"]))
+    entries = formats.list_catalog()
+    available = [e for e in entries if e["available"]]
+    counts = await asyncio.gather(*(
+        cards_repo.count_legal_owned(
+            database, owned_ids, formats.get_format(str(e["key"])).legality_field
+        )
+        for e in available
+    ))
+    for entry, n in zip(available, counts):
+        entry["legal_owned"] = n
+    return entries
 
 
 @router.get("/strategies")

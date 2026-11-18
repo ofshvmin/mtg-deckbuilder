@@ -199,6 +199,13 @@ async def get_constructed_pool(
     return pool
 
 
+async def count_legal_owned(db: AsyncDatabase, owned_ids: list[str], legality_field: str) -> int:
+    """How many of the owned cards (distinct oracle ids) are legal under one field."""
+    if not owned_ids:
+        return 0
+    return await db.cards.count_documents({"_id": {"$in": owned_ids}, legality_field: "legal"})
+
+
 async def get_legal_pool(
     db: AsyncDatabase,
     allowed_colors: list[str],

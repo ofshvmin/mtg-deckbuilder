@@ -18,12 +18,23 @@ from . import roles
 COMMANDER = "commander"
 STANDARD = "standard"
 LEGACY = "legacy"
+PIONEER = "pioneer"
+MODERN = "modern"
+PAUPER = "pauper"
+
+# Families group formats the way the build screen does: a family decides whether
+# there's a commander search, who picks colors, and which Commander-only services
+# apply. The picker asks for the family first, then the format within it.
+FAMILY_COMMANDER = "commander"
+FAMILY_CONSTRUCTED = "constructed"
 
 
 @dataclass(frozen=True)
 class FormatSpec:
     key: str
     label: str
+    family: str
+    description: str            # one line under the picker
 
     # Structure
     deck_size: int              # cards the generator fills, excluding the commander
@@ -48,6 +59,11 @@ class FormatSpec:
     supports_brackets: bool     # WOTC 1-5 bracket
     supports_upgrades: bool     # "cards to buy" panel (EDHREC-derived)
 
+    # Listed by the original `/formats` endpoint. Shipped apps (iOS 2.0) draw that
+    # list as one row of equal segments, which holds four at most; newer clients
+    # read the full `/formats/catalog` instead.
+    in_v1_list: bool = False
+
 
 _COMMANDER_CURVE = {0: 0.03, 1: 0.12, 2: 0.22, 3: 0.20, 4: 0.15, 5: 0.11, 6: 0.08, 7: 0.09}
 # 60-card constructed wants its mass at 1-3 and almost nothing above 5.
@@ -60,10 +76,46 @@ _CONSTRUCTED_QUOTAS = {
 }
 
 
+def _constructed(
+    key: str, label: str, description: str, *, legality_field: str, in_v1_list: bool = False
+) -> FormatSpec:
+    """A 60-card, 4-copy format: the Standard shape with its own card pool.
+
+    `legality_field` may be a dotted path into the stored `legalities` map
+    (`legalities.modern`). The sync already keeps that map in full, so a new format
+    needs no denormalized field, index or backfill — the pool query narrows by
+    owned `_id` first, and the legality test runs over that handful.
+    """
+    return FormatSpec(
+        key=key,
+        label=label,
+        family=FAMILY_CONSTRUCTED,
+        description=description,
+        deck_size=60,
+        max_copies=4,
+        copy_bonus=0.6,
+        default_land_count=24,
+        land_range=(20, 28),
+        max_deck_colors=3,
+        legality_field=legality_field,
+        requires_commander=False,
+        auto_select_colors=True,
+        default_quotas=dict(_CONSTRUCTED_QUOTAS),
+        default_curve=dict(_CONSTRUCTED_CURVE),
+        supports_quality=False,
+        supports_combos=False,
+        supports_brackets=False,
+        supports_upgrades=False,
+        in_v1_list=in_v1_list,
+    )
+
+
 FORMATS: dict[str, FormatSpec] = {
     COMMANDER: FormatSpec(
         key=COMMANDER,
         label="Commander",
+        family=FAMILY_COMMANDER,
+        description="A legendary commander and 99 singletons",
         deck_size=99,
         max_copies=1,
         copy_bonus=0.0,
@@ -79,10 +131,13 @@ FORMATS: dict[str, FormatSpec] = {
         supports_combos=True,
         supports_brackets=True,
         supports_upgrades=True,
+        in_v1_list=True,
     ),
     STANDARD: FormatSpec(
         key=STANDARD,
         label="Standard",
+        family=FAMILY_CONSTRUCTED,
+        description="Cards from the current rotation",
         deck_size=60,
         max_copies=4,
         copy_bonus=0.6,
@@ -98,10 +153,13 @@ FORMATS: dict[str, FormatSpec] = {
         supports_combos=False,
         supports_brackets=False,
         supports_upgrades=False,
+        in_v1_list=True,
     ),
     LEGACY: FormatSpec(
         key=LEGACY,
         label="Legacy — any card you own",
+        family=FAMILY_CONSTRUCTED,
+        description="Nearly every card ever printed",
         deck_size=60,
         max_copies=4,
         copy_bonus=0.6,
@@ -121,6 +179,20 @@ FORMATS: dict[str, FormatSpec] = {
         supports_combos=False,
         supports_brackets=False,
         supports_upgrades=False,
+        in_v1_list=True,
+    ),
+    PIONEER: _constructed(
+        PIONEER, "Pioneer", "Cards from Return to Theros onward",
+        legality_field="legalities.pioneer",
+    ),
+    MODERN: _constructed(
+        MODERN, "Modern", "Cards from Eighth Edition onward",
+        legality_field="legalities.modern",
+    ),
+    PAUPER: _constructed(
+        PAUPER, "Pauper", "Only cards printed at common",
+        legality_field="legalities.pauper",
+        in_v1_list=True,
     ),
 }
 
@@ -137,7 +209,7 @@ def get_format(key: str | None) -> FormatSpec:
 
 
 def list_formats() -> list[dict[str, object]]:
-    """All formats as simple dicts for the API / format picker."""
+    """The original format list, frozen to what a one-row picker can hold."""
     return [
         {
             "key": spec.key,
@@ -148,4 +220,44 @@ def list_formats() -> list[dict[str, object]]:
             "max_deck_colors": spec.max_deck_colors,
         }
         for spec in FORMATS.values()
+        if spec.in_v1_list
     ]
+
+
+# Planned formats the catalog shows as "soon", so the picker's shape is settled
+# before they're buildable. Not in FORMATS: get_format() must never resolve them.
+_COMING_SOON = [
+    {
+        "key": "paupercommander",
+        "label": "Pauper Commander",
+        "family": FAMILY_COMMANDER,
+        "description": "An uncommon commander and 99 commons",
+    },
+]
+
+
+# Picker order within a family. The 60-card formats run from the smallest card
+# pool to the largest, with Pauper (its own axis: rarity, not era) last.
+_CATALOG_ORDER = [COMMANDER, "paupercommander", STANDARD, PIONEER, MODERN, LEGACY, PAUPER]
+
+
+def list_catalog() -> list[dict[str, object]]:
+    """Every format, grouped by family, for the two-step picker."""
+    entries: list[dict[str, object]] = [
+        {
+            "key": spec.key,
+            "label": spec.label.split(" — ")[0],
+            "family": spec.family,
+            "description": spec.description,
+            "deck_size": spec.deck_size,
+            "max_copies": spec.max_copies,
+            "requires_commander": spec.requires_commander,
+            "max_deck_colors": spec.max_deck_colors,
+            "available": True,
+        }
+        for spec in FORMATS.values()
+    ]
+    for soon in _COMING_SOON:
+        entries.append({**soon, "available": False})
+    entries.sort(key=lambda e: _CATALOG_ORDER.index(str(e["key"])))
+    return entries

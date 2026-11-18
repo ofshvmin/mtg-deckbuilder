@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import type { BriefDeckResponse, ColorRationale, CommanderOption, DeckFormat, GeneratedDeck, PoolFilters, PoolResponse, PoolScope, StrategyOption } from "@mtg/shared";
+import type { BriefDeckResponse, CatalogFormat, ColorRationale, CommanderOption, GeneratedDeck, PoolFilters, PoolResponse, PoolScope, StrategyOption } from "@mtg/shared";
 import { api } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { isPremiumRequired } from "@mtg/shared";
@@ -14,6 +14,7 @@ import DeckView from "../components/DeckView";
 import ManaCurve from "../components/ManaCurve";
 import ManualBuilder from "../components/ManualBuilder";
 import ColorPicker from "../components/ColorPicker";
+import FormatPicker from "../components/FormatPicker";
 import PoolControls from "../components/PoolControls";
 import PoolTable from "../components/PoolTable";
 import StatTile from "../components/StatTile";
@@ -65,7 +66,7 @@ export default function BuildPage() {
   const [briefError, setBriefError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<BriefTurn[]>([]);
   const [refining, setRefining] = useState(false);
-  const [formats, setFormats] = useState<DeckFormat[]>([]);
+  const [formats, setFormats] = useState<CatalogFormat[]>([]);
   const [format, setFormat] = useState("commander");
   const [colors, setColors] = useState<string[]>([]);
   const [autoFillColors, setAutoFillColors] = useState(true);
@@ -76,7 +77,7 @@ export default function BuildPage() {
   const [colorRationale, setColorRationale] = useState<ColorRationale | null>(null);
 
   const spec = formats.find((f) => f.key === format);
-  const needsCommander = spec ? spec.requires_commander : true;
+  const needsCommander = spec?.requires_commander ?? true;
 
   // The commander we last loaded a pool for, tracked separately from `pool`
   // because a filter can narrow the pool to nothing (a 400) — and if that wiped
@@ -90,7 +91,7 @@ export default function BuildPage() {
   };
 
   useEffect(() => {
-    api.listFormats().then(setFormats).catch(() => {});
+    api.listFormatCatalog().then(setFormats).catch(() => {});
   }, []);
 
   // Strategy tables differ per format (Commander is EDH-tuned, constructed is not),
@@ -358,21 +359,7 @@ export default function BuildPage() {
   return (
     <div className="space-y-8">
       {formats.length > 0 && (
-        <div>
-          <label className="text-xs font-medium uppercase tracking-wider text-slate-400">Format</label>
-          <div className="mt-2 inline-flex rounded-lg border border-slate-700 p-0.5">
-            {formats.map((f) => (
-              <button
-                key={f.key}
-                onClick={() => selectFormat(f.key)}
-                className={toggleClass(format === f.key)}
-                title={`${f.deck_size} cards · up to ${f.max_copies} cop${f.max_copies === 1 ? "y" : "ies"} of each`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <FormatPicker catalog={formats} value={format} onChange={(key) => void selectFormat(key)} />
       )}
 
       {needsCommander && (
