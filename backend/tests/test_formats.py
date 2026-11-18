@@ -12,7 +12,7 @@ class TestGetFormat:
         assert get_format("").key == COMMANDER
 
     def test_unknown_is_commander(self):
-        assert get_format("pioneer").key == COMMANDER
+        assert get_format("vintage").key == COMMANDER
 
     def test_case_insensitive(self):
         assert get_format("STANDARD").key == STANDARD
@@ -74,7 +74,39 @@ class TestConstructedSpecs:
             assert low <= spec.default_land_count <= high
 
 
-class TestListFormats:
-    def test_lists_all_three(self):
-        keys = {f["key"] for f in formats.list_formats()}
-        assert keys == {COMMANDER, STANDARD, LEGACY}
+class TestNewConstructedFormats:
+    def test_sixty_card_shape(self):
+        for key in (formats.PIONEER, formats.MODERN, formats.PAUPER):
+            spec = get_format(key)
+            assert spec.key == key
+            assert spec.deck_size == 60
+            assert spec.max_copies == 4
+            assert spec.requires_commander is False
+            assert spec.family == formats.FAMILY_CONSTRUCTED
+
+    def test_read_the_stored_legality_map(self):
+        """No denormalized field: the pool query reads `legalities.<format>` directly."""
+        assert get_format(formats.MODERN).legality_field == "legalities.modern"
+        assert get_format(formats.PAUPER).legality_field == "legalities.pauper"
+
+
+class TestFormatLists:
+    def test_v1_list_fits_one_row(self):
+        """Shipped apps draw /formats as one row of segments; four is the most it holds."""
+        keys = [f["key"] for f in formats.list_formats()]
+        assert keys == [COMMANDER, STANDARD, LEGACY, formats.PAUPER]
+
+    def test_catalog_has_every_format_once(self):
+        keys = [e["key"] for e in formats.list_catalog()]
+        assert len(keys) == len(set(keys))
+        assert set(formats.FORMATS) <= set(keys)
+
+    def test_catalog_labels_drop_the_gloss(self):
+        legacy = next(e for e in formats.list_catalog() if e["key"] == LEGACY)
+        assert legacy["label"] == "Legacy"
+
+    def test_coming_soon_is_never_buildable(self):
+        soon = [e for e in formats.list_catalog() if not e["available"]]
+        assert soon, "expected at least one planned format"
+        for entry in soon:
+            assert get_format(str(entry["key"])).key == COMMANDER

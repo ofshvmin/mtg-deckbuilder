@@ -22,6 +22,7 @@ import type {
   CollectionSummary,
   CommanderFilters,
   CommanderOption,
+  CatalogFormat,
   DeckFormat,
   ExternalDeckResponse,
   GeneratedDeck,
@@ -314,6 +315,11 @@ export class ApiClient {
   /** Formats the build UI can offer. */
   listFormats(): Promise<DeckFormat[]> {
     return this.request<DeckFormat[]>("GET", "/decks/formats");
+  }
+
+  /** Every format with its family and how many owned cards it allows. */
+  listFormatCatalog(): Promise<CatalogFormat[]> {
+    return this.request<CatalogFormat[]>("GET", "/decks/formats/catalog");
   }
 
   listStrategies(format = "commander"): Promise<StrategyOption[]> {

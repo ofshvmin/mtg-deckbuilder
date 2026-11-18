@@ -129,6 +129,24 @@ export interface DeckFormat {
   max_deck_colors: number;
 }
 
+export type FormatFamily = "commander" | "constructed";
+
+/** A `/decks/formats/catalog` entry: the two-step picker's data. */
+export interface CatalogFormat {
+  key: string;
+  label: string;
+  family: FormatFamily;
+  description: string;
+  /** False for planned formats the picker shows as "soon". */
+  available: boolean;
+  deck_size?: number;
+  max_copies?: number;
+  requires_commander?: boolean;
+  max_deck_colors?: number;
+  /** Distinct owned cards legal in this format; absent when not available. */
+  legal_owned?: number;
+}
+
 export interface ColorAlternate {
   colors: Color[];
   score: number;
