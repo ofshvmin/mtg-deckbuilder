@@ -61,7 +61,9 @@ def _pool(copies=4):
             _doc(f"wipe{i}", f"Wipe {i}", "Sorcery", 4, "Destroy all creatures.", copies=copies)
         )
     for i in range(6):
-        pool.append(_doc(f"land{i}", f"Land {i}", "Land", 0, "{T}: Add {G}.", ["G"], copies))
+        land = _doc(f"land{i}", f"Land {i}", "Land", 0, "{T}: Add {G}.", ["G"], copies)
+        land["rank_score"] = 0.5  # widely played, so the mana base may use it
+        pool.append(land)
     return pool
 
 

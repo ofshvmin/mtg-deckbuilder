@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import zlib
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
@@ -111,6 +112,23 @@ def _extract_image_uris(card: dict) -> tuple[dict[str, str] | None, dict[str, st
     return front, back
 
 
+# Roughly the number of ranked cards. Ranks at or past it score 0.
+RANK_FLOOR = 30_000
+
+
+def rank_score(rank: int | None) -> float:
+    """Scryfall's `edhrec_rank` (1 = most played) as a 0-1 card-quality signal.
+
+    Log scale, so the gap between rank 50 and 500 counts for far more than the
+    gap between 15,000 and 16,000: 1 → 1.0, 100 → ~0.55, 1,000 → ~0.33,
+    10,000 → ~0.11. Unranked cards score 0 — unranked usually means unplayable
+    or brand new, not undiscovered.
+    """
+    if not rank or rank < 1:
+        return 0.0
+    return round(max(0.0, 1.0 - math.log10(rank) / math.log10(RANK_FLOOR)), 4)
+
+
 def doc_from_card(card: dict) -> dict:
     """Transform one Scryfall card into a Mongo `cards` document."""
     name = card["name"]
@@ -139,6 +157,11 @@ def doc_from_card(card: dict) -> dict:
         "legal_standard": card.get("legalities", {}).get("standard", "not_legal"),
         "legal_legacy": card.get("legalities", {}).get("legacy", "not_legal"),
         "rarity": card.get("rarity"),
+        # Popularity across Commander decks. Not a measure of 60-card strength,
+        # but staples rank high everywhere, which makes it the only general
+        # card-quality signal we have for formats without a commander.
+        "edhrec_rank": card.get("edhrec_rank"),
+        "rank_score": rank_score(card.get("edhrec_rank")),
         # Reserved List: WOTC has committed to never reprinting these, which makes
         # them the part of a collection that can't be replaced. Card-level, not
         # printing-level, so it belongs here rather than on card_prints.

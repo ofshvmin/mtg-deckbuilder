@@ -1,6 +1,8 @@
 """Data access for the `cards` collection (Scryfall reference data)."""
 from __future__ import annotations
 
+import re
+
 from pymongo import ReplaceOne
 from pymongo.asynchronous.database import AsyncDatabase
 
@@ -162,6 +164,19 @@ async def search_all_commanders(
     return [doc async for doc in cursor]
 
 
+# "Your commander's color identity" — Command Tower, Arcane Signet, Commander's
+# Sphere, Path of Ancestry. Legal in 60-card formats but they make no mana there,
+# and Scryfall lists Command Tower as producing all five colors, so the mana base
+# picks them first. Card rank would pull the rest in: they're among the most
+# played cards anywhere.
+_COMMANDER_IDENTITY_RE = re.compile(r"commander['’]?s color identity", re.IGNORECASE)
+
+
+def needs_a_commander(doc: dict) -> bool:
+    """True for cards that do nothing without a commander."""
+    return bool(_COMMANDER_IDENTITY_RE.search(doc.get("oracle_text") or ""))
+
+
 async def get_constructed_pool(
     db: AsyncDatabase,
     legality_field: str,
@@ -187,7 +202,7 @@ async def get_constructed_pool(
     if not owned_ids:
         return []
     cursor = db.cards.find({"_id": {"$in": owned_ids}, legality_field: "legal"})
-    pool = [doc async for doc in cursor]
+    pool = [doc async for doc in cursor if not needs_a_commander(doc)]
 
     if allowed_colors is not None:
         allowed = set(allowed_colors)

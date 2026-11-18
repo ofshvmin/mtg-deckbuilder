@@ -11,9 +11,9 @@ the commander) by a transparent, greedy fill:
      by the deck's colored-pip demand.
   4. Report consistency stats via the Phase 2 mana math.
 
-Card *quality* ranking (EDHREC/synergy) is intentionally NOT here yet — that
-arrives in Phase 4. So within a role, selection is by curve fit + efficiency,
-which yields a legal, well-shaped deck but not yet a tuned one.
+Within a role, card quality decides: EDHREC's data for the commander
+(Commander only), and card rank — Scryfall's `edhrec_rank` as `rank_score` —
+weighted by the format's `rank_weight` (60-card formats; zero for Commander).
 """
 from __future__ import annotations
 
@@ -43,6 +43,9 @@ COMBO_WEIGHT = 1.5
 # bonus (3.0) and EDHREC quality (2.0), so role cards still fill first but
 # theme-matching cards dominate among the "game plan" slots.
 THEME_WEIGHT = 2.5
+# rank_score at or above this (about the top 150 cards by edhrec_rank) earns the
+# "Widely played" reason when card rank is in use.
+WIDELY_PLAYED = 0.5
 # Target nonland mana-curve shape (fractions by MV bucket 0..7, 7 = 7+).
 CURVE_WEIGHTS = {0: 0.03, 1: 0.12, 2: 0.22, 3: 0.20, 4: 0.15, 5: 0.11, 6: 0.08, 7: 0.09}
 
@@ -142,6 +145,82 @@ def _allocate_printings(cards: list[DeckCard]) -> None:
         card.selected_printing_key = availability.primary_key(alloc)
 
 
+# Mana bases, every format. A nonbasic must be widely played (rank_score 0.4 ≈ the
+# top 500 by edhrec_rank) — real duals clear it easily (Breeding Pool 0.60, Temple
+# of Mystery 0.43); the tapped five-color utility lands that used to fill whole
+# mana bases sit at 0.1-0.3. And a fixed share of the lands is always basics.
+#
+# 60-card decks also need every nonbasic to make one of the deck's colors, and keep
+# more basics the fewer colors they have. Commander keeps colorless utility lands
+# (Reliquary Tower, Rogue's Passage) and a smaller floor: its decks really do run
+# many nonbasics. Either way a mono-color deck skips rainbow lands (Exotic Orchard,
+# Mana Confluence) — it needs no fixing, so they're worse than a basic.
+LAND_RANK_FLOOR = 0.4
+MIN_BASIC_SHARE = {1: 0.75, 2: 0.4, 3: 0.3}
+COMMANDER_MIN_BASIC_SHARE = 0.25
+
+_BASIC_TYPE_COLOR = {"plains": "W", "island": "U", "swamp": "B", "mountain": "R", "forest": "G"}
+_FETCH_RE = re.compile(r"search your library for (.{0,80}?) card", re.IGNORECASE)
+
+
+def _land_colors(doc: dict) -> set[str]:
+    """The colors a land provides: what it taps for, plus the basic land types it
+    fetches. A fetchland taps for nothing — Polluted Delta is an Island or a Swamp,
+    which is no use to a green deck; Evolving Wilds ("a basic land card") is any."""
+    colors = set(doc.get("produced_mana") or []) & set(COLOR_ORDER)
+    m = _FETCH_RE.search(doc.get("oracle_text") or "")
+    if m:
+        wanted = m.group(1).lower()
+        named = {c for t, c in _BASIC_TYPE_COLOR.items() if t in wanted}
+        colors |= named or ({"W", "U", "B", "R", "G"} if "basic land" in wanted else set())
+    return colors
+
+
+def _choose_nonbasics(
+    owned_lands: list[tuple[dict, set[str]]],
+    identity: list[str],
+    land_count: int,
+    locked_ids: set[str],
+    commander: bool,
+) -> tuple[list[tuple[dict, set[str]]], int]:
+    """The nonbasic lands a deck may use, best first, and how many slots they may
+    fill — the rest are basics."""
+    colors = set(identity)
+    # Cards synced before card rank have no rank_score at all. Judging them would
+    # read every land as unplayed and leave a deck of basics, so until the sync
+    # adds the field the floor stands aside and only the basics share applies.
+    ranked = any("rank_score" in doc for doc, _ in owned_lands)
+    eligible = []
+    for doc, rset in owned_lands:
+        if doc.get("is_basic_land") or "Basic" in (doc.get("type_line") or ""):
+            continue  # snow basics and the like: the basics fill covers them
+        produced = _land_colors(doc)
+        makes = produced & colors
+        locked = doc["_id"] in locked_ids
+        popular = not ranked or (doc.get("rank_score") or 0.0) >= LAND_RANK_FLOOR
+        rainbow_in_mono = len(colors) == 1 and len(produced) > 2
+        # Commander keeps colorless utility lands; a land that does provide colors
+        # must provide one of the deck's (no off-color fetches).
+        on_color = bool(makes) or (commander and not produced)
+        if locked or (popular and on_color and not rainbow_in_mono):
+            eligible.append((doc, rset, len(makes), locked))
+    eligible.sort(
+        key=lambda e: (
+            0 if e[3] else 1,
+            -e[2],  # fixes more of the deck's colors
+            -(e[0].get("rank_score") or 0.0),
+            e[0].get("name") or "",
+        )
+    )
+    if commander:
+        share = COMMANDER_MIN_BASIC_SHARE
+    else:
+        share = MIN_BASIC_SHARE.get(len(colors), min(MIN_BASIC_SHARE.values()))
+    budget = land_count - round(land_count * share)
+    locked_count = sum(1 for e in eligible if e[3])
+    return [(doc, rset) for doc, rset, _, _ in eligible], max(budget, locked_count)
+
+
 def generate(
     commander: dict | None,
     pool: list[dict],
@@ -159,8 +238,10 @@ def generate(
     jitter: float = 0.0,
     spec: FormatSpec | None = None,
     locked_counts: dict[str, int] | None = None,
+    rank_weight: float | None = None,
 ) -> GeneratedDeck:
     fmt = spec or get_format(None)
+    effective_rank_weight = fmt.rank_weight if rank_weight is None else rank_weight
     strat = strategy or get_strategy(None, fmt)
     # Explicit params override strategy defaults
     effective_land_count = land_count if land_count is not None else strat.land_count
@@ -255,6 +336,7 @@ def generate(
             if curve_remaining.get(b, 0) > 0:
                 score += 1.5
             score += QUALITY_WEIGHT * q_norm(doc["_id"])  # EDHREC community signal
+            score += effective_rank_weight * (doc.get("rank_score") or 0.0)  # card rank
             # Rising bonus for going deeper on a card already in the deck: the 2nd copy
             # of the best card outbids the 1st copy of the 10th-best, which is what
             # makes 60-card output a spine of playsets rather than a singleton pile.
@@ -294,6 +376,8 @@ def generate(
                 if fmt.supports_quality
                 else "High-value pick"
             )
+        elif effective_rank_weight > 0 and (doc.get("rank_score") or 0.0) >= WIDELY_PLAYED:
+            slot, reason = "game_plan", "Widely played"
         else:
             slot, reason = "game_plan", f"Game plan / curve filler (MV {b if b < 7 else '7+'})"
         if copy_index > 0:
@@ -308,14 +392,8 @@ def generate(
             )
 
     # ---- Mana base: owned nonbasic lands first, then basics by pip demand ----
-    nonbasic = [(d, r) for d, r in owned_lands if not d.get("is_basic_land")]
-    # Keep locked lands first, then prefer lands that fix more of the deck's colors.
-    nonbasic.sort(
-        key=lambda dr: (
-            0 if dr[0]["_id"] in locked_ids else 1,
-            -len(set(dr[0].get("produced_mana") or []) & set(identity)),
-            dr[0].get("name") or "",
-        )
+    nonbasic, nonbasic_budget = _choose_nonbasics(
+        owned_lands, identity, effective_land_count, locked_ids, fmt.requires_commander
     )
     # Take up to `cap` copies of each nonbasic before moving on, so a 60-card manabase
     # gets playsets of its duals instead of a pile of distinct one-ofs. Under Commander
@@ -323,9 +401,9 @@ def generate(
     land_cards: list[DeckCard] = []
     placed_lands = 0
     for doc, rset in nonbasic:
-        if placed_lands >= effective_land_count:
+        if placed_lands >= nonbasic_budget:
             break
-        take = min(cap(doc), effective_land_count - placed_lands)
+        take = min(cap(doc), nonbasic_budget - placed_lands)
         card = _deck_card(
             doc, rset, "land", "Mana base (owned nonbasic land)", printings=printings
         )
