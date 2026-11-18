@@ -13,6 +13,7 @@ import CommanderFeature from "./CommanderFeature";
 import DeckCardList from "./DeckCardList";
 import DeckComboFinishers from "./DeckComboFinishers";
 import AnalyzePanel from "./AnalyzePanel";
+import BuyListButton from "./BuyListButton";
 import DeckUpgrades from "./DeckUpgrades";
 import { cheapestPrint, fetchCardDetail } from "@mtg/shared";
 import { buildScavengerData } from "@mtg/shared";
@@ -336,6 +337,7 @@ export default function DeckView({
           className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800 disabled:opacity-50 sm:text-sm sm:py-2">
           {scavenging ? "Building…" : "Pull list"}
         </button>
+        <BuyListButton cards={deck.cards} ownershipKnown={!!showOwnership} />
         {deckId && (
           <>
             <button
