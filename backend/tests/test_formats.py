@@ -63,9 +63,13 @@ class TestConstructedSpecs:
         for key in (STANDARD, LEGACY):
             spec = get_format(key)
             assert not spec.supports_quality
-            assert not spec.supports_combos
             assert not spec.supports_brackets
             assert not spec.supports_upgrades
+
+    def test_combos_in_every_sixty_card_format(self):
+        """Spellbook's feed carries a legality per format, so combos aren't Commander-only."""
+        for key in (STANDARD, LEGACY, formats.PIONEER, formats.MODERN, formats.PAUPER):
+            assert get_format(key).supports_combos
 
     def test_land_count_within_range(self):
         for key in (STANDARD, LEGACY):

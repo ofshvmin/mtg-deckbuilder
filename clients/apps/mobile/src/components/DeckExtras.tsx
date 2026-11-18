@@ -121,13 +121,16 @@ export function ComboSection({
  *  recommendation budget) hides only unowned ones — owned cards cost nothing. */
 export function DeckComboFinishers({
   commanderName,
+  format = "commander",
   deckCardIds,
   maxPrice,
   onOpenCard,
   onAdd,
   defaultOpen = false,
 }: {
-  commanderName: string;
+  /** Null for 60-card decks, which pass `format` instead. */
+  commanderName: string | null;
+  format?: string;
   deckCardIds: string[];
   maxPrice: number | null;
   onOpenCard: (c: CardRef) => void;
@@ -153,7 +156,7 @@ export function DeckComboFinishers({
     setLoading(true);
     setError(null);
     api
-      .getComboFinishers(commanderName, deckCardIds)
+      .getComboFinishers(commanderName, deckCardIds, format)
       .then((recs) => {
         if (mine !== seq.current) return;
         setFinishers(recs);

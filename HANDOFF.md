@@ -374,7 +374,7 @@ apps/web/src/
   collector_number, foil, finish, condition, language, purchase_price, printing_key, added_at.
   Indexed: user_id + oracle_id.
 - `decks` — saved decks (user_id + updated_at; optional `source` + `source_url` for imported decks).
-- `combos` — Commander Spellbook (cards multikey, identity). `edhrec_cache` — per-commander, 7-day TTL.
+- `combos` — Commander Spellbook (cards multikey, identity, legal_in). `edhrec_cache` — per-commander, 7-day TTL.
 
 ---
 
@@ -512,24 +512,26 @@ style preferences — they are the terms the data arrives with.
 
 - **Scheduled card sync (daily, automatic since 2026-11-15).** A Fly machine named `card-sync` in
   the `mtg-deckbuilder-api` app wakes daily, runs `python -m app.jobs.sync_cards` (oracle cards,
-  then printings, art and prices), and stops. It's separate from the API on purpose: the sync peaks
+  then printings, art and prices, then Commander Spellbook combos), and stops. It's separate from the API on purpose: the sync peaks
   around 420MB, too close to the API's 512MB. It has 1GB, and it's billed only for the ~2–3 minutes
   it runs. It uses the app's own `MONGODB_URI` secret.
   - Why: until then the syncs were manual, and they lapsed. The Star Trek precons (TRC, released
     2026-11-13) showed no art and resolved the wrong commander until a manual re-sync.
   - Check it: `fly machine list -a mtg-deckbuilder-api` and `fly logs -a mtg-deckbuilder-api -i
-    <machine id>`. Each run logs `cards: N oracle cards` and `card_prints: N printings`; a failure
-    exits non-zero.
+    <machine id>`. Each run logs `cards: N oracle cards`, `card_prints: N printings` and
+    `combos: N combos`; a failure exits non-zero.
   - **`fly deploy` does not update this machine's image** — it isn't part of a process group. When
-    the sync code (`app/jobs/sync_cards.py`, `services/scryfall.py`, `services/card_prints.py`)
-    changes, point it at the new image: `fly machine update <id> --image <ref from fly image show>`.
+    the sync code (`app/jobs/sync_cards.py`, `services/scryfall.py`, `services/card_prints.py`,
+    `services/spellbook.py`) changes, point it at the new image: `fly machine update <id> --image <ref from fly image show>`.
 - Manual syncs still work, run **from your machine against prod Atlas**:
   - `backend/scripts/sync_scryfall.py` — oracle cards (~39K)
   - `backend/scripts/sync_card_prints.py` — per-printing images + prices + artist (~117K, from
     `default_cards` bulk)
-  - `backend/scripts/sync_spellbook.py` — combos (96K). **Not scheduled**: unlike the card syncs it
-    deletes then re-inserts, so combos vanish for the length of a run. Run it by hand after a set
-    drops, or convert it to upsert-then-prune before adding it to the schedule.
+  - `backend/scripts/sync_spellbook.py` — combos (~122K, every format we build; each carries
+    `legal_in`). Scheduled with the card syncs since 2026-11. It upserts then prunes, and **refuses to
+    prune** if the feed returns under 80% of the combos already stored, so a bad feed can't empty
+    the collection. The feed is ~750MB of JSON, so it's parsed incrementally with `ijson` (~50MB
+    peak); a cut-off download leaves the JSON unterminated and raises rather than reading short.
 - No request path triggers a sync, so a Fly deploy is never needed to refresh data.
 - **Adding a field to `doc_from_card` is a two-part change**: the code alone does nothing until a
   re-sync rewrites the 38.6K docs. `reserved` and `game_changer` were added this way (PR #64,

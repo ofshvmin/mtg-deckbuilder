@@ -20,7 +20,7 @@ async def main() -> int:
         return 1
     print("Downloading Commander Spellbook combos and loading into MongoDB ...", file=sys.stderr)
     count = await spellbook.sync(db.get_db())
-    print(f"Loaded {count} Commander-legal combos into the 'combos' collection.")
+    print(f"Loaded {count} combos into the 'combos' collection.")
     await db.disconnect()
     return 0
 
