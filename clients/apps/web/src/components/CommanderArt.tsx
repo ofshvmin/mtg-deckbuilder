@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 
 // Stylized commander banner using Scryfall's `art_crop` (just the artwork, no
 // frame) — used as the hero on the deck detail page and the header on saved-deck
@@ -27,15 +27,34 @@ export default function CommanderArt({
   artCropUrl?: string | null;
   artist?: string | null;
 }) {
-  const [failed, setFailed] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  // Load state is keyed by the URL it belongs to rather than reset in an effect:
+  // a cached image can fire `load` before an effect runs, and resetting after
+  // that left the art downloaded but stuck invisible (and uncredited).
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  // One retry with a cache-busting param before falling back to the gradient,
+  // so a single slow or dropped request from Scryfall's CDN doesn't blank a tile.
+  const [retried, setRetried] = useState<string | null>(null);
 
-  useEffect(() => {
-    setFailed(false);
-    setLoaded(false);
-  }, [name, artCropUrl]);
+  const src = artCropUrl
+    ? retried === artCropUrl
+      ? `${artCropUrl}${artCropUrl.includes("?") ? "&" : "?"}retry=1`
+      : artCropUrl
+    : null;
+  const loaded = src !== null && loadedSrc === src;
+  const showArt = src !== null && failedSrc !== artCropUrl;
 
-  const showArt = Boolean(artCropUrl) && !failed;
+  // A cached image can finish loading before React attaches `onLoad`, so that
+  // event never fires. Catch it on attach (same fix as CardImage).
+  const attachImg = useCallback((node: HTMLImageElement | null) => {
+    if (node?.complete && node.naturalWidth > 0) setLoadedSrc(node.getAttribute("src"));
+  }, []);
+
+  function handleError() {
+    if (!artCropUrl) return;
+    if (retried !== artCropUrl) setRetried(artCropUrl);
+    else setFailedSrc(artCropUrl);
+  }
 
   return (
     <div className={"relative overflow-hidden bg-slate-800 " + className}>
@@ -43,11 +62,13 @@ export default function CommanderArt({
       <div className="absolute inset-0 bg-gradient-to-br from-slate-700 via-slate-800 to-slate-950" />
       {showArt && (
         <img
-          src={artCropUrl as string}
+          key={src}
+          ref={attachImg}
+          src={src as string}
           alt={name}
           loading="lazy"
-          onLoad={() => setLoaded(true)}
-          onError={() => setFailed(true)}
+          onLoad={(e) => setLoadedSrc(e.currentTarget.getAttribute("src"))}
+          onError={handleError}
           className={
             "absolute inset-0 h-full w-full object-cover transition-opacity duration-500 " +
             (position === "top" ? "object-top " : "object-center ") +

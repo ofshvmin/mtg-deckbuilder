@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Printing } from "@mtg/shared";
 import { scryfallImageUrl } from "../lib/scryfall";
 
@@ -19,7 +19,7 @@ export default function CardHoverPreview({
   printing?: Printing;
   anchorRect: DOMRect;
 }) {
-  const [loaded, setLoaded] = useState(false);
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   // Prefer the real CDN url the backend enriched onto the printing; fall back to
@@ -40,9 +40,12 @@ export default function CardHoverPreview({
   let top = anchorRect.top + (anchorRect.height / 2) - (IMG_H / 2);
   top = Math.max(8, Math.min(top, viewH - IMG_H - 8));
 
-  useEffect(() => {
-    setLoaded(false);
-  }, [src]);
+  // Keyed by URL instead of reset in an effect: a cached image can load before an
+  // effect runs, and resetting after that hid it for good (same fix as CardImage).
+  const loaded = loadedSrc === src;
+  const attachImg = useCallback((node: HTMLImageElement | null) => {
+    if (node?.complete && node.naturalWidth > 0) setLoadedSrc(node.getAttribute("src"));
+  }, []);
 
   return (
     <div
@@ -55,9 +58,10 @@ export default function CardHoverPreview({
         <div className="foil-shimmer absolute inset-0 z-10" />
       )}
       <img
+        ref={attachImg}
         src={src}
         alt={name}
-        onLoad={() => setLoaded(true)}
+        onLoad={(e) => setLoadedSrc(e.currentTarget.getAttribute("src"))}
         onError={() => {}}
         className={
           "h-full w-full object-contain transition-opacity duration-150 " +
