@@ -27,6 +27,8 @@ class Card(BaseModel):
     legal_legacy: str = "not_legal"
     legalities: dict[str, str] = {}
     rarity: str | None = None
+    edhrec_rank: int | None = None
+    rank_score: float = 0.0
     is_basic_land: bool = False
     released_at: str | None = None
 

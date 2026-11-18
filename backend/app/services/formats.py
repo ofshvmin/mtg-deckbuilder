@@ -59,6 +59,11 @@ class FormatSpec:
     supports_brackets: bool     # WOTC 1-5 bracket
     supports_upgrades: bool     # "cards to buy" panel (EDHREC-derived)
 
+    # Weight on the card-rank signal (Scryfall's edhrec_rank, as `rank_score`).
+    # Zero for Commander, which already ranks cards by EDHREC data for its
+    # commander — so Commander output is untouched by card rank.
+    rank_weight: float = 0.0
+
     # Listed by the original `/formats` endpoint. Shipped apps (iOS 2.0) draw that
     # list as one row of equal segments, which holds four at most; newer clients
     # read the full `/formats/catalog` instead.
@@ -68,6 +73,13 @@ class FormatSpec:
 _COMMANDER_CURVE = {0: 0.03, 1: 0.12, 2: 0.22, 3: 0.20, 4: 0.15, 5: 0.11, 6: 0.08, 7: 0.09}
 # 60-card constructed wants its mass at 1-3 and almost nothing above 5.
 _CONSTRUCTED_CURVE = {0: 0.01, 1: 0.15, 2: 0.25, 3: 0.22, 4: 0.18, 5: 0.12, 6: 0.05, 7: 0.02}
+# Card rank's pull in 60-card formats: enough to choose the staple between two
+# cards that fill the same role, not enough to override role or curve need
+# (+3.0 / +1.5). Tuned on a real collection: at 2.0 the Commander bias in
+# edhrec_rank (mana rocks, big top-end) took over Standard and Modern builds; at
+# 1.0 the median nonland card still went from rank ~12,000 to ~340.
+_CONSTRUCTED_RANK_WEIGHT = 1.0
+
 _CONSTRUCTED_QUOTAS = {
     roles.REMOVAL: 8,
     roles.CARD_DRAW: 5,
@@ -106,6 +118,7 @@ def _constructed(
         supports_combos=False,
         supports_brackets=False,
         supports_upgrades=False,
+        rank_weight=_CONSTRUCTED_RANK_WEIGHT,
         in_v1_list=in_v1_list,
     )
 
@@ -153,6 +166,7 @@ FORMATS: dict[str, FormatSpec] = {
         supports_combos=False,
         supports_brackets=False,
         supports_upgrades=False,
+        rank_weight=_CONSTRUCTED_RANK_WEIGHT,
         in_v1_list=True,
     ),
     LEGACY: FormatSpec(
@@ -179,6 +193,7 @@ FORMATS: dict[str, FormatSpec] = {
         supports_combos=False,
         supports_brackets=False,
         supports_upgrades=False,
+        rank_weight=_CONSTRUCTED_RANK_WEIGHT,
         in_v1_list=True,
     ),
     PIONEER: _constructed(
