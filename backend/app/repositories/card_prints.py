@@ -1,6 +1,8 @@
 """Data access for `card_prints` (per-printing Scryfall CDN image URLs + prices)."""
 from __future__ import annotations
 
+import re
+
 from pymongo import ReplaceOne
 from pymongo.asynchronous.database import AsyncDatabase
 
@@ -65,7 +67,41 @@ async def art_by_name(db: AsyncDatabase, names: list[str]) -> dict[str, dict]:
             "art_crop": doc["image_uris"]["art_crop"],
             "artist": doc["artist"],
         }
+
+    # Double-faced cards are stored under their full name ("sephiroth, fabled
+    # soldier // sephiroth, one-winged angel"), but EDHREC and others name them by
+    # the front face alone. Match what's left as a front face.
+    missing = [n for n in wanted if n not in out and " // " not in n]
+    if missing:
+        cursor = db.card_prints.find(
+            {
+                "$or": [{"name_lower": {"$regex": f"^{re.escape(n)} // "}} for n in missing],
+                "image_uris.art_crop": {"$exists": True},
+                "artist": {"$exists": True},
+            },
+            {"name_lower": 1, "image_uris.art_crop": 1, "artist": 1},
+        )
+        async for doc in cursor:
+            front = doc["name_lower"].split(" // ", 1)[0]
+            if front in missing and front not in out:
+                out[front] = {"art_crop": doc["image_uris"]["art_crop"], "artist": doc["artist"]}
     return out
+
+
+async def art_by_print_ids(db: AsyncDatabase, print_ids: list[str]) -> dict[str, dict]:
+    """Map Scryfall printing id -> ``{"art_crop": url, "artist": name}`` (see
+    art_by_name: the two are a pair, and printings missing either are skipped)."""
+    ids = [i for i in print_ids if i]
+    if not ids:
+        return {}
+    cursor = db.card_prints.find(
+        {"_id": {"$in": ids}, "image_uris.art_crop": {"$exists": True}, "artist": {"$exists": True}},
+        {"image_uris.art_crop": 1, "artist": 1},
+    )
+    return {
+        doc["_id"]: {"art_crop": doc["image_uris"]["art_crop"], "artist": doc["artist"]}
+        async for doc in cursor
+    }
 
 
 async def set_names(db: AsyncDatabase, codes: list[str]) -> dict[str, str]:

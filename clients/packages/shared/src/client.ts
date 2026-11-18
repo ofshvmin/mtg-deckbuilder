@@ -26,6 +26,7 @@ import type {
   AnalyzeRequest,
   CardChoice,
   CatalogFormat,
+  ExploreFindResponse,
   DeckFormat,
   ExternalDeckResponse,
   GeneratedDeck,
@@ -418,6 +419,16 @@ export class ApiClient {
   searchAllCommanders(query: string, limit = 10): Promise<CommanderOption[]> {
     const qs = `?q=${encodeURIComponent(query)}&limit=${limit}`;
     return this.request("GET", `/explore/commanders${qs}`);
+  }
+
+  /** Explore's one search box: commanders, themes and decks by name. */
+  exploreFind(query: string): Promise<ExploreFindResponse> {
+    return this.request("GET", `/explore/find?q=${encodeURIComponent(query)}`);
+  }
+
+  /** A theme's community decks across its top commanders (EDHREC). */
+  exploreTheme(slug: string): Promise<ExternalDeckSummary[]> {
+    return this.request("GET", `/explore/theme?slug=${encodeURIComponent(slug)}`);
   }
 
   /** Search EDHREC for commander decklists (fully server-side). */

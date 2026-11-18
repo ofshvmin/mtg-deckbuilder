@@ -449,6 +449,47 @@ export interface ExternalDeckSummary {
   commander_artist?: string | null;
 }
 
+/** Explore's one search box: everything a query matches, grouped. */
+export interface ExploreFindCommander {
+  oracle_id: string;
+  name: string;
+  color_identity: string[];
+  commander_art_crop?: string | null;
+  commander_artist?: string | null;
+}
+
+export interface ExploreFindTheme {
+  name: string;
+  slug: string;
+  /** How many EDHREC decks carry the theme. */
+  decks: number;
+}
+
+export interface ExploreFindDeck {
+  kind: "archidekt" | "precon";
+  /** Archidekt deck id, or the precon's MTGJSON file name. */
+  id: string;
+  name: string;
+  owner: string;
+  color_identity: string[];
+  card_count: number;
+  views?: number | null;
+  bracket?: number | null;
+  url: string;
+  commander_name?: string | null;
+  release_date?: string | null;
+  commander_art_crop?: string | null;
+  commander_artist?: string | null;
+}
+
+export interface ExploreFindResponse {
+  commanders: ExploreFindCommander[];
+  themes: ExploreFindTheme[];
+  decks: ExploreFindDeck[];
+  /** Sources that didn't answer; the rest still return. */
+  unavailable: string[];
+}
+
 /** One official preconstructed deck from the Explore catalog. */
 export interface PreconSummary {
   file_name: string;

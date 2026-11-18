@@ -68,31 +68,23 @@ def slug_to_name_hint(slug: str) -> str:
     return slug.replace("-", " ")
 
 
-async def search_edhrec(commander: str, page_size: int = 20) -> list[dict]:
-    """Search EDHREC for public Commander decklists by commander name.
-
-    Uses the hash table from json.edhrec.com directly — no preview fetches.
-    The table has tags, bracket, price, budget_label, and card type counts.
-    This is instant (single request) vs the old approach of N+1 requests.
-    """
-    slug = commander_to_slug(commander)
-
+async def _fetch_edhrec_decks_page(path: str) -> dict | None:
+    """One json.edhrec.com page under /pages/decks/, or None when EDHREC has none."""
     async with httpx.AsyncClient(follow_redirects=True) as client:
         resp = await client.get(
-            f"https://json.edhrec.com/pages/decks/{slug}.json",
+            f"https://json.edhrec.com/pages/decks/{path}.json",
             headers=HEADERS,
             timeout=TIMEOUT,
         )
         if resp.status_code in (403, 404):
-            return []
+            return None
         resp.raise_for_status()
-        data = resp.json()
+        return resp.json()
 
+
+def _table_summaries(data: dict, commander: str, page_size: int) -> list[dict]:
+    """EDHREC's deck table (tags, bracket, price, type counts) as search results."""
     table = data.get("table") or []
-    if not table:
-        return []
-
-    # Extract color identity from the container if available
     container = data.get("container") or {}
     jd = container.get("json_dict") or {}
     card_info = jd.get("card") or {}
@@ -129,8 +121,24 @@ async def search_edhrec(commander: str, page_size: int = 20) -> list[dict]:
             "bracket": bracket,
             "price": round(price) if price else None,
         })
-
     return out
+
+
+async def search_edhrec(commander: str, page_size: int = 20) -> list[dict]:
+    """Search EDHREC for public Commander decklists by commander name.
+
+    Uses the hash table from json.edhrec.com directly — no preview fetches.
+    The table has tags, bracket, price, budget_label, and card type counts.
+    This is instant (single request) vs the old approach of N+1 requests.
+    """
+    data = await _fetch_edhrec_decks_page(commander_to_slug(commander))
+    return _table_summaries(data, commander, page_size) if data else []
+
+
+async def search_edhrec_theme(commander: str, theme_slug: str, page_size: int = 10) -> list[dict]:
+    """One commander's EDHREC decks within a theme (e.g. Locutus of Borg, tokens)."""
+    data = await _fetch_edhrec_decks_page(f"{commander_to_slug(commander)}/{theme_slug}")
+    return _table_summaries(data, commander, page_size) if data else []
 
 
 def _build_deck_name(
@@ -339,9 +347,19 @@ def extract_archidekt_cards(raw: dict) -> list[dict]:
     """Extract card entries from an Archidekt deck response.
 
     Returns list of dicts: {name, quantity, categories, set_code, collector_number}
+
+    Cards whose primary (first) category is marked not-in-deck — Maybeboard, or
+    any category the owner set that way, like "out" — are left out, the way
+    Archidekt itself counts the deck.
     """
+    excluded = {
+        c.get("name") for c in raw.get("categories") or [] if c.get("includedInDeck") is False
+    }
     cards: list[dict] = []
     for entry in raw.get("cards") or []:
+        cats = entry.get("categories") or []
+        if cats and cats[0] in excluded:
+            continue
         card_data = entry.get("card") or {}
         oracle = card_data.get("oracleCard") or {}
         name = oracle.get("name") or card_data.get("name", "")
