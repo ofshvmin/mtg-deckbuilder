@@ -115,13 +115,19 @@ async def search_owned_commanders(
     colors: list[str] | None = None,
     max_mv: float | None = None,
     creature_type: str = "",
+    format_key: str = "commander",
 ) -> list[dict]:
-    """Owned cards that can be a commander (legendary creatures, or anything whose
-    text says 'can be your commander'), narrowed by the picker's filters."""
+    """Owned cards that can be a commander in the format, narrowed by the picker's
+    filters. Commander: legendary creatures, or anything whose text says 'can be
+    your commander'. Pauper Commander: creatures printed at uncommon."""
     if not owned_ids:
         return []
+    if format_key == "paupercommander":
+        eligible = {"_id": {"$in": list(await pdh_commander_ids(db, owned_ids))}}
+    else:
+        eligible = _owned_commander_query(owned_ids)
     mongo_query: dict = {
-        **_owned_commander_query(owned_ids),
+        **eligible,
         **commander_filter_query(query, colors, max_mv, creature_type),
     }
     cursor = db.cards.find(mongo_query).sort("name", 1).limit(limit)
@@ -139,11 +145,42 @@ def _owned_commander_query(owned_ids: list[str]) -> dict:
     }
 
 
-async def owned_commander_ids(db: AsyncDatabase, owned_ids: list[str]) -> set[str]:
+async def owned_commander_ids(
+    db: AsyncDatabase, owned_ids: list[str], format_key: str = "commander"
+) -> set[str]:
     """Which of these owned cards can be a commander — every one, no filters."""
     if not owned_ids:
         return set()
+    if format_key == "paupercommander":
+        return await pdh_commander_ids(db, owned_ids)
     cursor = db.cards.find(_owned_commander_query(owned_ids), {"_id": 1})
+    return {doc["_id"] async for doc in cursor}
+
+
+async def pdh_commander_ids(db: AsyncDatabase, card_ids: list[str]) -> set[str]:
+    """Which of these cards can lead a Pauper Commander deck: a creature printed at
+    uncommon in paper or on MTGO, and not banned.
+
+    Scryfall's `paupercommander` legality only covers the 99 — Tatyova, an uncommon
+    legendary creature, reads "not_legal" there — so eligibility comes from the
+    printings: `card_prints` carries each printing's rarity and whether it exists
+    outside Arena. Until the printings sync adds those fields this finds nothing.
+    """
+    if not card_ids:
+        return set()
+    uncommon = await db.card_prints.distinct(
+        "oracle_id", {"oracle_id": {"$in": list(card_ids)}, "rarity": "uncommon", "paper": True}
+    )
+    if not uncommon:
+        return set()
+    cursor = db.cards.find(
+        {
+            "_id": {"$in": uncommon},
+            "type_line": {"$regex": "Creature"},
+            "legalities.paupercommander": {"$ne": "banned"},
+        },
+        {"_id": 1},
+    )
     return {doc["_id"] async for doc in cursor}
 
 
@@ -226,8 +263,9 @@ async def get_legal_pool(
     allowed_colors: list[str],
     owned_counts: dict[str, int],
     exclude_oracle_id: str | None = None,
+    legality_field: str = "legal_commander",
 ) -> list[dict]:
-    """Owned cards that are Commander-legal and whose color identity is a subset
+    """Owned cards legal in the format's 99 and whose color identity is a subset
     of `allowed_colors`. Returns card docs with `copies_owned` attached, sorted
     by mana value then name.
 
@@ -239,7 +277,7 @@ async def get_legal_pool(
         return []
     query = {
         "_id": {"$in": owned_ids},
-        "legal_commander": "legal",
+        legality_field: "legal",
         "color_identity": {"$not": {"$elemMatch": {"$nin": allowed_colors}}},
     }
     cursor = db.cards.find(query)

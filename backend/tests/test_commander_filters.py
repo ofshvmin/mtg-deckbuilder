@@ -129,7 +129,8 @@ def run_search(monkeypatch, sets):
     monkeypatch.setattr(commanders.collection_repo, "owned_printings", owned_printings)
     monkeypatch.setattr(commanders.cards_repo, "search_owned_commanders", search)
     asyncio.run(commanders.search_commanders(
-        q="", limit=20, colors="", max_mv=None, creature_type="", sets=sets, current_user={"_id": "u"}
+        q="", limit=20, colors="", max_mv=None, creature_type="", sets=sets,
+        format="commander", current_user={"_id": "u"}
     ))
     return searched["ids"]
 
@@ -157,7 +158,7 @@ def test_commander_sets_count_only_eligible_commanders(monkeypatch):
             "forest": [{"edition": "m21"}],  # not a commander: its set never appears
         }
 
-    async def owned_commander_ids(db, owned_ids):
+    async def owned_commander_ids(db, owned_ids, format_key="commander"):
         return {"trostani", "atraxa"} & set(owned_ids)
 
     async def set_names(db, codes):
@@ -167,7 +168,7 @@ def test_commander_sets_count_only_eligible_commanders(monkeypatch):
     monkeypatch.setattr(commanders.collection_repo, "owned_printings", owned_printings)
     monkeypatch.setattr(commanders.cards_repo, "owned_commander_ids", owned_commander_ids)
     monkeypatch.setattr(commanders.card_prints_repo, "set_names", set_names)
-    rows = asyncio.run(commanders.commander_sets(current_user={"_id": "u"}))
+    rows = asyncio.run(commanders.commander_sets(format="commander", current_user={"_id": "u"}))
     assert [(r.code, r.name, r.commanders) for r in rows] == [
         ("c16", "C16", 1),
         ("c19", "Commander 2019", 2),

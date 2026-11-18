@@ -110,7 +110,19 @@ class TestFormatLists:
         assert legacy["label"] == "Legacy"
 
     def test_coming_soon_is_never_buildable(self):
-        soon = [e for e in formats.list_catalog() if not e["available"]]
-        assert soon, "expected at least one planned format"
-        for entry in soon:
-            assert get_format(str(entry["key"])).key == COMMANDER
+        for entry in formats.list_catalog():
+            if not entry["available"]:
+                assert get_format(str(entry["key"])).key == COMMANDER
+
+    def test_pauper_commander_is_buildable_but_not_in_v1(self):
+        """Shipped apps would search it with Commander's rules, so it stays out of /formats."""
+        pdh = next(e for e in formats.list_catalog() if e["key"] == formats.PAUPER_COMMANDER)
+        assert pdh["available"] and pdh["family"] == formats.FAMILY_COMMANDER
+        assert formats.PAUPER_COMMANDER not in [f["key"] for f in formats.list_formats()]
+
+    def test_pauper_commander_shape(self):
+        spec = get_format(formats.PAUPER_COMMANDER)
+        assert spec.requires_commander and spec.deck_size == 99 and spec.max_copies == 1
+        assert spec.legality_field == "legalities.paupercommander"
+        assert spec.supports_combos
+        assert not (spec.supports_quality or spec.supports_brackets or spec.supports_upgrades)

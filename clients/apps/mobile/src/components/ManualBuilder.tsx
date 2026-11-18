@@ -120,7 +120,8 @@ export default function ManualBuilder({
   async function fetchSuggestions() {
     setLoadingSuggestions(true);
     try {
-      const generated = await api.generateDeck(commanderName, {
+      const generated = await api.generateDeck(commanderName || null, {
+        format: pool.format,
         ...poolFilters,
         ...(deckId ? { exclude_deck_id: deckId } : {}),
         ...(strategy && strategy !== "Balanced" ? { strategy } : {}),

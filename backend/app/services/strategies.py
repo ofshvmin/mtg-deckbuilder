@@ -142,7 +142,7 @@ CONSTRUCTED_STRATEGIES: dict[str, Strategy] = {
 
 def _table_for(spec=None) -> tuple[dict[str, Strategy], str]:
     """(strategy table, default key) for a format spec. None => Commander."""
-    if spec is None or spec.key == "commander":
+    if spec is None or spec.requires_commander:
         return STRATEGIES, "balanced"
     return CONSTRUCTED_STRATEGIES, "midrange"
 

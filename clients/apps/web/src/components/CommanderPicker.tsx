@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { CommanderOption } from "@mtg/shared";
 import { api } from "../lib/api";
 import ColorPips from "./ColorPips";
@@ -8,8 +8,8 @@ import SetPicker, { type SetOption } from "./SetPicker";
 const MANA_VALUES = [1, 2, 3, 4, 5, 6];
 
 // Only sets you own a commander from, counted in commanders rather than cards.
-async function loadCommanderSets(): Promise<SetOption[]> {
-  const rows = await api.listCommanderSets();
+async function loadCommanderSets(format: string): Promise<SetOption[]> {
+  const rows = await api.listCommanderSets(format);
   return rows.map((s) => ({ code: s.code, name: s.name, count: s.commanders }));
 }
 
@@ -23,9 +23,13 @@ const BROWSE_LIMIT = 60;
  */
 export default function CommanderPicker({
   onSelect,
+  format = "commander",
 }: {
   onSelect: (commander: CommanderOption) => void;
+  /** Whose commander rules apply — Pauper Commander searches uncommon creatures. */
+  format?: string;
 }) {
+  const loadSets = useCallback(() => loadCommanderSets(format), [format]);
   const [query, setQuery] = useState("");
   const [colors, setColors] = useState<string[]>([]);
   const [maxMv, setMaxMv] = useState<number | null>(null);
@@ -49,6 +53,7 @@ export default function CommanderPicker({
           max_mv: maxMv,
           creature_type: creatureType,
           sets,
+          format,
         });
         setTruncated(found.length > BROWSE_LIMIT);
         setResults(found.slice(0, BROWSE_LIMIT));
@@ -60,7 +65,7 @@ export default function CommanderPicker({
       }
     }, 200);
     return () => clearTimeout(handle);
-  }, [query, colors, maxMv, creatureType, sets]);
+  }, [query, colors, maxMv, creatureType, sets, format]);
 
   // Kept in WUBRGC order so the query string is stable however they were clicked.
   // C combines with colors — it asks for a {C} pip in the cost (Ulalek is WUBRG + C).
@@ -144,7 +149,7 @@ export default function CommanderPicker({
           <span className={labelClass}>Sets</span>
           <SetPicker
             sets={sets}
-            loadSets={loadCommanderSets}
+            loadSets={loadSets}
             emptyText="No commanders in your collection."
             onChange={(next) => {
               setSets(next);

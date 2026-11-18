@@ -9,7 +9,7 @@ from ..models.responses import CommanderOption, CommanderSetOut
 from ..repositories import card_prints as card_prints_repo
 from ..repositories import cards as cards_repo
 from ..repositories import collection as collection_repo
-from ..services import availability
+from ..services import availability, formats
 
 router = APIRouter(prefix="/commanders", tags=["commanders"])
 
@@ -22,6 +22,7 @@ async def search_commanders(
     max_mv: float | None = Query(None, ge=0),
     creature_type: str = "",
     sets: list[str] | None = Query(None, description="Set codes; matches commanders owned in any of them"),
+    format: str = Query("commander", description="Whose commander rules apply"),
     current_user: dict = Depends(get_current_user),
 ):
     """`colors` is an exact color identity as WUBRG letters ("GW"), plus "C" for
@@ -43,6 +44,7 @@ async def search_commanders(
         colors=list(colors),
         max_mv=max_mv,
         creature_type=creature_type,
+        format_key=formats.get_format(format).key,
     )
     return [
         CommanderOption(
@@ -57,13 +59,18 @@ async def search_commanders(
 
 
 @router.get("/sets", response_model=list[CommanderSetOut])
-async def commander_sets(current_user: dict = Depends(get_current_user)):
+async def commander_sets(
+    format: str = Query("commander", description="Whose commander rules apply"),
+    current_user: dict = Depends(get_current_user),
+):
     """The sets the picker's set filter offers: only sets you own an eligible
     commander from, each with how many. A commander owned in two sets counts
     once in each. Sorted by name, like the collection's set list."""
     database = db.get_db()
     printings = await collection_repo.owned_printings(database, current_user["_id"])
-    eligible = await cards_repo.owned_commander_ids(database, list(printings))
+    eligible = await cards_repo.owned_commander_ids(
+        database, list(printings), formats.get_format(format).key
+    )
 
     counts: dict[str, int] = {}
     for oracle_id in eligible:

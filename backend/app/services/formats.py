@@ -21,6 +21,7 @@ LEGACY = "legacy"
 PIONEER = "pioneer"
 MODERN = "modern"
 PAUPER = "pauper"
+PAUPER_COMMANDER = "paupercommander"
 
 # Families group formats the way the build screen does: a family decides whether
 # there's a commander search, who picks colors, and which Commander-only services
@@ -212,6 +213,35 @@ FORMATS: dict[str, FormatSpec] = {
 }
 
 
+FORMATS[PAUPER_COMMANDER] = FormatSpec(
+    key=PAUPER_COMMANDER,
+    label="Pauper Commander",
+    family=FAMILY_COMMANDER,
+    description="An uncommon creature commander and 99 commons",
+    deck_size=99,
+    max_copies=1,
+    copy_bonus=0.0,
+    default_land_count=37,
+    land_range=(30, 42),
+    max_deck_colors=5,
+    # Scryfall's paupercommander legality covers the 99 (cards printed at common);
+    # who may be the commander is decided from printings — see
+    # cards_repo.pdh_commander_ids.
+    legality_field="legalities.paupercommander",
+    requires_commander=True,
+    auto_select_colors=False,
+    default_quotas={roles.RAMP: 10, roles.CARD_DRAW: 10, roles.REMOVAL: 8, roles.BOARD_WIPE: 3},
+    default_curve=_COMMANDER_CURVE,
+    # EDHREC, brackets and the EDHREC-derived upgrades are regular-Commander data.
+    # Card rank stands in for EDHREC's per-commander ranking.
+    supports_quality=False,
+    supports_combos=True,
+    supports_brackets=False,
+    supports_upgrades=False,
+    rank_weight=_CONSTRUCTED_RANK_WEIGHT,
+)
+
+
 def get_format(key: str | None) -> FormatSpec:
     """Return the named format, falling back to Commander for None/unknown.
 
@@ -241,14 +271,7 @@ def list_formats() -> list[dict[str, object]]:
 
 # Planned formats the catalog shows as "soon", so the picker's shape is settled
 # before they're buildable. Not in FORMATS: get_format() must never resolve them.
-_COMING_SOON = [
-    {
-        "key": "paupercommander",
-        "label": "Pauper Commander",
-        "family": FAMILY_COMMANDER,
-        "description": "An uncommon commander and 99 commons",
-    },
-]
+_COMING_SOON: list[dict[str, object]] = []
 
 
 # Picker order within a family. The 60-card formats run from the smallest card

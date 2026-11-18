@@ -95,13 +95,15 @@ async def _resolve_pool(database, user_id: str, body):
         try:
             result = await pool_service.get_pool(
                 database, user_id, body.commander,
-                scope=scope, sets=sets, exclude_deck_id=exclude_deck_id,
+                scope=scope, sets=sets, exclude_deck_id=exclude_deck_id, spec=spec,
             )
         except pool_service.CommanderNotFound as e:
             detail = f"No card found matching '{e.name}'."
             if e.suggestions:
                 detail += " Did you mean: " + ", ".join(e.suggestions[:5])
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+        except pool_service.CommanderNotEligible as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     else:
         result = await pool_service.get_pool_for_format(
             database, user_id, spec,
@@ -728,7 +730,9 @@ async def combo_finishers(body: ComboFinishRequest, current_user: dict = Depends
         if not body.commander:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{spec.label} requires a commander.")
         try:
-            result = await pool_service.get_pool(database, current_user["_id"], body.commander)
+            result = await pool_service.get_pool(
+                database, current_user["_id"], body.commander, spec=spec
+            )
         except pool_service.CommanderNotFound as e:
             detail = f"No card found matching '{e.name}'."
             if e.suggestions:
@@ -1161,9 +1165,11 @@ async def analyze_deck(body: AnalyzeRequest, current_user: dict = Depends(requir
         if not body.commander:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{spec.label} requires a commander.")
         try:
-            result = await pool_service.get_pool(database, user_id, body.commander)
+            result = await pool_service.get_pool(database, user_id, body.commander, spec=spec)
         except pool_service.CommanderNotFound as e:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"No card found matching '{e.name}'.")
+        except pool_service.CommanderNotEligible as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     else:
         result = await pool_service.get_pool_for_format(database, user_id, spec)
     commander = result.commander

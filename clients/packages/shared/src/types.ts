@@ -90,6 +90,8 @@ export interface CommanderFilters {
   creature_type?: string;
   /** Set codes, lowercase — commanders owned in any of these sets. */
   sets?: string[];
+  /** Whose commander rules apply: "commander" (default) or "paupercommander". */
+  format?: string;
 }
 
 export interface CardSummary {
