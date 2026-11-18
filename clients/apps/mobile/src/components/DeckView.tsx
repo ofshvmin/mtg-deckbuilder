@@ -531,15 +531,14 @@ export default function DeckView({
             <ComboSection title="One card away" combos={visibleNear} accent="amber" near onOpenCard={openCard} />
           )}
 
-          {/* Both come from Commander-only data sources (Spellbook, EDHREC). */}
-          {commander && (
-            <DeckComboFinishers
-              commanderName={commander.name}
-              deckCardIds={deckCardIds}
-              maxPrice={maxPrice}
-              onOpenCard={openCard}
-            />
-          )}
+          {/* Finishers work in every format; upgrades come from EDHREC (Commander-only). */}
+          <DeckComboFinishers
+            commanderName={commander?.name ?? null}
+            format={deck.format}
+            deckCardIds={deckCardIds}
+            maxPrice={maxPrice}
+            onOpenCard={openCard}
+          />
           {deck.supports_upgrades && commander && (
             <DeckUpgrades
               commanderName={commander.name}

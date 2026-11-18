@@ -21,8 +21,11 @@ export default function DeckComboFinishers({
   onAdd,
   defaultOpen = false,
   maxPrice = null,
+  format = "commander",
 }: {
-  commanderName: string;
+  /** Null for 60-card decks, which pass `format` instead. */
+  commanderName: string | null;
+  format?: string;
   deckCardIds: string[];
   onAdd?: (oracleId: string) => void;
   defaultOpen?: boolean;
@@ -51,7 +54,7 @@ export default function DeckComboFinishers({
       setLoading(true);
       setError(null);
       try {
-        const recs = await api.getComboFinishers(commanderName, deckCardIds);
+        const recs = await api.getComboFinishers(commanderName, deckCardIds, format);
         if (mine !== seq.current) return;
         setFinishers(recs);
         setLoadedOnce(true);

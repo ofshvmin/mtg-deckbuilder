@@ -381,16 +381,15 @@ export default function ManualBuilder({
               })}
             </View>
           ))}
-          {commanderName ? (
-            <DeckComboFinishers
-              commanderName={commanderName}
-              deckCardIds={selected}
-              maxPrice={maxPrice}
-              defaultOpen
-              onOpenCard={onOpenCard}
-              onAdd={(id) => setSelected((prev) => (prev.includes(id) ? prev : [...prev, id]))}
-            />
-          ) : null}
+          <DeckComboFinishers
+            commanderName={commanderName || null}
+            format={pool.format}
+            deckCardIds={selected}
+            maxPrice={maxPrice}
+            defaultOpen
+            onOpenCard={onOpenCard}
+            onAdd={(id) => setSelected((prev) => (prev.includes(id) ? prev : [...prev, id]))}
+          />
         </View>
       )}
     </View>

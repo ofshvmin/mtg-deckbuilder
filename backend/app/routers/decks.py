@@ -310,9 +310,12 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
     pool_full: list[dict] = []
     pool_near: list[dict] = []
     combo_pieces: set[str] = set()
-    if spec.supports_combos:
+    # 60-card formats have no colors yet — they're detected after color selection.
+    if spec.supports_combos and spec.requires_commander:
         pool_ids = {card["_id"] for card in result.pool} | {result.commander["_id"]}
-        pool_full, pool_near = await spellbook.detect(database, pool_ids, result.color_identity)
+        pool_full, pool_near = await spellbook.detect(
+            database, pool_ids, result.color_identity, format_key=spec.key
+        )
         combo_pieces = {oid for combo in pool_full for oid in combo["cards"]}
 
     # Resolve strategy and theme
@@ -342,6 +345,12 @@ async def generate_deck(body: GenerateRequest, current_user: dict = Depends(get_
         if theme_matches is not None:
             pool_ids_in_colors = {c["_id"] for c in pool_cards}
             theme_matches = theme_matches & pool_ids_in_colors
+
+    if spec.supports_combos and not spec.requires_commander:
+        pool_full, pool_near = await spellbook.detect(
+            database, {c["_id"] for c in pool_cards}, identity, format_key=spec.key
+        )
+        combo_pieces = {oid for combo in pool_full for oid in combo["cards"]}
 
     # Locked cards to keep and build around (only those actually in the pool).
     pool_id_set = {card["_id"] for card in pool_cards}
@@ -450,9 +459,12 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(require_pr
     pool_full: list[dict] = []
     pool_near: list[dict] = []
     combo_pieces: set[str] = set()
-    if fmt.supports_combos:
+    # 60-card formats have no colors yet — they're detected after color selection.
+    if fmt.supports_combos and fmt.requires_commander:
         pool_ids = {c["_id"] for c in result.pool} | {result.commander["_id"]}
-        pool_full, pool_near = await spellbook.detect(database, pool_ids, result.color_identity)
+        pool_full, pool_near = await spellbook.detect(
+            database, pool_ids, result.color_identity, format_key=fmt.key
+        )
         combo_pieces = {oid for combo in pool_full for oid in combo["cards"]}
 
     # Ask Claude for a build spec, then sanitize it. For constructed formats the
@@ -499,6 +511,12 @@ async def brief_deck(body: BriefRequest, current_user: dict = Depends(require_pr
         pool_cards = [c for c in result.pool if color_select._castable_in(c, allowed)]
         if theme_matches is not None:
             theme_matches = theme_matches & {c["_id"] for c in pool_cards}
+
+    if fmt.supports_combos and not fmt.requires_commander:
+        pool_full, pool_near = await spellbook.detect(
+            database, {c["_id"] for c in pool_cards}, identity, format_key=fmt.key
+        )
+        combo_pieces = {oid for combo in pool_full for oid in combo["cards"]}
 
     # Resolve core card names to owned oracle_ids, keeping Claude's copy counts.
     name_to_id = {normalize_name(c["name"]): c["_id"] for c in pool_cards}
@@ -626,8 +644,12 @@ async def compose_deck(body: ComposeRequest, current_user: dict = Depends(get_cu
     near_combos: list[dict] = []
     bracket = None
     if spec.supports_combos:
-        deck_ids = {dc.oracle_id for dc in deck.cards} | {result.commander["_id"]}
-        deck_combos, near_combos = await spellbook.detect(database, deck_ids, identity)
+        deck_ids = {dc.oracle_id for dc in deck.cards}
+        if result.commander:
+            deck_ids |= {result.commander["_id"]}
+        deck_combos, near_combos = await spellbook.detect(
+            database, deck_ids, identity, format_key=spec.key
+        )
     if spec.supports_brackets:
         bracket = await _estimate_bracket(
             database, result.commander, deck, deck_combos, pool_by_id
@@ -640,8 +662,11 @@ async def compose_deck(body: ComposeRequest, current_user: dict = Depends(get_cu
 
 
 class ComboFinishRequest(BaseModel):
-    commander: str
+    # Optional for 60-card decks, which send `format` instead; their colors are
+    # whatever the deck's cards are.
+    commander: str | None = None
     oracle_ids: list[str]
+    format: str = "commander"
 
 
 def _build_finishers(
@@ -697,16 +722,31 @@ async def combo_finishers(body: ComboFinishRequest, current_user: dict = Depends
     preference, which only applies to unowned cards).
     """
     database = db.get_db()
-    try:
-        result = await pool_service.get_pool(database, current_user["_id"], body.commander)
-    except pool_service.CommanderNotFound as e:
-        detail = f"No card found matching '{e.name}'."
-        if e.suggestions:
-            detail += " Did you mean: " + ", ".join(e.suggestions[:5])
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
-
-    deck_ids = set(body.oracle_ids) | {result.commander["_id"]}
-    finishers = await spellbook.combo_finishers(database, deck_ids, result.color_identity)
+    spec = formats.get_format(body.format)
+    if not spec.supports_combos:
+        return []
+    commander_id = ""
+    if spec.requires_commander:
+        if not body.commander:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{spec.label} requires a commander.")
+        try:
+            result = await pool_service.get_pool(database, current_user["_id"], body.commander)
+        except pool_service.CommanderNotFound as e:
+            detail = f"No card found matching '{e.name}'."
+            if e.suggestions:
+                detail += " Did you mean: " + ", ".join(e.suggestions[:5])
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+        commander_id = result.commander["_id"]
+        deck_ids = set(body.oracle_ids) | {commander_id}
+        identity = result.color_identity
+    else:
+        deck_ids = set(body.oracle_ids)
+        identity = sorted({
+            c
+            async for doc in database.cards.find({"_id": {"$in": list(deck_ids)}}, {"colors": 1})
+            for c in (doc.get("colors") or [])
+        })
+    finishers = await spellbook.combo_finishers(database, deck_ids, identity, format_key=spec.key)
     if not finishers:
         return []
 
@@ -716,7 +756,7 @@ async def combo_finishers(body: ComboFinishRequest, current_user: dict = Depends
         docs_by_id[doc["_id"]] = doc
 
     owned = await collection_repo.owned_counts(database, current_user["_id"])
-    return _build_finishers(finishers, docs_by_id, set(owned), result.commander["_id"], limit=30)
+    return _build_finishers(finishers, docs_by_id, set(owned), commander_id, limit=30)
 
 
 async def _estimate_bracket(

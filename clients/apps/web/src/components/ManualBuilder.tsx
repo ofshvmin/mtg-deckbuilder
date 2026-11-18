@@ -349,7 +349,8 @@ export default function ManualBuilder({
               {deck && <DeckCardList cards={deck.cards} onRemove={remove} columnsClassName="columns-1" />}
               {composing && <p className="text-xs text-slate-500">Updating...</p>}
               <DeckComboFinishers
-                commanderName={commanderName}
+                commanderName={commanderName || null}
+                format={pool.format}
                 deckCardIds={selected}
                 defaultOpen
                 maxPrice={maxPrice}

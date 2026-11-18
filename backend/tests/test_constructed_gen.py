@@ -174,3 +174,12 @@ class TestShortPool:
         deck = _build(pool=thin)
         assert any("60" in w for w in deck.warnings)
         assert not any("99" in w for w in deck.warnings)
+
+
+class TestComboPieces:
+    def test_combo_pieces_come_in_multiples(self):
+        """A 60-card combo deck wants several copies of each piece, not one."""
+        deck = _build(combo_pieces={"bear6", "bear7"})
+        counts = {c.oracle_id: c.count for c in deck.cards}
+        assert counts.get("bear6", 0) >= 2
+        assert counts.get("bear7", 0) >= 2

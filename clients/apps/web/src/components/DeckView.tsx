@@ -459,15 +459,14 @@ export default function DeckView({
         )}
       </div>
 
-      {/* Combo finishers and budget upgrades are both derived from Commander-only
-          data sources (Spellbook, EDHREC), so they're hidden for other formats. */}
-      {deck.commander && (
-        <DeckComboFinishers
-          commanderName={deck.commander.name}
-          deckCardIds={deck.cards.map((c) => c.oracle_id)}
-          maxPrice={maxPrice}
-        />
-      )}
+      {/* Combo finishers work in every format (Spellbook tags each combo's
+          legality); budget upgrades come from EDHREC, which is Commander-only. */}
+      <DeckComboFinishers
+        commanderName={deck.commander?.name ?? null}
+        format={deck.format}
+        deckCardIds={deck.cards.map((c) => c.oracle_id)}
+        maxPrice={maxPrice}
+      />
 
       {deck.supports_upgrades && deck.commander && (
         <DeckUpgrades

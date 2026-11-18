@@ -385,10 +385,15 @@ export class ApiClient {
     });
   }
 
-  /** Cards that would complete a combo with the given deck cards (owned first). */
-  getComboFinishers(commanderName: string, oracleIds: string[]): Promise<ComboFinisher[]> {
+  /** Cards that would complete a combo with the given deck cards (owned first).
+   *  60-card decks pass no commander and their `format` instead. */
+  getComboFinishers(
+    commanderName: string | null,
+    oracleIds: string[],
+    format = "commander",
+  ): Promise<ComboFinisher[]> {
     return this.request<ComboFinisher[]>("POST", "/decks/combo-finishers", {
-      body: { commander: commanderName, oracle_ids: oracleIds },
+      body: { commander: commanderName || null, oracle_ids: oracleIds, format },
     });
   }
 
