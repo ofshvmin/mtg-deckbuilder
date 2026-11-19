@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import type { CommanderOption } from "@mtg/shared";
+import { createPortal } from "react-dom";
+import type { CommanderOption, Printing } from "@mtg/shared";
 import { api } from "../lib/api";
+import CardHoverPreview, { useCardHover } from "./CardHoverPreview";
 import ColorPips from "./ColorPips";
 import ColorToggle, { COLOR_TOGGLES } from "./ColorToggle";
 import SetPicker, { type SetOption } from "./SetPicker";
@@ -30,6 +32,8 @@ export default function CommanderPicker({
   format?: string;
 }) {
   const loadSets = useCallback(() => loadCommanderSets(format), [format]);
+  // Hovering a result shows the card, as it does in the collection list.
+  const { hover, onEnter, onLeave } = useCardHover();
   const [query, setQuery] = useState("");
   const [colors, setColors] = useState<string[]>([]);
   const [maxMv, setMaxMv] = useState<number | null>(null);
@@ -179,6 +183,7 @@ export default function CommanderPicker({
             <button
               key={c.oracle_id}
               onClick={() => {
+                onLeave();
                 onSelect(c);
                 setQuery(c.name);
                 setOpen(false);
@@ -186,7 +191,15 @@ export default function CommanderPicker({
               className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-800"
             >
               <span className="min-w-0">
-                <span className="block text-slate-100">{c.name}</span>
+                <span
+                  className="inline-block text-slate-100"
+                  onMouseEnter={(e) =>
+                    onEnter(e, c.name, c.image_uris ? ({ image_uris: c.image_uris } as Printing) : undefined)
+                  }
+                  onMouseLeave={onLeave}
+                >
+                  {c.name}
+                </span>
                 <span className="block truncate text-xs text-slate-500">{c.type_line}</span>
               </span>
               <ColorPips colors={c.color_identity} />
@@ -198,6 +211,10 @@ export default function CommanderPicker({
             </div>
           )}
         </div>
+      )}
+      {hover && createPortal(
+        <CardHoverPreview name={hover.name} printing={hover.printing} anchorRect={hover.rect} />,
+        document.body,
       )}
     </div>
   );
